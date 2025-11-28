@@ -4,8 +4,8 @@ date: "Last updated: 2025-11-27"
 output: 
   html_document: 
     keep_md: true
-bibliography: references.bib
-citation-style: ecology-letters.csl
+bibliography: citations/references.bib
+citation-style: citations/ecology-letters.csl
 ---
 
 
@@ -221,14 +221,17 @@ fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
 ## .
 ## ├── Data
 ## ├── Omniscape
+## ├── Outputs
 ## ├── R
 ## ├── README.Rmd
 ## ├── README.html
 ## ├── README.md
+## ├── TODO.md
 ## ├── air.toml
 ## ├── bc-connectivity.Rproj
-## ├── ecology-letters.csl
-## ├── references.bib
+## ├── citations
+## ├── renv
+## ├── renv.lock
 ## ├── scripts
 ## └── workflow.png
 ```
