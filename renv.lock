@@ -846,6 +846,27 @@
       ],
       "Hash": "a065e21174bbce1866deff1e30d26ca5"
     },
+    "ggspatial": {
+      "Package": "ggspatial",
+      "Version": "1.1.10",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "abind",
+        "ggplot2",
+        "glue",
+        "grid",
+        "methods",
+        "rlang",
+        "rosm",
+        "scales",
+        "sf",
+        "tibble",
+        "tidyr"
+      ],
+      "Hash": "a065e21174bbce1866deff1e30d26ca5"
+    },
     "gh": {
       "Package": "gh",
       "Version": "1.5.0",
