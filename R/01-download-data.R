@@ -3,9 +3,10 @@
 # --- Quesnel TSA Boundary Download ---
 
 # Get the boundary and select just the district name
-Quesnel_TSA_boundary <- nr_districts() %>%
-  filter(DISTRICT_NAME == "Quesnel Natural Resource District") %>%
-  select(DISTRICT_NAME) %>%
+Quesnel_TSA_boundary <- nr_districts()
+download_dir
+filter(DISTRICT_NAME == "Quesnel Natural Resource District") |>
+  select(DISTRICT_NAME) |>
   rename(DIST_NAME = DISTRICT_NAME)
 
 # Write shapefile
@@ -97,9 +98,9 @@ datasets <- list(
 
 # Loop and download feature layers
 for (d in datasets) {
-  data <- bcdc_query_geodata(d$id) %>%
-    collect() %>% # collect data layer
-    st_intersection(Quesnel_TSA_boundary) %>% # clip data to study area
+  data <- bcdc_query_geodata(d$id) |>
+    collect() |> # collect data layer
+    st_intersection(Quesnel_TSA_boundary) |> # clip data to study area
     select(any_of(d$select_cols)) # select data fields to keep
   names(data) <- make.unique(substr(names(data), 1, 10)) # shorten field names to 10 characters (required for shapefiles)
   st_write(data, d$out, delete_layer = TRUE) # save layer as a shapefile
@@ -107,13 +108,13 @@ for (d in datasets) {
 
 # The High Value Moose Wetlands layer has been handled separately because a
 # specific filter has to be applied to the data
-Moose_wetlands <- bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") %>%
-  collect() %>%
-  st_intersection(Quesnel_TSA_boundary) %>%
+Moose_wetlands <- bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") |>
+  collect() |>
+  st_intersection(Quesnel_TSA_boundary) |>
   filter(
     STRGC_LAND_RSRCE_PLAN_NAME == "Cariboo Chilcotin Land Use Plan",
     LEGAL_FEAT_OBJECTIVE == "High Value Wetlands for Moose"
-  ) %>%
+  ) |>
   select(STRGC_LAND_RSRCE_PLAN_NAME, LEGAL_FEAT_OBJECTIVE)
 names(Moose_wetlands) <- make.unique(substr(names(Moose_wetlands), 1, 10))
 st_write(Moose_wetlands, file.path(inputs_dir, "Moose_wetlands.shp"), delete_layer = TRUE)
@@ -131,7 +132,7 @@ streamsorder <- st_read(
     "FWSTRMNTWR_line.shp"
   )
 ) ## TODO: need download code for this
-streamsorder <- streamsorder %>%
+streamsorder <- streamsorder |>
   st_intersection(Quesnel_TSA_boundary)
 st_write(streamsorder, file.path(inputs_dir, "streamsorder.shp"), delete_layer = TRUE)
 
@@ -149,7 +150,7 @@ file.copy(
 )
 roads <- st_read(file.path(download_dir, "Cariboo_Consolidated_Roads.gdb"))
 roads_clipped <- st_intersection(roads, Quesnel_TSA_boundary)
-Roads_filtered <- roads_clipped %>%
+Roads_filtered <- roads_clipped |>
   select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE)
 names(Roads_filtered)[names(Roads_filtered) == "TRANSPORT_LINE_TYPE_CODE"] <- "LINE_TYPE"
 names(Roads_filtered)[names(Roads_filtered) == "TRANSPORT_LINE_TENURE_TYPE_CODE"] <- "LINE_TENUR"
@@ -172,7 +173,7 @@ vri_subset <- st_read(
 
 # Clip VRI after loading and save result
 vri_clipped <- st_intersection(vri_subset, Quesnel_TSA_boundary)
-vri_selected <- vri_clipped %>%
+vri_selected <- vri_clipped |>
   select(PROJ_AGE_1, SPECIES_CD_1)
 names(vri_selected) <- make.unique(substr(names(vri_selected), 1, 10))
 st_write(vri_selected, file.path(inputs_dir, "VRI.shp"))
@@ -192,7 +193,7 @@ Human_disturbance_subset <- st_read(
 Human_disturbance_subset <- st_cast(Human_disturbance_subset, "MULTIPOLYGON", warn = FALSE)
 Human_disturbance_valid <- st_make_valid(Human_disturbance_subset) # fix invalid topologies error
 Human_disturbance_clipped <- st_intersection(Human_disturbance_valid, Quesnel_TSA_boundary)
-Human_diturbance_selected <- Human_disturbance_clipped %>%
+Human_diturbance_selected <- Human_disturbance_clipped |>
   select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG)
 names(Human_diturbance_selected)[
   names(Human_diturbance_selected) == "CEF_DISTURB_GROUP"

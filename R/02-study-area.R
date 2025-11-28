@@ -1,18 +1,18 @@
 # BEC-NDT zones map for the Quesnel NRD Study Area
 
 # Load BEC with NDT and Zone
-bec_ndt <- st_read(file.path(inputs_dir, "BEC.shp")) %>%
-  st_make_valid() %>%
-  select(NATURAL_DI, ZONE) %>%
+bec_ndt <- st_read(file.path(inputs_dir, "BEC.shp")) |>
+  st_make_valid() |>
+  select(NATURAL_DI, ZONE) |>
   mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE), BEC_ZONE = ZONE) # Save BEC zone separately for dissolve
 
 # Load VRI and filter attributes
-vri <- st_read(file.path(inputs_dir, "VRI_selected.shp")) %>%
-  st_make_valid() %>%
+vri <- st_read(file.path(inputs_dir, "VRI_selected.shp")) |>
+  st_make_valid() |>
   select(PROJ_AGE_1, SPECIES_CD)
 
 # Spatial join to attach BEC/NDT
-vri_joined <- st_join(vri, bec_ndt, left = FALSE) %>%
+vri_joined <- st_join(vri, bec_ndt, left = FALSE) |>
   mutate(
     base_NDT_BEC = paste0(NATURAL_DI, "-", ZONE),
     NDT_BEC = case_when(
@@ -20,12 +20,12 @@ vri_joined <- st_join(vri, bec_ndt, left = FALSE) %>%
       base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD) ~ "NDT4-IDF-PL",
       TRUE ~ base_NDT_BEC
     )
-  ) %>%
+  ) |>
   st_make_valid()
 
-ndt_bec_dissolved <- vri_joined %>%
-  select(NDT_BEC, geometry) %>%
-  group_by(NDT_BEC) %>%
+ndt_bec_dissolved <- vri_joined |>
+  select(NDT_BEC, geometry) |>
+  group_by(NDT_BEC) |>
   summarise(geometry = st_union(geometry), .groups = "drop")
 
 # Export to shapefile for Arcmap
@@ -41,8 +41,8 @@ st_write(
 bec_clipped <- st_read(file.path(inputs_dir, "BEC.shp")) # Already clipped to study area
 
 # Dissolve by NDT type
-bec_ndt_dissolved <- bec_clipped %>%
-  group_by(NATURAL_DI) %>%
+bec_ndt_dissolved <- bec_clipped |>
+  group_by(NATURAL_DI) |>
   summarise(geometry = st_union(geometry), .groups = "drop")
 
 st_write(bec_ndt_dissolved, file.path(inputs_dir, "NDT_Dissolved_Quesnel.shp"), delete_layer = TRUE)
@@ -98,7 +98,7 @@ st_crs(OGMAs)
 n_OGMAs <- nrow(OGMAs) # 2330 OGMA polygons
 
 # Find OGMA coverage in hecatares and km2
-OGMAs <- OGMAs %>% mutate(area_m2 = st_area(geometry))
+OGMAs <- OGMAs |> mutate(area_m2 = st_area(geometry))
 
 total_area_m2 <- sum(OGMAs$area_m2)
 total_area_ha <- as.numeric(total_area_m2) / 10^4 # 146360.98 hectares of OGMAs
