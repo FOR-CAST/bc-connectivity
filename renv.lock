@@ -805,11 +805,9 @@
     },
     "ggplot2": {
       "Package": "ggplot2",
-      "Version": "4.0.1.9000",
+      "Version": "4.0.1",
       "Source": "Repository",
-      "Repository": "https://predictiveecology.r-universe.dev",
-      "RemoteUrl": "https://github.com/tidyverse/ggplot2",
-      "RemoteSha": "8d9f428958c188bb086b9d62a3aef9fd1ec7443a",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "S7",
@@ -825,7 +823,7 @@
         "vctrs",
         "withr"
       ],
-      "Hash": "28af1ab7b75d702792618a9420457f8e"
+      "Hash": "1bfa14b2a1668b3569dafb0478b2636b"
     },
     "ggspatial": {
       "Package": "ggspatial",
@@ -1248,6 +1246,19 @@
       ],
       "Hash": "6debfba65f9df176bbb98bc63f934272"
     },
+    "lwgeom": {
+      "Package": "lwgeom",
+      "Version": "0.2-14",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "Rcpp",
+        "sf",
+        "units"
+      ],
+      "Hash": "f1fb7cc9fc60f3b039201174268aaad9"
+    },
     "magrittr": {
       "Package": "magrittr",
       "Version": "2.0.4",
@@ -1644,7 +1655,7 @@
     },
     "sf": {
       "Package": "sf",
-      "Version": "1.0-22",
+      "Version": "1.0-23",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -1663,7 +1674,7 @@
         "units",
         "utils"
       ],
-      "Hash": "4d371eea6c5242745ddca3fdb2cef197"
+      "Hash": "ce0c8d7dc7715a383d874eb5be01edd5"
     },
     "sp": {
       "Package": "sp",
@@ -1733,7 +1744,7 @@
     },
     "terra": {
       "Package": "terra",
-      "Version": "1.8-80",
+      "Version": "1.8-86",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -1741,7 +1752,7 @@
         "Rcpp",
         "methods"
       ],
-      "Hash": "af6ece019beb5940e6453a5efe12d86d"
+      "Hash": "1cc3e57b7ea625c7ef5c814f75bd087a"
     },
     "tibble": {
       "Package": "tibble",
