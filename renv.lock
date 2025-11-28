@@ -229,6 +229,18 @@
       ],
       "Hash": "f0301ca7b867eeb5c9b586a9e400729a"
     },
+    "abind": {
+      "Package": "abind",
+      "Version": "1.4-8",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "methods",
+        "utils"
+      ],
+      "Hash": "2288423bb0f20a457800d7fc47f6aa54"
+    },
     "askpass": {
       "Package": "askpass",
       "Version": "1.2.1",
@@ -815,6 +827,27 @@
       ],
       "Hash": "28af1ab7b75d702792618a9420457f8e"
     },
+    "ggspatial": {
+      "Package": "ggspatial",
+      "Version": "1.1.10",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "abind",
+        "ggplot2",
+        "glue",
+        "grid",
+        "methods",
+        "rlang",
+        "rosm",
+        "scales",
+        "sf",
+        "tibble",
+        "tidyr"
+      ],
+      "Hash": "a065e21174bbce1866deff1e30d26ca5"
+    },
     "gh": {
       "Package": "gh",
       "Version": "1.5.0",
@@ -1057,6 +1090,16 @@
         "openssl"
       ],
       "Hash": "cf5ae308441d505b8c7e4b08e0e510aa"
+    },
+    "jpeg": {
+      "Package": "jpeg",
+      "Version": "0.1-11",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R"
+      ],
+      "Hash": "c23ab23c370d1ce3a7a80d8c0bdfa105"
     },
     "jquerylib": {
       "Package": "jquerylib",
@@ -1500,6 +1543,22 @@
         "yaml"
       ],
       "Hash": "efe19db0fde0fff13cea7eec6f695021"
+    },
+    "rosm": {
+      "Package": "rosm",
+      "Version": "0.3.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "curl",
+        "glue",
+        "jpeg",
+        "png",
+        "progress",
+        "rlang",
+        "wk"
+      ],
+      "Hash": "fcd529f183c4163a91430d7b7bbaece5"
     },
     "rprojroot": {
       "Package": "rprojroot",
