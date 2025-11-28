@@ -1,36 +1,25 @@
 # Omniscape data prep from collected feature layers for composite resistance and
 # source weight raster creation
 
-library(sf)
-library(fasterize) ## TODO: remove, use terra
-library(raster) ## TODO: use terra
-library(terra)
-library(dplyr)
-library(tibble)
-
-# Directory for reading input files (Downloaded Data - Teams)
-read_dir <- "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Downloaded Data"
-
-# Directory for writing output files (Analysis Ready Data - Teams)
-write_dir <- "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Biodiversity Emphasis"
+## TODO: use terra::rasterize instead of fasterize
 
 # Load in base raster (30m, BC Albers) to be used in shapefile rasterization
-base_raster <- raster(file.path(read_dir, "BC_landcover.tif"))
+base_raster <- raster(file.path(inputs_dir, "BC_landcover.tif"))
 
 # --- Forest Age Layer Rasterization ---
 
 # Load forest disturbance polygons with simple inferred forest age (SIFA)
-forest_disturb <- st_read(file.path(read_dir, "Forest_Disturbance.shp")) %>%
+forest_disturb <- st_read(file.path(inputs_dir, "Forest_Disturbance.shp")) %>%
   select(SIFA)
 
 # Load BEC feature layer containing BEC zones and Natural Disturbance Types
-bec_ndt <- st_read(file.path(read_dir, "BEC.shp")) %>%
+bec_ndt <- st_read(file.path(inputs_dir, "BEC.shp")) %>%
   select(NATURAL_DI, ZONE) %>%
   mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE)) # matches the formatting in the Biodiversity Guidebook
 
 # Load VRI for dominant species information to distinguish 4-IDF-Fd from 4-IDF-Pl
 # which aligns with the Biodiversity Guidebook
-vri <- st_read(file.path(read_dir, "VRI.shp")) %>%
+vri <- st_read(file.path(inputs_dir, "VRI.shp")) %>%
   select(SPECIES_CD)
 
 # Join forest disturbance with VRI, then join with NDT-BEC to capture SIFA,
@@ -98,13 +87,21 @@ disturb_classified <- disturb_full %>%
 # Rasterize and save outputs
 res_raster <- fasterize(disturb_classified, base_raster, field = "Resistance")
 sw_raster <- fasterize(disturb_classified, base_raster, field = "SourceWt")
-writeRaster(res_raster, file.path(write_dir, "resistance_forest_disturbance.tif"), overwrite = TRUE)
-writeRaster(sw_raster, file.path(write_dir, "sourcewt_forest_disturbance.tif"), overwrite = TRUE)
+writeRaster(
+  res_raster,
+  file.path(inputs_raster_dir, "resistance_forest_disturbance.tif"),
+  overwrite = TRUE
+)
+writeRaster(
+  sw_raster,
+  file.path(inputs_raster_dir, "sourcewt_forest_disturbance.tif"),
+  overwrite = TRUE
+)
 
 # --- Consolidated roads & Railways Rasterization ---
 
 # Load consolidated Cariboo roads layer
-roads <- st_read(file.path(read_dir, "Consolidated_roads.shp"))
+roads <- st_read(file.path(inputs_dir, "Consolidated_roads.shp"))
 table(roads$LINE_TYPE)
 
 # Filter out unwanted road types from the consolidated roads layer
@@ -135,7 +132,7 @@ roads_other <- roads %>%
   left_join(road_lookup, by = "LINE_TYPE")
 
 # Load in railways from a separate file and assign it a resistance and sourcewt
-railways <- st_read(file.path(read_dir, "Railways.shp")) %>%
+railways <- st_read(file.path(inputs_dir, "Railways.shp")) %>%
   mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
 
 # Combine and buffer all of the roads together; buffer the roads based on their
@@ -152,22 +149,22 @@ roads_resistance_raster <- fasterize(roads_buffered, base_raster, field = "Resis
 roads_sourcewt_raster <- fasterize(roads_buffered, base_raster, field = "SourceWt")
 writeRaster(
   roads_resistance_raster,
-  file.path(write_dir, "resistance_consolidated_roads_.tif"),
+  file.path(inputs_raster_dir, "resistance_consolidated_roads_.tif"),
   overwrite = TRUE
 )
 writeRaster(
   roads_sourcewt_raster,
-  file.path(write_dir, "sourcewt_consolidated_roads.tif"),
+  file.path(inputs_raster_dir, "sourcewt_consolidated_roads.tif"),
   overwrite = TRUE
 )
 
 # --- WHA, MDWR, Moose Wetlands, and Wetland Layers Rasterization ---
 
 # Load in all of the protected feature polygon layers
-wha <- st_read(file.path(read_dir, "WHAs.shp"))
-mdwr <- st_read(file.path(read_dir, "MDWR.shp"))
-moose_wet <- st_read(file.path(read_dir, "Moose_wetlands.shp"))
-wetlands <- st_read(file.path(read_dir, "Wetlands.shp"))
+wha <- st_read(file.path(inputs_dir, "WHAs.shp"))
+mdwr <- st_read(file.path(inputs_dir, "MDWR.shp"))
+moose_wet <- st_read(file.path(inputs_dir, "Moose_wetlands.shp"))
+wetlands <- st_read(file.path(inputs_dir, "Wetlands.shp"))
 
 # Assign resistance and source weight values directly
 wha_vals <- wha %>%
@@ -188,56 +185,56 @@ combined_features <- bind_rows(wha_vals, mdwr_vals, moose_wet_vals, wetlands_val
 # Rasterize and save outputs
 r_res <- fasterize(combined_features, base_raster, field = "Resistance")
 r_sw <- fasterize(combined_features, base_raster, field = "SourceWt")
-writeRaster(r_res, file.path(write_dir, "resistance_secondaryPAs.tif"), overwrite = TRUE)
-writeRaster(r_sw, file.path(write_dir, "sourcewt_secondaryPAs.tif"), overwrite = TRUE)
+writeRaster(r_res, file.path(inputs_raster_dir, "resistance_secondaryPAs.tif"), overwrite = TRUE)
+writeRaster(r_sw, file.path(inputs_raster_dir, "sourcewt_secondaryPAs.tif"), overwrite = TRUE)
 
 # --- OGMA Rasterization ---
 
 # OGMAs are given a resistance and source weight of 1 due to their optimal
 # biodiversity value; create a Resistance and SourceWt Column for the layers
-OGMAs <- st_read(file.path(read_dir, "OGMAcurrent.shp")) %>%
+OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.shp")) %>%
   mutate(Resistance = 1, SourceWt = 1)
 res_ogma <- fasterize(OGMAs, base_raster, field = "Resistance")
 sw_ogma <- fasterize(OGMAs, base_raster, field = "SourceWt")
-writeRaster(res_ogma, file.path(write_dir, "resistance_OGMAs.tif"), overwrite = TRUE)
-writeRaster(sw_ogma, file.path(write_dir, "sourcewt_OGMAs.tif"), overwrite = TRUE)
+writeRaster(res_ogma, file.path(inputs_raster_dir, "resistance_OGMAs.tif"), overwrite = TRUE)
+writeRaster(sw_ogma, file.path(inputs_raster_dir, "sourcewt_OGMAs.tif"), overwrite = TRUE)
 
 # --- BC Parks/Ecological Reserves Rasterization ---
 
 # BC Parks/Ecological Reserves are given a resistance and source weight of 1
 # due to their optimal biodiversity value; create a Resistance and SourceWt
 # Column for the layers
-Protected <- st_read(file.path(read_dir, "BCParks.shp")) %>%
+Protected <- st_read(file.path(inputs_dir, "BCParks.shp")) %>%
   mutate(Resistance = 1, SourceWt = 1)
 res_prot <- fasterize(Protected, base_raster, field = "Resistance")
 sw_prot <- fasterize(Protected, base_raster, field = "SourceWt")
-writeRaster(res_prot, file.path(write_dir, "resistance_BCParks.tif"), overwrite = TRUE)
-writeRaster(sw_prot, file.path(write_dir, "sourcewt_BCParks.tif"), overwrite = TRUE)
+writeRaster(res_prot, file.path(inputs_raster_dir, "resistance_BCParks.tif"), overwrite = TRUE)
+writeRaster(sw_prot, file.path(inputs_raster_dir, "sourcewt_BCParks.tif"), overwrite = TRUE)
 
 # --- Water features (rivers, lakes, and streams) Rasterization ---
 
 # Lakes are given a max resistance and min source weight; create a Resistance
 # and SourceWt Column for the layers
-lakes <- st_read(file.path(read_dir, "Lakes.shp")) %>%
+lakes <- st_read(file.path(inputs_dir, "Lakes.shp")) %>%
   mutate(Resistance = 1000, SourceWt = 0)
 res_lakes <- fasterize(lakes, base_raster, field = "Resistance")
 sw_lakes <- fasterize(lakes, base_raster, field = "SourceWt")
-writeRaster(res_lakes, file.path(write_dir, "resistance_lakes.tif"), overwrite = TRUE)
-writeRaster(sw_lakes, file.path(write_dir, "sourcewt_lakes.tif"), overwrite = TRUE)
+writeRaster(res_lakes, file.path(inputs_raster_dir, "resistance_lakes.tif"), overwrite = TRUE)
+writeRaster(sw_lakes, file.path(inputs_raster_dir, "sourcewt_lakes.tif"), overwrite = TRUE)
 
 # Rivers are given a max resistance and min source weight;  create a Resistance
 # and SourceWt Column for the layers
-rivers <- st_read(file.path(read_dir, "Rivers.shp")) %>%
+rivers <- st_read(file.path(inputs_dir, "Rivers.shp")) %>%
   mutate(Resistance = 1000, SourceWt = 0)
 res_rivers <- fasterize(rivers, base_raster, field = "Resistance")
 sw_rivers <- fasterize(rivers, base_raster, field = "SourceWt")
-writeRaster(res_rivers, file.path(write_dir, "resistance_rivers.tif"), overwrite = TRUE)
-writeRaster(sw_rivers, file.path(write_dir, "sourcewt_rivers.tif"), overwrite = TRUE)
+writeRaster(res_rivers, file.path(inputs_raster_dir, "resistance_rivers.tif"), overwrite = TRUE)
+writeRaster(sw_rivers, file.path(inputs_raster_dir, "sourcewt_rivers.tif"), overwrite = TRUE)
 
 # Streams are given different resistances and source weights based on their
 # stream order, buffering has been exaggerated for higher order streams so it
 # will be present in the 30-m resolution composite raster
-streamsorder <- st_read(file.path(read_dir, "streamsorder.shp"))
+streamsorder <- st_read(file.path(inputs_dir, "streamsorder.shp"))
 
 # Filter out stream order 1 - too small of a width to impact forest canopy
 streams_filtered <- streamsorder %>% filter(STRMRDR != 1)
@@ -271,7 +268,11 @@ res_streamnetwork <- fasterize(buffered_streams, base_raster, field = "Resistanc
 sw_streamnetwork <- fasterize(buffered_streams, base_raster, field = "SourceWt")
 writeRaster(
   res_streamnetwork,
-  file.path(write_dir, "resistance_streamnetwork.tif"),
+  file.path(inputs_raster_dir, "resistance_streamnetwork.tif"),
   overwrite = TRUE
 )
-writeRaster(sw_streamnetwork, file.path(write_dir, "sourcewt_streamnetwork.tif"), overwrite = TRUE)
+writeRaster(
+  sw_streamnetwork,
+  file.path(inputs_raster_dir, "sourcewt_streamnetwork.tif"),
+  overwrite = TRUE
+)

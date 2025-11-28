@@ -1,23 +1,14 @@
 # Composite Resistance Raster Creation for required Omniscape inputs
 
-# --- Load in libraries ---
-
-library(raster) ## TODO: use terra
-library(dplyr)
-
-setwd(
-  "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Biodiversity Emphasis"
-)
-
 # Load resistance rasters
-res_forest <- raster("resistance_forest_disturbance.tif")
-res_secondaryPAs <- raster("resistance_secondaryPAs.tif")
-res_BCParks <- raster("resistance_BCParks.tif")
-res_ogma <- raster("resistance_OGMAs.tif")
-res_roads <- raster("resistance_consolidated_roads_.tif")
-res_streams <- raster("resistance_streamnetwork.tif")
-res_rivers <- raster("resistance_rivers.tif")
-res_lakes <- raster("resistance_lakes.tif")
+res_forest <- raster(file.path(inputs_raster_dir, "resistance_forest_disturbance.tif"))
+res_secondaryPAs <- raster(file.path(inputs_raster_dir, "resistance_secondaryPAs.tif"))
+res_BCParks <- raster(file.path(inputs_raster_dir, "resistance_BCParks.tif"))
+res_ogma <- raster(file.path(inputs_raster_dir, "resistance_OGMAs.tif"))
+res_roads <- raster(file.path(inputs_raster_dir, "resistance_consolidated_roads_.tif"))
+res_streams <- raster(file.path(inputs_raster_dir, "resistance_streamnetwork.tif"))
+res_rivers <- raster(file.path(inputs_raster_dir, "resistance_rivers.tif"))
+res_lakes <- raster(file.path(inputs_raster_dir, "resistance_lakes.tif"))
 
 # Composite resistance stacking with all created feature rasters
 composite_resistance <- overlay(
@@ -64,19 +55,23 @@ composite_resistance[composite_resistance == 0] <- 1
 composite_resistance[is.na(composite_resistance)] <- 1000
 
 # write composite resistance raster for Omniscape run
-writeRaster(composite_resistance, "composite_resistance_raster.tif", overwrite = TRUE)
+writeRaster(
+  composite_resistance,
+  file.path(inputs_raster_dir, "composite_resistance_raster.tif"),
+  overwrite = TRUE
+)
 
 # --- Composite Source Weight Raster Creation ---
 
 # Load source weight rasters
-sw_forest <- raster("sourcewt_forest_disturbance.tif")
-sw_secondaryPAs <- raster("sourcewt_secondaryPAs.tif")
-sw_BCParks <- raster("sourcewt_BCParks.tif")
-sw_ogma <- raster("sourcewt_OGMAs.tif")
-sw_roads <- raster("sourcewt_consolidated_roads.tif")
-sw_streams <- raster("sourcewt_streamnetwork.tif")
-sw_rivers <- raster("sourcewt_rivers.tif")
-sw_lakes <- raster("sourcewt_lakes.tif")
+sw_forest <- raster(file.path(inputs_raster_dir, "sourcewt_forest_disturbance.tif"))
+sw_secondaryPAs <- raster(file.path(inputs_raster_dir, "sourcewt_secondaryPAs.tif"))
+sw_BCParks <- raster(file.path(inputs_raster_dir, "sourcewt_BCParks.tif"))
+sw_ogma <- raster(file.path(inputs_raster_dir, "sourcewt_OGMAs.tif"))
+sw_roads <- raster(file.path(inputs_raster_dir, "sourcewt_consolidated_roads.tif"))
+sw_streams <- raster(file.path(inputs_raster_dir, "sourcewt_streamnetwork.tif"))
+sw_rivers <- raster(file.path(inputs_raster_dir, "sourcewt_rivers.tif"))
+sw_lakes <- raster(file.path(inputs_raster_dir, "sourcewt_lakes.tif"))
 
 # Composite source weight stacking with all created feature rasters (functions are
 # the inverse of the resistance raster functions)
@@ -126,4 +121,8 @@ composite_sourcewt <- overlay(
 composite_sourcewt[is.na(composite_sourcewt)] <- 0
 
 # write composite source weight raster for Omniscape run
-writeRaster(composite_sourcewt, "composite_sourcewt_raster.tif", overwrite = TRUE)
+writeRaster(
+  composite_sourcewt,
+  file.path(inputs_raster_dir, "composite_sourcewt_raster.tif"),
+  overwrite = TRUE
+)

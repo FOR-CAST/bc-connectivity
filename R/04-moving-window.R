@@ -1,9 +1,4 @@
-library(spatialEco)
-library(sf)
-
-setwd("Csfsetwd(C:/Users/theckfor/OneDrive - Government of BC/Documents - External_ Landscape Integrity/Content/Phase 3/Case Study/Nearest Neighbour Analysis")
-
-OGMA <- st_read("Input Data/OGMAcurrent.shp")
+OGMA <- st_read(file.path(inputs_dir, "OGMAcurrent.shp"))
 
 plot(OGMA)
 
@@ -13,7 +8,7 @@ avg_distances <- rowMeans(B)
 
 c <- mean(avg_distances)
 
-d <- c/1000
+d <- c / 1000
 hist(B)
 
 H <- diag(B)

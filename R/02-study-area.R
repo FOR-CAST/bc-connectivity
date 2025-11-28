@@ -1,19 +1,13 @@
 # BEC-NDT zones map for the Quesnel NRD Study Area
 
-library(sf)
-library(dplyr)
-library(tibble)
-
-setwd("H:/Phase3/DownloadedData")
-
 # Load BEC with NDT and Zone
-bec_ndt <- st_read("BEC.shp") %>%
+bec_ndt <- st_read(file.path(inputs_dir, "BEC.shp")) %>%
   st_make_valid() %>%
   select(NATURAL_DI, ZONE) %>%
   mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE), BEC_ZONE = ZONE) # Save BEC zone separately for dissolve
 
 # Load VRI and filter attributes
-vri <- st_read("VRI_selected.shp") %>%
+vri <- st_read(file.path(inputs_dir, "VRI_selected.shp")) %>%
   st_make_valid() %>%
   select(PROJ_AGE_1, SPECIES_CD)
 
@@ -35,33 +29,29 @@ ndt_bec_dissolved <- vri_joined %>%
   summarise(geometry = st_union(geometry), .groups = "drop")
 
 # Export to shapefile for Arcmap
-st_write(ndt_bec_dissolved, "NDT_BEC_Dissolved_Quesnel.shp", delete_layer = TRUE)
+st_write(
+  ndt_bec_dissolved,
+  file.path(inputs_dir, "NDT_BEC_Dissolved_Quesnel.shp"),
+  delete_layer = TRUE
+)
 
 # just the NDT map
 
-library(sf)
-library(dplyr)
-library(ggplot2)
-
 # Load BEC layer
-bec_clipped <- st_read("BEC.shp") # Already clipped to study area
+bec_clipped <- st_read(file.path(inputs_dir, "BEC.shp")) # Already clipped to study area
 
 # Dissolve by NDT type
 bec_ndt_dissolved <- bec_clipped %>%
   group_by(NATURAL_DI) %>%
   summarise(geometry = st_union(geometry), .groups = "drop")
 
-st_write(bec_ndt_dissolved, "NDT_Dissolved_Quesnel.shp", delete_layer = TRUE)
+st_write(bec_ndt_dissolved, file.path(inputs_dir, "NDT_Dissolved_Quesnel.shp"), delete_layer = TRUE)
 
 # Deriving study area statistics to inform Methods section
 
-library(sf)
-library(dplyr)
-library(terra)
-
 # Load in Quesnel NRD Boundary (Study Area)
 Quesnel_TSA <- st_read(
-  "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Downloaded Data/QuesnelTSA_studyarea.shp"
+  file.path(inputs_dir, "QuesnelTSA_studyarea.shp")
 )
 st_crs(Quesnel_TSA)
 
@@ -91,9 +81,7 @@ Quesnel_TSA$latitude <- coords_wgs84[, 2] # 52.96388
 
 # Load in DEM for Quesnel NRD
 
-DEM <- rast(
-  "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Downloaded Data/Quesnel_TSA_DEM.tif"
-)
+DEM <- rast(file.path(inputs_dir, "Quesnel_TSA_DEM.tif"))
 
 # Find the min and max elevation values of the Quesnel NRD using DEM
 
@@ -102,9 +90,7 @@ max_elev <- global(DEM, "max", na.rm = TRUE)[1] # 2694 meters
 
 # Load in OGMAs and find count and total coverage
 
-OGMAs <- st_read(
-  "C:/Users/CWILTSE/OneDrive - Government of BC/External_ Landscape Integrity - Downloaded Data/OGMAcurrent.shp"
-)
+OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.shp"))
 st_crs(OGMAs)
 
 # Find OGMA count within the Quesnel NRD
