@@ -1,4 +1,4 @@
-OGMA <- st_read(file.path(inputs_dir, "OGMAcurrent.shp"))
+OGMA <- st_read(file.path(inputs_dir, "OGMAcurrent.gpkg"))
 
 plot(OGMA)
 

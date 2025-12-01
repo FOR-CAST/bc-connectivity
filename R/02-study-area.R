@@ -1,13 +1,13 @@
 # BEC-NDT zones map for the Quesnel NRD Study Area
 
 # Load BEC with NDT and Zone
-bec_ndt <- st_read(file.path(inputs_dir, "BEC.shp")) |>
+bec_ndt <- st_read(file.path(inputs_dir, "BEC.gpkg")) |>
   st_make_valid() |>
   select(NATURAL_DI, ZONE) |>
   mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE), BEC_ZONE = ZONE) # Save BEC zone separately for dissolve
 
 # Load VRI and filter attributes
-vri <- st_read(file.path(inputs_dir, "VRI_selected.shp")) |>
+vri <- st_read(file.path(inputs_dir, "VRI_selected.gpkg")) |>
   st_make_valid() |>
   select(PROJ_AGE_1, SPECIES_CD)
 
@@ -31,27 +31,27 @@ ndt_bec_dissolved <- vri_joined |>
 # Export to shapefile for Arcmap
 st_write(
   ndt_bec_dissolved,
-  file.path(inputs_dir, "NDT_BEC_Dissolved_Quesnel.shp"),
+  file.path(inputs_dir, "NDT_BEC_Dissolved_Quesnel.gpkg"),
   delete_layer = TRUE
 )
 
 # just the NDT map
 
 # Load BEC layer
-bec_clipped <- st_read(file.path(inputs_dir, "BEC.shp")) # Already clipped to study area
+bec_clipped <- st_read(file.path(inputs_dir, "BEC.gpkg")) # Already clipped to study area
 
 # Dissolve by NDT type
 bec_ndt_dissolved <- bec_clipped |>
   group_by(NATURAL_DI) |>
   summarise(geometry = st_union(geometry), .groups = "drop")
 
-st_write(bec_ndt_dissolved, file.path(inputs_dir, "NDT_Dissolved_Quesnel.shp"), delete_layer = TRUE)
+st_write(bec_ndt_dissolved, file.path(inputs_dir, "NDT_Dissolved_Quesnel.gpkg"), delete_layer = TRUE)
 
 # Deriving study area statistics to inform Methods section
 
 # Load in Quesnel NRD Boundary (Study Area)
 Quesnel_TSA <- st_read(
-  file.path(inputs_dir, "QuesnelTSA_studyarea.shp")
+  file.path(inputs_dir, "Quesnel_TSA_studyarea.gpkg")
 )
 st_crs(Quesnel_TSA)
 
@@ -90,7 +90,7 @@ max_elev <- global(DEM, "max", na.rm = TRUE)[1] # 2694 meters
 
 # Load in OGMAs and find count and total coverage
 
-OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.shp"))
+OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.gpkg"))
 st_crs(OGMAs)
 
 # Find OGMA count within the Quesnel NRD

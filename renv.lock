@@ -241,6 +241,20 @@
       ],
       "Hash": "2288423bb0f20a457800d7fc47f6aa54"
     },
+    "archive": {
+      "Package": "archive",
+      "Version": "1.1.12",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "cli",
+        "glue",
+        "rlang",
+        "tibble"
+      ],
+      "Hash": "400011c0eb198658df10ce845a619ff3"
+    },
     "askpass": {
       "Package": "askpass",
       "Version": "1.2.1",
