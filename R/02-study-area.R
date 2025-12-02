@@ -1,105 +1,92 @@
-# BEC-NDT zones map for the Quesnel NRD Study Area
+input_files <- append(input_files, list(
+  NDT_BEC = file.path(inputs_dir, "NDT_BEC_dissolved.gpkg"),
+  NDT = file.path(inputs_dir, "NDT_dissolved.gpkg")
+))
 
-# Load BEC with NDT and Zone
-bec_ndt <- st_read(file.path(inputs_dir, "BEC.gpkg")) |>
-  st_make_valid() |>
-  select(NATURAL_DI, ZONE) |>
-  mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE), BEC_ZONE = ZONE) # Save BEC zone separately for dissolve
+# BEC-NDT zones map for the Quesnel NRD Study Area --------------------------------------------
 
-# Load VRI and filter attributes
-vri <- st_read(file.path(inputs_dir, "VRI_selected.gpkg")) |>
-  st_make_valid() |>
-  select(PROJ_AGE_1, SPECIES_CD)
+## Load BEC with NDT and Zone; save BEC zone separately for dissolve
+bec_ndt <- sf::st_read(input_files[["BEC"]]) |>
+  dplyr::select(NATURAL_DI, ZONE) |>
+  dplyr::mutate(NDT_BEC = paste0(NATURAL_DI, "-", ZONE), BEC_ZONE = ZONE)
 
-# Spatial join to attach BEC/NDT
-vri_joined <- st_join(vri, bec_ndt, left = FALSE) |>
-  mutate(
+## Load VRI and filter attributes
+vri <- sf::st_read(input_files[["VRI"]]) |>
+  dplyr::select(PROJ_AGE_1, SPECIES_CD)
+
+## Spatial join to attach BEC/NDT
+vri_joined <- sf::st_join(vri, bec_ndt, left = FALSE) |>
+  dplyr::mutate(
     base_NDT_BEC = paste0(NATURAL_DI, "-", ZONE),
-    NDT_BEC = case_when(
+    NDT_BEC = dplyr::case_when(
       base_NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD) ~ "NDT4-IDF-FD",
       base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD) ~ "NDT4-IDF-PL",
       TRUE ~ base_NDT_BEC
     )
   ) |>
-  st_make_valid()
+  sf::st_make_valid()
 
 ndt_bec_dissolved <- vri_joined |>
-  select(NDT_BEC, geometry) |>
-  group_by(NDT_BEC) |>
-  summarise(geometry = st_union(geometry), .groups = "drop")
+  dplyr::select(NDT_BEC, geometry) |>
+  dplyr::group_by(NDT_BEC) |>
+  dplyr::summarise(geometry = sf::st_union(geometry), .groups = "drop") |>
+  sf::st_write(input_files[["NDT_BEC"]], append = FALSE)
 
-# Export to shapefile for Arcmap
-st_write(
-  ndt_bec_dissolved,
-  file.path(inputs_dir, "NDT_BEC_Dissolved_Quesnel.gpkg"),
-  delete_layer = TRUE
-)
+# NDT zones map for the Quesnel NRD Study Area ------------------------------------------------
 
-# just the NDT map
+## Load BEC layer
+ndt <- sf::st_read(file.path(inputs_dir, "BEC.gpkg")) |>
+  dplyr::group_by(NATURAL_DI) |>
+  dplyr::summarise(geometry = sf::st_union(geometry), .groups = "drop") |>
+  sf::st_write(input_files[["NDT"]], append = FALSE)
 
-# Load BEC layer
-bec_clipped <- st_read(file.path(inputs_dir, "BEC.gpkg")) # Already clipped to study area
+# Study area statistics -----------------------------------------------------------------------
 
-# Dissolve by NDT type
-bec_ndt_dissolved <- bec_clipped |>
-  group_by(NATURAL_DI) |>
-  summarise(geometry = st_union(geometry), .groups = "drop")
+## Load in Quesnel NRD Boundary (Study Area)
+Quesnel_TSA <- sf::st_read(input_files[["study_area"]])
 
-st_write(bec_ndt_dissolved, file.path(inputs_dir, "NDT_Dissolved_Quesnel.gpkg"), delete_layer = TRUE)
+sf::st_crs(Quesnel_TSA)
 
-# Deriving study area statistics to inform Methods section
+Quesnel_TSA <- Quesnel_TSA |>
+  dplyr::mutate(area_m2 = as.numeric(sf::st_area(Quesnel_TSA)))
 
-# Load in Quesnel NRD Boundary (Study Area)
-Quesnel_TSA <- st_read(
-  file.path(inputs_dir, "Quesnel_TSA_studyarea.gpkg")
-)
-st_crs(Quesnel_TSA)
 
-# Calculate hectares for the Quesnel NRD boundary
-Quesnel_TSA$area_ha <- as.numeric(st_area(Quesnel_TSA)) / 10000
+centroids <- sf::st_centroid(Quesnel_TSA)
+centroids_lonlat <- sf::st_transform(centroids, crs = 4326)
 
-# Calculate km2 for the Quesnel NRD boundary
-Quesnel_TSA$area_km2 <- as.numeric(st_area(Quesnel_TSA)) / 1e6
+## Extract X and Y coordinates from centroids
+coords <- sf::st_coordinates(centroids)
+coords_lonlat <- sf::st_coordinates(centroids_wgs84)
 
-# Calculate centroid of the Quesnel NRD
-centroids <- st_centroid(Quesnel_TSA)
+Quesnel_TSA <- Quesnel_TSA |>
+  dplyr::mutate(
+    centroid_x = coords[, 1],
+    centroid_y = coords[, 2],
+    longitude = coords_wgs84[, 1], ## -122.9703
+    latitude = coords_wgs84[, 2] ## 52.96388
+  )
 
-# Extract X and Y coordinates from centroids
-coords <- st_coordinates(centroids)
-Quesnel_TSA$centroid_x <- coords[, 1] # 1203022
-Quesnel_TSA$centroid_y <- coords[, 2] # 888341.7
+## Load in DEM for Quesnel NRD
 
-# Calculate lat/long for study area
-centroids_wgs84 <- st_transform(centroids, crs = 4326)
+DEM <- terra::rast(input_files[["DEM"]])
 
-# Transform to WGS84
-coords_wgs84 <- st_coordinates(centroids_wgs84)
+## Find the min and max elevation values of the Quesnel NRD using DEM
 
-# Add long and lat to shapefile as new columns
-Quesnel_TSA$longitude <- coords_wgs84[, 1] # -122.9703
-Quesnel_TSA$latitude <- coords_wgs84[, 2] # 52.96388
+min_elev <- terra::global(DEM, "min", na.rm = TRUE)[1] ## 421 meters
+max_elev <- terra::global(DEM, "max", na.rm = TRUE)[1] ## 2694 meters
 
-# Load in DEM for Quesnel NRD
+## Load in OGMAs and find count and total coverage
 
-DEM <- rast(file.path(inputs_dir, "Quesnel_TSA_DEM.tif"))
+OGMAs <- sf::st_read(file.path(inputs_dir, "OGMAcurrent.gpkg"))
 
-# Find the min and max elevation values of the Quesnel NRD using DEM
+sf::st_crs(OGMAs)
 
-min_elev <- global(DEM, "min", na.rm = TRUE)[1] # 421 meters
-max_elev <- global(DEM, "max", na.rm = TRUE)[1] # 2694 meters
+## Find OGMA count within the Quesnel NRD
 
-# Load in OGMAs and find count and total coverage
+n_OGMAs <- nrow(OGMAs) ## 2330 OGMA polygons
 
-OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.gpkg"))
-st_crs(OGMAs)
-
-# Find OGMA count within the Quesnel NRD
-
-n_OGMAs <- nrow(OGMAs) # 2330 OGMA polygons
-
-# Find OGMA coverage in hecatares and km2
-OGMAs <- OGMAs |> mutate(area_m2 = st_area(geometry))
+## Find OGMA coverage area
+OGMAs <- OGMAs |>
+  dplyr::mutate(area_m2 = sf::st_area(geometry))
 
 total_area_m2 <- sum(OGMAs$area_m2)
-total_area_ha <- as.numeric(total_area_m2) / 10^4 # 146360.98 hectares of OGMAs
-total_area_km2 <- as.numeric(total_area_m2) / 10^6 # 1463.61 km2 of OGMAs

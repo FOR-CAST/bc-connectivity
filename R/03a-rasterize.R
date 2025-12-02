@@ -192,7 +192,7 @@ writeRaster(r_sw, file.path(inputs_raster_dir, "sourcewt_secondaryPAs.tif"), ove
 
 # OGMAs are given a resistance and source weight of 1 due to their optimal
 # biodiversity value; create a Resistance and SourceWt Column for the layers
-OGMAs <- st_read(file.path(inputs_dir, "OGMAcurrent.gpkg")) |>
+OGMAs <- sf::st_read(input_files[["OGMA"]]) |>
   mutate(Resistance = 1, SourceWt = 1)
 res_ogma <- fasterize(OGMAs, base_raster, field = "Resistance")
 sw_ogma <- fasterize(OGMAs, base_raster, field = "SourceWt")

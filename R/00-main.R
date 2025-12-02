@@ -40,6 +40,7 @@ inputs_dir <- file.path(project_dir, "Data", "processed") |> fs::dir_create()
 inputs_raster_dir <- file.path(project_dir, "Data", "processed", "rasters") |> fs::dir_create()
 omniscape_dir <- file.path(project_dir, "Omniscape") |> fs::dir_create()
 output_dir <- file.path(project_dir, "Outputs") |> fs::dir_create()
+figure_dir <- file.path(output_dir, "figures") |> fs::dir_create()
 
 # data processing and analyses ----------------------------------------------------------------
 

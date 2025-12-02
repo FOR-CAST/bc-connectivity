@@ -1,4 +1,4 @@
-OGMA <- st_read(file.path(inputs_dir, "OGMAcurrent.gpkg"))
+OGMA <- sf::st_read(input_files[["OGMA"]])
 
 plot(OGMA)
 
