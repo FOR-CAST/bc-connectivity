@@ -59,16 +59,16 @@ local({
   ## Join forest disturbance with VRI, then join with NDT-BEC to capture SIFA,
   ## BEC Zone, NDT, and dominant species in one feature layer
   disturb_vri <- sf::st_join(forest_disturb, vri, left = FALSE)
-  disturb_full <- sf::st_join(disturb_vri, bec_ndt, left = FALSE)
+  disturb_full <- sf::st_join(disturb_vri, bec_ndt, left = FALSE) ## very slow...
 
   ## Refine NDT-BEC column to assign labels for NDT4-IDF-FD and NDT4-IDF-PL based on
   ## dominant species in NDT4-IDF according to the Biodiversity Guidebook
   disturb_full <- disturb_full |>
     mutate(
-      base_NDT_BEC = paste0(NATURAL_DI, "-", ZONE),
+      base_NDT_BEC = paste0(NATURAL_DISTURBANCE, "-", ZONE),
       NDT_BEC = dplyr::case_when(
-        base_NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD) ~ "NDT4-IDF-FD",
-        base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD) ~ "NDT4-IDF-PL",
+        base_NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD_1) ~ "NDT4-IDF-FD",
+        base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4-IDF-PL",
         TRUE ~ base_NDT_BEC
       )
     )
