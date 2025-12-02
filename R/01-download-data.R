@@ -237,7 +237,7 @@ for_dist_gdb <- file.path(download_dir, "BC_CEF_Forest_Disturbance_2024.gdb")
 for_dist_gpkg <- file.path(inputs_dir, "forest_disturbance.gpkg")
 
 if (!file.exists(forest_disturbance_gdb)) {
-  ## TODO: download from MS Teams
+  stop(glue::glue("please manually download {basename(for_dist_gdb)} from Teams."))
 }
 
 suppressWarnings({
