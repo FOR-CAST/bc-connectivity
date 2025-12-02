@@ -6,9 +6,10 @@ input_files <- append(input_files, list(
 # BEC-NDT zones map for the Quesnel NRD Study Area --------------------------------------------
 
 ## Load BEC with NDT and Zone; save BEC zone separately for dissolve
+## ensure it matches the formatting in the Biodiversity Guidebook
 bec_ndt <- sf::st_read(input_files[["BEC"]]) |>
-  dplyr::select(NATURAL_DISTURBANCE_NAME, ZONE) |>
-  dplyr::mutate(NDT_BEC = paste0(NATURAL_DISTURBANCE_NAME, "-", ZONE), BEC_ZONE = ZONE)
+  dplyr::select(NATURAL_DISTURBANCE, ZONE) |>
+  dplyr::mutate(NDT_BEC = paste0(NATURAL_DISTURBANCE, "-", ZONE), BEC_ZONE = ZONE)
 
 ## Load VRI and filter attributes
 vri <- sf::st_read(input_files[["VRI"]]) |>
@@ -19,8 +20,8 @@ vri_joined <- sf::st_join(vri, bec_ndt, left = FALSE) |>
   dplyr::mutate(
     base_NDT_BEC = paste0(NATURAL_DISTURBANCE_NAME, "-", ZONE),
     NDT_BEC = dplyr::case_when(
-      base_NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD_1) ~ "NDT4-IDF-FD",
-      base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4-IDF-PL",
+      base_NDT_BEC == "NDT4_IDF" & grepl("^FD", SPECIES_CD_1) ~ "NDT4_IDF-FD",
+      base_NDT_BEC == "NDT4_IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4_IDF-PL",
       TRUE ~ base_NDT_BEC
     )
   ) |>

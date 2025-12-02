@@ -45,6 +45,7 @@ figure_dir <- file.path(output_dir, "figures") |> fs::dir_create()
 # data processing and analyses ----------------------------------------------------------------
 
 need_download <- FALSE ## set to TRUE when fetching data the first time
+need_rebuild <- FALSE ## set to TRUE when preparing raster layers
 
 ## download data
 if (need_download) {
@@ -55,8 +56,10 @@ if (need_download) {
 source("R/02-study-area.R")
 
 ## prepare resistance rasters
-source("R/03a-rasterize.R")
-source("R/03b-composite.R")
+if (need_rebuild) {
+  source("R/03a-rasterize.R")
+  source("R/03b-composite.R")
+}
 
 ## nearest neighbour analysis to get moving window size
 source("R/04-moving-window.R")
