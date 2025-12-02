@@ -1,8 +1,8 @@
 input_files <- list(
   study_area = file.path(inputs_dir, "Quesnel_TSA_studyarea.gpkg"),
 
-  dem = file.path(inputs_raster_dir, "Quesnel_TSA_DEM.tif"),
-  landcover = file.path(inputs_raster_dir, "Quesnel_TSA_LCC.tif"),
+  DEM = file.path(inputs_raster_dir, "Quesnel_TSA_DEM.tif"),
+  LCC = file.path(inputs_raster_dir, "Quesnel_TSA_LCC.tif"),
 
   BEC = file.path(inputs_dir, "BEC.gpkg"),
   LU = file.path(inputs_dir, "landscape_units.gpkg"),
@@ -78,7 +78,7 @@ local({
 
   ## Crop and mask to study area
   terra::crop(landcover, Quesnel_TSA_LCC, mask = TRUE) |>
-    terra::writeRaster(input_files[["landcover"]], datatype = "INT1U", overwrite = TRUE)
+    terra::writeRaster(input_files[["LCC"]], datatype = "INT1U", overwrite = TRUE)
 })
 
 # Digital Elevation Model (DEM) ---------------------------------------------------------------
@@ -255,6 +255,8 @@ local({
     archive::archive_extract(cef_hd_zip, dir = download_dir)
   }
 
+  landcover <- terra::rast(input_files[["landcover"]])
+
   suppressWarnings({
     sf::st_read(
       dsn = cef_hd_gdb,
@@ -265,7 +267,7 @@ local({
       sf::st_make_valid() |>
       sf::st_intersection(Quesnel_TSA) |>
       dplyr::select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG) |>
-      sf::st_transform(terra::crs(landcover_quesnel)) |>
+      sf::st_transform(terra::crs(landcover)) |>
       sf::st_write(input_files[["human_disturbance"]], append = FALSE)
   })
 })
@@ -277,9 +279,11 @@ local({
 
 local({
   for_dist_gdb <- file.path(download_dir, "BC_CEF_Forest_Disturbance_2024.gdb")
-  if (!file.exists(forest_disturbance_gdb)) {
+  if (!file.exists(for_dist_gdb)) {
     stop(glue::glue("please manually download {basename(for_dist_gdb)} from Teams."))
   }
+
+  landcover <- terra::rast(input_files[["landcover"]])
 
   suppressWarnings({
     sf::st_read(
@@ -290,11 +294,12 @@ local({
       sf::st_make_valid() |>
       ## fid will be recreated to be unique etc. during save
       dplyr::mutate(fid = NULL) |>
-      sf::st_transform(terra::crs(landcover_quesnel)) |>
+      sf::st_transform(terra::crs(landcover)) |>
       sf::st_write(input_files[["forest_disturbance"]], append = FALSE)
   })
 })
 
 # cleanup -------------------------------------------------------------------------------------
 
+gc()
 terra::tmpFiles(remove = TRUE)
