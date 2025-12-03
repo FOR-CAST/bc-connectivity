@@ -1,8 +1,3 @@
-input_files <- append(input_files, list(
-  NDT_BEC = file.path(inputs_dir, "NDT_BEC_dissolved.gpkg"),
-  NDT = file.path(inputs_dir, "NDT_dissolved.gpkg")
-))
-
 # BEC-NDT zones map for the Quesnel NRD Study Area --------------------------------------------
 
 ## Load BEC with NDT and Zone; save BEC zone separately for dissolve

@@ -1,43 +1,8 @@
-input_files <- append(
-  input_files,
-  list(
-    ## forest disturbance
-    resistance_fordist = file.path(inputs_raster_dir, "resistance_forest_disturbance.tif"),
-    sourcewt_fordist = file.path(inputs_raster_dir, "sourcewt_forest_disturbance.tif"),
-
-    ## consolidated roads and railways
-    resistance_roads = file.path(inputs_raster_dir, "resistance_roads_.tif"),
-    sourcewt_roads = file.path(inputs_raster_dir, "sourcewt_roads.tif"),
-
-    ## consolidated WHA, MDWR, moose wetlands, and wetlands (secondary protected areas)
-    resistance_secondary = file.path(inputs_raster_dir, "resistance_secondary.tif"),
-    sourcewt_secondary = file.path(inputs_raster_dir, "sourcewt_secondary.tif"),
-
-    ## OGMA
-    resistance_OGMA = file.path(inputs_raster_dir, "resistance_OGMA.tif"),
-    sourcewt_OGMA = file.path(inputs_raster_dir, "sourcewt_OGMA.tif"),
-
-    ## parks and ecological reserves
-    resistance_parks = file.path(inputs_raster_dir, "resistance_parks.tif"),
-    sourcewt_parks = file.path(inputs_raster_dir, "sourcewt_parks.tif"),
-
-    ## water features (lakes, rivers, streams)
-    resistance_lakes = file.path(inputs_raster_dir, "resistance_lakes.tif"),
-    sourcewt_lakes = file.path(inputs_raster_dir, "sourcewt_lakes.tif"),
-
-    resistance_rivers = file.path(inputs_raster_dir, "resistance_rivers.tif"),
-    sourcewt_rivers = file.path(inputs_raster_dir, "sourcewt_rivers.tif"),
-
-    resistance_streams = file.path(inputs_raster_dir, "resistance_streams.tif"),
-    sourcewt_streams = file.path(inputs_raster_dir, "sourcewt_streams.tif")
-  )
-)
-
-# prepare composite resistance and source weight rasters --------------------------------------
-
 terra::terraOptions(memfrac = 0.0) ## perform raster operations on disk
 
 base_raster <- terra::rast(input_files[["LCC"]])
+
+# prepare resistance and source weight rasters ------------------------------------------------
 
 ## Create Forest Age Layer --------------------------------------------------------------------
 
@@ -377,3 +342,10 @@ local({
     overwrite = TRUE
   )
 })
+
+# cleanup -------------------------------------------------------------------------------------
+
+rm(base_raster)
+
+gc()
+terra::tmpFiles(remove = TRUE)

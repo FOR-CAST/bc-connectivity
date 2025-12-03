@@ -1,29 +1,3 @@
-input_files <- list(
-  study_area = file.path(inputs_dir, "Quesnel_TSA_studyarea.gpkg"),
-
-  DEM = file.path(inputs_raster_dir, "Quesnel_TSA_DEM.tif"),
-  LCC = file.path(inputs_raster_dir, "Quesnel_TSA_LCC.tif"),
-
-  BEC = file.path(inputs_dir, "BEC.gpkg"),
-  LU = file.path(inputs_dir, "landscape_units.gpkg"),
-  MDWR = file.path(inputs_dir, "MDWR.gpkg"),
-  OGMA = file.path(inputs_dir, "OGMA_current.gpkg"),
-  VRI = file.path(inputs_dir, "VRI.gpkg"),
-  WHA = file.path(inputs_dir, "WHA.gpkg"),
-
-  burn_severity = file.path(inputs_dir, "burn_severity.gpkg"),
-  forest_disturbance = file.path(inputs_dir, "forest_disturbance.gpkg"),
-  human_disturbance = file.path(inputs_dir, "human_disturbance.gpkg"),
-  moose_wetlands = file.path(inputs_dir, "moose_wetlands.gpkg"),
-  parks = file.path(inputs_dir, "parks.gpkg"),
-  railways = file.path(inputs_dir, "railways.gpkg"),
-
-  lakes = file.path(inputs_dir, "lakes.gpkg"),
-  rivers = file.path(inputs_dir, "rivers.gpkg"),
-  streams = file.path(inputs_dir, "stream_order.gpkg"),
-  wetlands = file.path(inputs_dir, "wetlands.gpkg")
-)
-
 # Quesnel NRD Boundary ------------------------------------------------------------------------
 
 ## NOTE: bcmaps::nr_districts() provides a version suitable for web mapping applications,
@@ -62,24 +36,24 @@ Quesnel_TSA_bbox <- sf::st_bbox(Quesnel_TSA)
 ## for rasterizing feature shapefiles
 ## <https://open.canada.ca/data/en/dataset/ee1580ab-a23d-4f86-a09b-79763677eb47/resource/f1ba2faa-ff10-4526-815a-c57b99eef1bb>
 
-local({
-  lcc_url <- "https://datacube-prod-data-public.s3.ca-central-1.amazonaws.com/store/land/landcover/landcover-2020-classification.tif"
-  lcc_tif <- file.path(download_dir, basename(lcc_url))
+lcc_url <- "https://datacube-prod-data-public.s3.ca-central-1.amazonaws.com/store/land/landcover/landcover-2020-classification.tif"
+lcc_tif <- file.path(download_dir, basename(lcc_url))
 
-  if (!file.exists(lcc_tif)) {
-    withr::with_options(list(timeout = 300), {
-      download.file(lcc_url, destfile = lcc_tif)
-    })
-  }
+if (!file.exists(lcc_tif)) {
+  withr::with_options(list(timeout = 300), {
+    download.file(lcc_url, destfile = lcc_tif)
+  })
+}
 
-  ## Load the land cover raster and re-project Quesnel buffer to match its projection
-  landcover <- terra::rast(lcc_tif)
-  Quesnel_TSA_LCC <- sf::st_transform(Quesnel_TSA, crs = terra::crs(landcover))
+## Load the land cover raster and re-project Quesnel buffer to match its projection
+landcover <- terra::rast(lcc_tif)
+Quesnel_TSA_LCC <- sf::st_transform(Quesnel_TSA, crs = terra::crs(landcover))
 
-  ## Crop and mask to study area
-  terra::crop(landcover, Quesnel_TSA_LCC, mask = TRUE) |>
-    terra::writeRaster(input_files[["LCC"]], datatype = "INT1U", overwrite = TRUE)
-})
+## Crop and mask to study area
+landcover_quesnel <- terra::crop(landcover, Quesnel_TSA_LCC, mask = TRUE) |>
+  terra::writeRaster(input_files[["LCC"]], datatype = "INT1U", overwrite = TRUE)
+
+rm(lcc_url, lcc_tif, landcover, Quesnel_TSA_LCC)
 
 # Digital Elevation Model (DEM) ---------------------------------------------------------------
 
@@ -229,6 +203,23 @@ local({
     dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
     sf::st_transform(terra::crs(landcover_quesnel)) |>
     sf::st_write(input_files[["VRI"]], append = FALSE)
+})
+
+# Consolidated Roads --------------------------------------------------------------------------
+
+local({
+  ## consolidated roads for the Cariboo layer has been handled seperately
+  ## because it was not downloadable through the bcdata package (needs to be manually downloaded)
+  roads_gdb <- file.path(download_dir, "Cariboo_Consolidated_Roads.gdb")
+
+  roads <- sf::st_read(
+    roads_gdb,
+    layer = "Cariboo_Consolidated_Roads",
+    wkt_filter = sf::st_as_text(sf::st_as_sfc(Quesnel_TSA_bbox))
+  ) |>
+    dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
+    sf::st_transform(terra::crs(landcover_quesnel)) |>
+    sf::st_write(input_files[["roads"]], append = FALSE)
 })
 
 # Human Disturbance ---------------------------------------------------------------------------
