@@ -105,39 +105,42 @@ local({
 
 local({
   roads <- sf::st_read(input_files[["roads"]])
-  # table(roads$LINE_TYPE)
+  # table(roads$TRANSPORT_LINE_TYPE_CODE)
 
   ## Filter out roads that do not exist or are being planned
   roads <- roads |>
-    dplyr::filter(!LINE_TYPE %in% c("PRP", "X"))
-  # table(roads$LINE_TYPE)
+    dplyr::filter(!TRANSPORT_LINE_TYPE_CODE %in% c("PRP", "X"))
+  # table(roads$TRANSPORT_LINE_TYPE_CODE)
 
   ## Filter out higher use ftaFSR roads from other resource roads and assign
   ## them a higher resistance and lower source weight
   roads_res_high <- roads |>
-    dplyr::filter(LINE_TYPE == "RES", LINE_TENUR == "ftaFSR") |>
+    dplyr::filter(TRANSPORT_LINE_TYPE_CODE == "RES", TRANSPORT_LINE_TENURE_TYPE_CODE == "ftaFSR") |>
     dplyr::mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
 
   roads_res_low <- roads |>
-    dplyr::filter(LINE_TYPE == "RES", LINE_TENUR != "ftaFSR") |>
+    dplyr::filter(
+      TRANSPORT_LINE_TYPE_CODE == "RES",
+      TRANSPORT_LINE_TENURE_TYPE_CODE != "ftaFSR"
+    ) |>
     dplyr::mutate(Resistance = 500, Buffer = 25, SourceWt = 0.5)
 
   ## Assign other roads "high", "medium", and "low" use resistances and source
   ## weight values; create Resistance, SourceWt, and Buffer Columns for the layers
   road_lookup <- data.frame(
-    LINE_TYPE = c("HWY", "AC", "LOC", "REC", "DRV", "TRL", "TRS", "OTH", "UNK"),
+    TRANSPORT_LINE_TYPE_CODE = c("HWY", "AC", "LOC", "REC", "DRV", "TRL", "TRS", "OTH", "UNK"),
     Resistance = c(1000, 1000, 750, 750, 750, 500, 500, 500, 500),
     Buffer = c(250, 250, 50, 50, 50, 25, 25, 25, 25),
     SourceWt = c(0, 0, 0, 0, 0, 0.5, 0.5, 0.5, 0.5)
   )
 
   roads_other <- roads |>
-    dplyr::filter(LINE_TYPE %in% road_lookup$LINE_TYPE) |>
-    dplyr::left_join(road_lookup, by = "LINE_TYPE")
+    dplyr::filter(TRANSPORT_LINE_TYPE_CODE %in% road_lookup$TRANSPORT_LINE_TYPE_CODE) |>
+    dplyr::left_join(road_lookup, by = "TRANSPORT_LINE_TYPE_CODE")
 
   ## Load in railways from a separate file and assign it a resistance and sourcewt
   railways <- sf::st_read(input_files[["railways"]]) |>
-    mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
+    dplyr::mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
 
   ## Combine and buffer all of the roads together; buffer the roads based on their
   ## assigned buffer value
