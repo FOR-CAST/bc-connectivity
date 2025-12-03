@@ -22,6 +22,7 @@ vri_joined <- sf::st_join(vri, bec_ndt, left = FALSE) |>
   ) |>
   sf::st_make_valid()
 
+
 ndt_bec_dissolved <- vri_joined |>
   dplyr::select(NDT_BEC, geom) |>
   dplyr::group_by(NDT_BEC) |>
@@ -31,7 +32,7 @@ ndt_bec_dissolved <- vri_joined |>
 # NDT zones map for the Quesnel NRD Study Area ------------------------------------------------
 
 ## Load BEC layer
-ndt <- sf::st_read(file.path(inputs_dir, "BEC.gpkg")) |>
+ndt <- sf::st_read(input_files[["BEC"]]) |>
   dplyr::group_by(NATURAL_DISTURBANCE_NAME) |>
   dplyr::summarise(geom = sf::st_union(geom), .groups = "drop") |>
   sf::st_write(input_files[["NDT"]], append = FALSE)
@@ -87,3 +88,22 @@ OGMAs <- OGMAs |>
 total_area_m2 <- sum(OGMAs$FEATURE_AREA_SQM)
 
 print(total_area_m2)
+
+# Interpatch assessment (moving window size) --------------------------------------------------
+
+plot(OGMA)
+
+B <- st_distance(OGMA)
+View(B)
+avg_distances <- rowMeans(B)
+
+c <- mean(avg_distances)
+
+d <- c / 1000
+hist(B)
+
+H <- diag(B)
+View(H)
+
+u <- upper.tri(B)
+View(u)
