@@ -134,6 +134,8 @@ Stream resistance values varied by stream order, and streams were buffered by or
 
 ### Composite raster creation
 
+**Resistance:**
+
 To create a composite resistance raster, all feature layer resistance rasters were combined using the following stacking rules: 
 
 - OGMAs override all other features (lowest resistance);
@@ -143,6 +145,8 @@ To create a composite resistance raster, all feature layer resistance rasters we
 - Roads and water features can only increase resistance, not decrease it;
 
 - Final composite raster was reclassified to avoid 0 values (set to 1) and fill NA values as high resistance (1000).
+
+**Source Weight:**
 
 To create a composite source weight raster used inverse logic, all feature layer source weight rasters were combined using the following stacking rules: 
 

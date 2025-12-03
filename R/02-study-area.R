@@ -93,7 +93,7 @@ print(total_area_m2)
 
 plot(OGMA)
 
-B <- st_distance(OGMA)
+B <- sf::st_distance(OGMA)
 View(B)
 avg_distances <- rowMeans(B)
 
