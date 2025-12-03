@@ -38,11 +38,11 @@ The script downloads the following feature layers:
 
 2. Water features (lakes, wetlands, rivers, stream networks);
 
-3. Anthropogenic features (human disturbance, highways, roads, railway, resource roads);
+3. Anthropogenic features (human disturbance, highways, roads, railway);
 
 4. Environmental features (Vegetation Resource Inventory, burn severity, forest disturbances, Biogeoclimatic Ecosystem Classifications);
 
-5. Other (landscape units, land cover, Digital Elevation Model (DEM)). 
+5. Other (landscape units, landcover, Digital Elevation Model (DEM)). 
 
 All vector data layers were projected to a common CRS and clipped to a boundary of the Quesnel NRD using the `sf` package [@Pebesma:2018; @Pebesma:2023].
 
@@ -52,13 +52,23 @@ Data layers with associated variables and attributes were compiled into a spread
 
 A column detailing data treatment for Omniscape was created, including resistance/source weights rationales, if/how the data was buffered, or if/how the data was filtered). 
 
-Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies. 
+Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies.
+
+### Biodiversity-focussed analyses
+
+Set resistance scores via the Forest Disturbance layer, based on seral stage via BEC classification.
+
+## Extended analyses
+
+Set resistance scores via composite of all layers.
 
 ## Moving window size
 
+<!-- TODO: needs updating -->
+
 An interpatch assessment for the study area was conducted in `R` to inform the buffer size of data and the moving window radii required for Omniscape. 
 
-R scripts were developed to calculate patch area (`ha`) and centroid-to-nearest-neighbour distances (`km`) for Old Growth Management Areas (OGMAs), protected areas, and high-value wildlife habitat features.
+We calculate patch area (`ha`) and centroid-to-nearest-neighbour distances (`km`) for Old Growth Management Areas (OGMAs), protected areas, and high-value wildlife habitat features.
 
 Summary statistics (`min`, `mean`, `max`) were calculated for three scenarios: 
 
@@ -81,43 +91,48 @@ Similarly, we performed edge-to-edge Nearest Neighbour distances for protected f
 
 ## Connectivity modelling
 
-### Data prepration
+### Data preparation
 
 R scripts were developed to generate composite resistance and source weight rasters using the feature layers compiled in the previous steps:
 
 - The resistance values range from 1 to 1000 (low value = high biodiversity) ;
 - The source weight values range from 0 to 1 (low value = no habitat potential). 
 
-Rasterization was performed at a 30 m spatial resolution, aligned with the BC land cover base raster, and prepared using the `terra` package [@Hijmans:2025]. 
-Feature layers were converted from shapefiles into a resistance raster and a source weight raster.
+Rasterization was performed at a 30 m spatial resolution, aligned with the national 2020 landcover raster, and prepared using the `terra` package [@Hijmans:2025]. 
+Feature layers were rasterized from vector data into a resistance raster and a source weight raster.
+
+#### Input layer creation
 
 **Forest Age Classification:**
 
 Projected stand age after significant disturbances (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and BEC-NDT (Natural Disturbance Type and BEC Zone) layers. 
 
-Each polygon was assigned a seral stage using thresholds from the Biodiversity Guidebook, and corresponding resistance and source weight values were applied (e.g., early forest = high resistance, old forest = low resistance). 
+Each polygon was assigned a seral stage using thresholds from the Biodiversity Guidebook [@BritishColumbia:1995], and corresponding resistance and source weight values were applied (*e.g.*, early forest = high resistance, old forest = low resistance).
 
-**Secondary Biodiversity Features:**
-
-Wildlife Habitat Areas, Mule Deer Winter Range Zones, High Value Moose Wetlands, and general wetlands were assigned moderate resistance (250) and source weight (0.75), reflecting secondary biodiversity potential. 
+Patch definitions follow the Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
 **Primary Biodiversity Features:**
 
 OGMAs and BC Parks/Ecological Reserves were assigned the lowest resistance (1) and highest source weight (1) reflecting optimal biodiversity potential.
 
+
+**Secondary Biodiversity Features:**
+
+Wildlife Habitat Areas, Mule Deer Winter Range (MDWR) Zones, High Value Moose Wetlands (HVMW), and general wetlands were assigned moderate resistance (250) and source weight (0.75), reflecting secondary biodiversity potential. 
+
 **Linear Disturbance Features:**
 
 A consolidated roads layer for the Cariboo region was merged with a provincial railways layer. 
 
-Resistance and source weights were applied using tiered values based on road class, tenure, and usage intensity, with buffers being applied (25–250 m) representing a negative impact on biodiversity. 
+Resistance and source weights were applied using tiered values based on road class, tenure, and usage intensity, with buffers being applied (25-250 m) representing a negative impact on biodiversity. 
 
 **Water Features:**
 
 Lakes, rivers, and streams were assigned high resistance and low source weight, reflecting barriers to biodiversity for most terrestrial species. 
 
-Stream resistance values varied by stream order, and streams were buffered by order; S2 and S3 stream buffers were exaggerated to ensure presence in the 30 m raster. 
+Stream resistance values varied by stream order, and streams were buffered by order; S2 and S3 stream buffers were exaggerated to ensure presence in the 30m raster. 
 
-----
+### Composite raster creation
 
 To create a composite resistance raster, all feature layer resistance rasters were combined using the following stacking rules: 
 
