@@ -54,13 +54,14 @@ input_files <- list(
   LCC = file.path(inputs_raster_dir, "Quesnel_TSA_LCC.tif"),
 
   BEC = file.path(inputs_dir, "BEC.gpkg"),
+  BECNDT = file.path(inputs_dir, "BECNDT.gpkg"),
   LU = file.path(inputs_dir, "landscape_units.gpkg"),
   MDWR = file.path(inputs_dir, "MDWR.gpkg"),
   OGMA = file.path(inputs_dir, "OGMA_current.gpkg"),
   VRI = file.path(inputs_dir, "VRI.gpkg"),
+  VRI_BECNDT = file.path(inputs_dir, "VRI_BECNDT.gpkg"),
   WHA = file.path(inputs_dir, "WHA.gpkg"),
 
-  burn_severity = file.path(inputs_dir, "burn_severity.gpkg"),
   forest_disturbance = file.path(inputs_dir, "forest_disturbance.gpkg"),
   human_disturbance = file.path(inputs_dir, "human_disturbance.gpkg"),
   moose_wetlands = file.path(inputs_dir, "moose_wetlands.gpkg"),

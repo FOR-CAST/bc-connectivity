@@ -53,7 +53,7 @@ Quesnel_TSA_LCC <- sf::st_transform(Quesnel_TSA, crs = terra::crs(landcover))
 landcover_quesnel <- terra::crop(landcover, Quesnel_TSA_LCC, mask = TRUE) |>
   terra::writeRaster(input_files[["LCC"]], datatype = "INT1U", overwrite = TRUE)
 
-rm(lcc_url, lcc_tif, landcover, Quesnel_TSA_LCC)
+rm(lcc_url, lcc_tif, landcover)
 
 # Digital Elevation Model (DEM) ---------------------------------------------------------------
 
@@ -73,21 +73,21 @@ local({
 
 local({
   list(
-    BEC = list(
-      id = "f358a53b-ffde-4830-a325-a5a03ff672c3",
-      select_cols = c("BGC_LABEL", "ZONE", "SUBZONE", "VARIANT", "NATURAL_DISTURBANCE"),
-      out = input_files[["BEC"]]
-    ),
+    ## planning area boundaries
     LU = list(
       id = "11277e35-d8be-47e4-bb1f-c38e393179c6",
       select_cols = c("FEATURE_AREA_SQM", "LANDSCAPE_UNIT_NAME"),
       out = input_files[["LU"]]
     ),
-    MDWR = list(
-      id = "a60d7b6e-88b2-4105-95e2-aaf6cc3468cf",
-      select_cols = c("TIMBER_HARVEST_OPP_CODE"),
-      out = input_files[["MDWR"]]
+
+    ## environmental features
+    BEC = list(
+      id = "f358a53b-ffde-4830-a325-a5a03ff672c3",
+      select_cols = c("BGC_LABEL", "ZONE", "SUBZONE", "VARIANT", "NATURAL_DISTURBANCE"),
+      out = input_files[["BEC"]]
     ),
+
+    ## biodiversity features
     OGMA = list(
       id = "1b30f3bd-0ad0-4128-916b-66c6dd91dea4",
       select_cols = c(
@@ -99,28 +99,24 @@ local({
       ),
       out = input_files[["OGMA"]]
     ),
+    parks = list(
+      id = "1130248f-f1a3-4956-8b2e-38d29d3e4af7",
+      select_cols = c("PARK_CLASS", "PROTECTED_LANDS_DESIGNATION", "FEATURE_AREA_SQM"),
+      out = input_files[["parks"]]
+    ),
+
+    MDWR = list(
+      id = "a60d7b6e-88b2-4105-95e2-aaf6cc3468cf",
+      select_cols = c("TIMBER_HARVEST_OPP_CODE"),
+      out = input_files[["MDWR"]]
+    ),
     WHA = list(
       id = "b19ff409-ef71-4476-924e-b3bcf26a0127",
       select_cols = c("COMMON_SPECIES_NAME", "TIMBER_HARVEST_CODE", "FEATURE_AREA_SQM"),
       out = input_files[["WHA"]]
     ),
 
-    burn_severity = list(
-      id = "c58a54e5-76b7-4921-94a7-b5998484e697",
-      select_cols = c("FIRE_YEAR", "BURN_SEVERITY_RATING"),
-      out = input_files[["burn_severity"]]
-    ),
-    parks = list(
-      id = "1130248f-f1a3-4956-8b2e-38d29d3e4af7",
-      select_cols = c("PARK_CLASS", "PROTECTED_LANDS_DESIGNATION", "FEATURE_AREA_SQM"),
-      out = input_files[["parks"]]
-    ),
-    railways = list(
-      id = "4ff93cda-9f58-4055-a372-98c22d04a9f8",
-      select_cols = c("TRACK_NAME"),
-      out = input_files[["railways"]]
-    ),
-
+    ## freshwater atlas layers
     lakes = list(
       id = "cb1e3aba-d3fe-4de1-a2d4-b8b6650fb1f6",
       select_cols = c("WATERBODY_KEY", "AREA_HA"),
@@ -137,10 +133,16 @@ local({
       out = input_files[["wetlands"]]
     ),
     streams = list(
-      ## <https://catalogue.data.gov.bc.ca/dataset/freshwater-atlas-stream-network>
       id = "92344413-8035-4c08-b996-65a9b3f62fca",
       select_cols = "STREAM_ORDER",
       out = input_files[["streams"]]
+    ),
+
+    ## anthropogenic disturbance features
+    railways = list(
+      id = "4ff93cda-9f58-4055-a372-98c22d04a9f8",
+      select_cols = c("TRACK_NAME"),
+      out = input_files[["railways"]]
     )
   ) |>
     purrr::walk(
@@ -153,6 +155,19 @@ local({
           sf::st_write(d$out, append = FALSE)
       }
     )
+})
+
+## Vegetation Resource Inventory (VRI 2024) needs to be handled separately
+## due to limits/issues querying and downloading the data using `bcdata`
+## (has 191708 records and requires 20 paginated requests to complete);
+## !! use 2024 VRI to match that of the CEF Forest Disturbance Layer
+local({
+  bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
+    dplyr::filter(INTERSECTS(Quesnel_TSA)) |> ## intersection works, but not select?
+    dplyr::collect() |>
+    dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |> ## select after collecting
+    sf::st_transform(terra::crs(landcover_quesnel)) |>
+    sf::st_write(input_files[["VRI"]], append = FALSE)
 })
 
 ## High Value Moose Wetlands layer has been handled separately because a
@@ -170,56 +185,17 @@ local({
     sf::st_write(input_files[["moose_wetlands"]], append = FALSE)
 })
 
-# Vegetation Resource Inventory (2023 VRI) ----------------------------------------------------
-
-# the VRI data has been downloaded and clipped directly from the BC data
-# catalogue due to large file size and long processing time (over 5 GB)
-
+## Consolidated Roads for the Cariboo layer has been handled separately
+## (No Web Feature Service resource available for this data set; different CRS);
+## <https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads>
 local({
-  vri_resource <- "02dba161-fdb7-48ae-a4bb-bd6ef017c36d"
-  vri_year <- 2023
-  vri_url <- glue::glue(
-    "https://pub.data.gov.bc.ca/datasets/{vri_resource}/{vri_year}/VEG_COMP_LYR_R1_POLY_{vri_year}.gdb.zip"
-  )
-  vri_zip <- file.path(download_dir, basename(vri_url))
-  vri_gdb <- fs::path_ext_remove(vri_zip)
-
-  if (!file.exists(vri_zip)) {
-    withr::with_options(list(timeout = 300), {
-      download.file(vri_url, destfile = vri_zip)
-    })
-  }
-
-  if (!file.exists(vri_gdb)) {
-    archive::archive_extract(vri_zip, dir = download_dir)
-  }
-
-  sf::st_read(
-    vri_gdb,
-    layer = "VEG_COMP_LYR_R1_POLY",
-    wkt_filter = sf::st_as_text(sf::st_as_sfc(Quesnel_TSA_bbox))
-  ) |>
-    sf::st_intersection(Quesnel_TSA) |>
-    dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
-    sf::st_transform(terra::crs(landcover_quesnel)) |>
-    sf::st_write(input_files[["VRI"]], append = FALSE)
-})
-
-# Consolidated Roads --------------------------------------------------------------------------
-
-local({
-  ## consolidated roads for the Cariboo layer has been handled seperately
-  ## because it was not downloadable through the bcdata package (needs to be manually downloaded)
-  roads_gdb <- file.path(download_dir, "Cariboo_Consolidated_Roads.gdb")
-
-  roads <- sf::st_read(
-    roads_gdb,
-    layer = "Cariboo_Consolidated_Roads",
-    wkt_filter = sf::st_as_text(sf::st_as_sfc(Quesnel_TSA_bbox))
-  ) |>
-    dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
-    sf::st_transform(terra::crs(landcover_quesnel)) |>
-    sf::st_write(input_files[["roads"]], append = FALSE)
+  suppressWarnings({
+    bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281") |>
+      dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
+      sf::st_transform(terra::crs(landcover_quesnel)) |>
+      sf::st_intersection(Quesnel_TSA_LCC) |>
+      sf::st_write(input_files[["roads"]], append = FALSE)
+  })
 })
 
 # Human Disturbance ---------------------------------------------------------------------------
@@ -227,6 +203,7 @@ local({
 ## The Cumulative Effects Framework Human Disturbance layer has been downloaded directly from the
 ## BCdata catalogue due to large file size and long processing time
 ## <https://catalogue.data.gov.bc.ca/dataset/bc-cumulative-effects-framework-human-disturbance-current>
+## TODO: currently not used for connectivity analyses
 local({
   cef_hd_url <- "https://coms.api.gov.bc.ca/api/v1/object/ecea4b04-055a-49d1-8910-60d726d2d1bf"
   cef_hd_zip <- file.path(download_dir, "BC_CEF_Human_Disturbance_2023.zip")

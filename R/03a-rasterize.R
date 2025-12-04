@@ -12,9 +12,7 @@ local({
 
   ## Load BEC feature layer containing BEC zones and Natural Disturbance Types;
   ## ensure it matches the formatting in the Biodiversity Guidebook
-  bec_ndt <- sf::st_read(input_files[["BEC"]]) |>
-    dplyr::select(NATURAL_DISTURBANCE, ZONE) |>
-    dplyr::mutate(NDT_BEC = paste0(NATURAL_DISTURBANCE, "-", ZONE))
+  bec_ndt <- sf::st_read(input_files[["BECNDT"]])
 
   ## Load VRI for dominant species information to distinguish 4-IDF-Fd from 4-IDF-Pl,
   ## which aligns with the Biodiversity Guidebook
@@ -44,11 +42,14 @@ local({
     ~NDT_BEC      , ~Early , ~Mid , ~Mature , ~Old ,
     "NDT1-ESSF"   ,      0 ,   40 ,     120 ,  250 ,
     "NDT1-ICH"    ,      0 ,   40 ,     100 ,  250 ,
+    "NDT1-MH"     ,      0 ,   40 ,     120 ,  250 ,
+    "NDT2-CWH"    ,      0 ,   40 ,     80  ,  250 ,
     "NDT2-ESSF"   ,      0 ,   40 ,     120 ,  250 ,
     "NDT2-ICH"    ,      0 ,   40 ,     100 ,  250 ,
     "NDT2-SBS"    ,      0 ,   40 ,     100 ,  250 ,
-    "NDT3-MS"     ,      0 ,   40 ,     100 ,  140 ,
+    "NDT3-ESSF"   ,      0 ,   40 ,     120 ,  140 ,
     "NDT3-ICH"    ,      0 ,   40 ,     100 ,  140 ,
+    "NDT3-MS"     ,      0 ,   40 ,     100 ,  140 ,
     "NDT3-SBS"    ,      0 ,   40 ,     100 ,  140 ,
     "NDT3-SBPS"   ,      0 ,   40 ,     100 ,  140 ,
     "NDT4-IDF-FD" ,      0 ,   40 ,     100 ,  250 ,

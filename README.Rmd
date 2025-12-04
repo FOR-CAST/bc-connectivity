@@ -55,9 +55,7 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 
 - Biogeoclimatic Ecosystem Classification (BEC) Zone/Subzone/Variant/Phase map (version 12, September 2, 2021) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f358a53b-ffde-4830-a325-a5a03ff672c3);
 
-- Fire Burn Severity [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/c58a54e5-76b7-4921-94a7-b5998484e697);
-
-- Vegetation Resource Inventory (2023) [&#x1F517;](https://open.canada.ca/data/en/dataset/02dba161-fdb7-48ae-a4bb-bd6ef017c36d/resource/c55269ee-ed89-4a47-8362-0a627c599689);
+- Vegetation Resource Inventory (VRI) Forest Vegetation Composite Rank 1 Layer (R1) (2024) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/2ebb35d8-c82f-4a17-9c96-612ac3532d55);
 
 **Primary Biodiversity Features:**
 
@@ -85,34 +83,23 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 
 **Anthropogenic Disturbance Features:**
 
+<!-- TODO: Human Disturbance currently not used -->
 - BC Cumulative Effects Framework Human Disturbance (2023) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/bc-cumulative-effects-framework-human-disturbance-current);
 
-<!-- TODO: add source for `Cariboo_Consolidated_Roads.gdb` -->
-- Cariboo Consolidated Roads (not publicly available);
+- Cariboo Consolidated Roads [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads);
 
 - Railway Track Lines [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/4ff93cda-9f58-4055-a372-98c22d04a9f8);
 
 ## Moving window size
 
-<!-- TODO: needs updating -->
-
 An interpatch assessment for the study area was conducted in `R` to inform the buffer size of data and the moving window radii required for Omniscape. 
 
-We calculate patch area (`ha`) and centroid-to-nearest-neighbour distances (`km`) for Old Growth Management Areas (OGMAs), protected areas, and high-value wildlife habitat features.
+Simple Inferred Forest Age (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers to identify landscape patches following the Forest Biodiversity
+Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
-Summary statistics (`min`, `mean`, `max`) were calculated for three scenarios: 
+We calculate patch area and other statistics for all seral stages by NDT-BEC.
 
-- OGMAs only;
-- OGMAs + BC Parks/Ecological Reserves;
-- All protected features combined (OMGAs, BC Parks, Wildlife Habitat Areas (WHAs); including Mule Deer Winter Ranges and High Value Moose Wetlands). 
-
-Stratified interpatch assessments where protected area polygon distances were based where their centroid fell within were also performed by grouping features according to:
-- Landscape Units;
-- BEC Zones;
-- Natural Disturbance Types (NDTs);
-- NDTs and BEC Zones.
-
-Similarly, we performed edge-to-edge Nearest Neighbour distances for protected features in order to compare the values with the centroid analyses.
+We calculate edge-to-edge nearest-neighbour distances for old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
 
 ## Connectivity modelling
 
@@ -136,13 +123,9 @@ Columns were created for the assignment of resistance and source weight values; 
 
 **Environmental Features:**
 
-Projected stand age after significant disturbances (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers.
+Projected stand age after significant disturbances (Simple Inferred Forest Age, SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers.
 
-Each polygon was assigned a seral stage using thresholds from the Biodiversity Guidebook [@BritishColumbia:1995], and corresponding resistance and source weight values were applied (*e.g.*, early forest = high resistance, old forest = low resistance).
-
-<!-- TODO: verify Biodiversity Guidebook vs CEF -->
-
-Patch definitions follow the Cumulative Effects Framework [§3.2.2, @CEF:2020].
+Each polygon was assigned a seral stage using thresholds following the Biodiversity Guidebook [@BritishColumbia:1995], and corresponding resistance and source weight values were applied (*e.g.*, early forest = high resistance, old forest = low resistance).
 
 **Biodiversity Features:**
 
