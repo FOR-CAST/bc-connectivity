@@ -108,8 +108,8 @@ input_files <- list(
   sourcewt_streams = file.path(inputs_raster_dir, "sourcewt_streams.tif"),
 
   ## composite rasters
-  resistance_composite = file.path(inputs_raster_dir, "resistance_composite.tif"),
-  sourcewt_composite = file.path(inputs_raster_dir, "sourcewt_composite.tif")
+  resistance_composite_all = file.path(inputs_raster_dir, "resistance_composite_all.tif"),
+  sourcewt_composite_all = file.path(inputs_raster_dir, "sourcewt_composite_all.tif")
 )
 
 ## download data

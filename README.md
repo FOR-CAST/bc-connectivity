@@ -52,7 +52,7 @@ A column detailing data treatment for Omniscape was created, including resistanc
 
 Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies.
 
-### Biodiversity-focussed analyses
+### Biodiversity-focused analyses
 
 Set resistance scores via the Forest Disturbance layer, based on seral stage via BEC classification.
 
@@ -227,7 +227,17 @@ juliaup add 1.11.7
 
 ### Julia packages
 
-Will automatically be installed on first run of the Julia code.
+Launch the Julia REPL:
+
+```shell
+julia +1.11.7
+```
+
+Install Omniscape:
+
+```julia
+import Pkg; Pkg.add("Omniscape")
+```
 
 ## Directory structure
 

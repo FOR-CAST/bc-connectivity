@@ -2,22 +2,24 @@ terra::terraOptions(memfrac = 0.0) ## perform raster operations on disk
 
 n_cores <- 1L ## see `?terra::lapp` (may not be that helpful to increase this)
 
-# Composite Resistance Raster Creation --------------------------------------------------------
+# All-layer composite rasters -----------------------------------------------------------------
+
+## All-layer resistance composite -------------------------------------------------------------
 
 ## Load resistance rasters
-resistance <- c(
-  terra::rast(input_files[["resistance_fordist"]]),
-  terra::rast(input_files[["resistance_secondary"]]),
-  terra::rast(input_files[["resistance_parks"]]),
-  terra::rast(input_files[["resistance_OGMA"]]),
-  terra::rast(input_files[["resistance_roads"]]),
-  terra::rast(input_files[["resistance_streams"]]),
-  terra::rast(input_files[["resistance_rivers"]]),
-  terra::rast(input_files[["resistance_lakes"]])
-)
+resistance_all <- c(
+  input_files[["resistance_fordist"]],
+  input_files[["resistance_secondary"]],
+  input_files[["resistance_parks"]],
+  input_files[["resistance_OGMA"]],
+  input_files[["resistance_roads"]],
+  input_files[["resistance_streams"]],
+  input_files[["resistance_rivers"]],
+  input_files[["resistance_lakes"]]
+) |>
+  terra::rast()
 
-## Composite resistance stacking with all created feature rasters
-composite_resistance <- terra::lapp(
+composite_resistance_all <- terra::lapp(
   x = resistance,
   fun = function(forest, secondary, parks, ogma, roads, streams, rivers, lakes) {
     ## Add in function where old forest will raise the resistance of secondary PAs
@@ -49,34 +51,32 @@ composite_resistance <- terra::lapp(
   cores = n_cores
 )
 
-# A very small number of pixels (81) show up as 0 which can cause problems with the
-# omniscape run, so reclassify as 1 and classify N/A as 1000
-composite_resistance[composite_resistance == 0] <- 1
-composite_resistance[is.na(composite_resistance)] <- 1000
+## A very small number of pixels (81) show up as 0 which can cause problems with the
+## Omniscape run, so reclassify as 1 and classify N/A as 1000
+composite_resistance_all[composite_resistance_all == 0] <- 1
+composite_resistance_all[is.na(composite_resistance_all)] <- 1000
 
-# write composite resistance raster for Omniscape run
-writeRaster(
-  composite_resistance,
-  input_files[["resistance_composite"]],
+terra::writeRaster(
+  composite_resistance_all,
+  input_files[["resistance_composite_all"]],
   overwrite = TRUE
 )
 
-# Composite Source Weight Raster Creation -----------------------------------------------------
+## All-layer source weight composite ----------------------------------------------------------
 
-sourcewt <- c(
-  terra::rast(input_files[["sourcewt_fordist"]]),
-  terra::rast(input_files[["sourcewt_secondary"]]),
-  terra::rast(input_files[["sourcewt_parks"]]),
-  terra::rast(input_files[["sourcewt_OGMA"]]),
-  terra::rast(input_files[["sourcewt_roads"]]),
-  terra::rast(input_files[["sourcewt_streams"]]),
-  terra::rast(input_files[["sourcewt_rivers"]]),
-  terra::rast(input_files[["sourcewt_lakes"]])
-)
+sourcewt_all <- c(
+  input_files[["sourcewt_fordist"]],
+  input_files[["sourcewt_secondary"]],
+  input_files[["sourcewt_parks"]],
+  input_files[["sourcewt_OGMA"]],
+  input_files[["sourcewt_roads"]],
+  input_files[["sourcewt_streams"]],
+  input_files[["sourcewt_rivers"]],
+  input_files[["sourcewt_lakes"]]
+) |>
+  terra::rast()
 
-## Composite source weight stacking with all created feature rasters (functions are
-## the inverse of the resistance raster functions)
-composite_sourcewt <- terra::lapp(
+composite_sourcewt_all <- terra::lapp(
   x = sourcewt,
   fun = function(forest, secondary, parks, ogma, roads, streams, rivers, lakes) {
     ## Add in function where Old Forest raises source weight of secondary PAs
@@ -113,12 +113,12 @@ composite_sourcewt <- terra::lapp(
 )
 
 ## Replace NA values with 0 to avoid errors in Omniscape run
-composite_sourcewt[is.na(composite_sourcewt)] <- 0
+composite_sourcewt_all[is.na(composite_sourcewt_all)] <- 0
 
 ## write composite source weight raster for Omniscape run
 terra::writeRaster(
-  composite_sourcewt,
-  input_files[["sourcewt_composite"]],
+  composite_sourcewt_all,
+  input_files[["sourcewt_composite_all"]],
   overwrite = TRUE
 )
 

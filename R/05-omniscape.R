@@ -1,43 +1,144 @@
-## Omniscape analysis test based on BC_ConservationConnectivity Github script
+library(JuliaCall)
 
-OmniRadius <- 500
-pixSize <- 30
-BlockSize <- 101
+julia_threads <- 64L ## estimated <8h using 8 cores; <2.5h using 64 cores (~300GB RAM).
+julia_version <- "1.11.7"
 
-## Build ini file for Omniscape
-OS_ini <- c(
-  "[Input files]",
-  paste("resistance_file = ", file.path(inputs_raster_dir, "composite_resistance_omniscape1.tif")),
-  paste("source_file = ", file.path(inputs_raster_dir, "composite_sourcewt_omniscape1.tif")),
-  "[Options]",
-  paste("block_size = ", BlockSize),
-  paste("radius = ", OmniRadius),
-  "buffer = 0",
-  "source_threshold = 0",
-  paste("project_name = ", output_dir),
-  "calc_flow_potential = true",
-  "correct_artifacts = true",
-  "source_from_resistance = false",
-  "r_cutoff = 0.0",
-  "write_raw_currmap = true",
-  "calc_normalized_current = true",
-  "write_as_tif = true",
-  "parallelize = true"
+## TODO: diagnose + fix failures
+julia <- julia_setup(
+  # installJulia = TRUE,
+  rebuild = TRUE,
+  version = julia_version
 )
 
-## write ini file to disk at 'configLocation'
-configLocation <- file.path(omniscape_dir, "config.ini")
-cat(OS_ini, sep = "\n", file = configLocation)
+julia_install_package_if_needed("Omniscape")
 
-## write to jl file - that reads ini file and launches Omniscape on top of Julia
-script <- c("using Omniscape", paste("run_omniscape(", configLocation, ")", sep = "'"))
+## ensure Omniscape is installed
+withr::with_dir(omniscape_dir, {
+  system2(
+    fs::path_expand("~/.juliaup/bin/julia"),
+    c(
+      glue::glue("+{julia_version}"),
+      glue::glue("-t {julia_threads}"),
+      glue::glue("-e 'import Pkg; Pkg.add(\"Omniscape\")'")
+    ),
+    stdout = TRUE
+  )
+})
 
-## Julia is happier if jl file is in directory that Julia is launched from
-cat(script, sep = "\n", file = "script.jl")
+# Biodiversity-focused connectivity -----------------------------------------------------------
 
-## Set up parallel processing
-Sys.setenv(JULIA_NUM_THREADS = 4)
+block_size_bio <- 101
+pixel_size_bio <- 30
+radius_bio <- 500
 
-## Launch Julia
-Julia_exe <- ("julia script.jl") ## TODO: use julia 1.11.7
-system(Julia_exe)
+config_file_bio <- file.path(omniscape_dir, "config_bio.ini")
+julia_script_bio <- file.path(omniscape_dir, "script_bio.jl")
+output_dir_bio <- file.path(output_dir, "bio")
+
+## Omniscape refuses to accidentally overwrite existing directory,
+## so need to preemptively cleanup
+if (dir.exists(output_dir_bio)) {
+  unlink(output_dir_bio, recursive = TRUE)
+}
+
+## Build ini file for Omniscape
+cat(
+  c(
+    glue::glue("[Input files]"),
+    glue::glue("resistance_file = {input_files[['resistance_fordist']]}"),
+    glue::glue("source_file = {input_files[['sourcewt_fordist']]}"),
+    glue::glue("[Options]"),
+    glue::glue("block_size = {block_size_bio}"),
+    glue::glue("radius = {radius_bio}"),
+    glue::glue("buffer = 0"),
+    glue::glue("source_threshold = 0"),
+    glue::glue("project_name = {output_dir_bio}"),
+    glue::glue("calc_flow_potential = true"),
+    glue::glue("correct_artifacts = true"),
+    glue::glue("source_from_resistance = false"),
+    glue::glue("r_cutoff = 0.0"),
+    glue::glue("write_raw_currmap = true"),
+    glue::glue("calc_normalized_current = true"),
+    glue::glue("write_as_tif = true"),
+    glue::glue("parallelize = true")
+  ),
+  sep = "\n",
+  file = config_file_bio
+)
+
+## create Julia script to run Omniscape
+cat(
+  c(
+    glue::glue("using Omniscape"),
+    glue::glue("run_omniscape('{config_file_bio}')")
+  ),
+  sep = "\n",
+  file = julia_script_bio
+)
+
+## launch Julia
+withr::with_dir(omniscape_dir, {
+  system2(
+    fs::path_expand("~/.juliaup/bin/julia"),
+    c(
+      glue::glue("+{julia_version}"),
+      glue::glue("-t {julia_threads}"),
+      glue::glue("{julia_script_bio}")
+    ),
+    # env = c(JULIA_NUM_THREADS = julia_threads),
+    stdout = TRUE
+  )
+})
+
+# All-layer connectivity ----------------------------------------------------------------------
+
+block_size_all <- 101
+pixel_size_all <- 30
+radius_all <- 500
+
+config_file_all <- file.path(omniscape_dir, "config_all.ini")
+output_dir_all <- file.path(output_dir, "all") |> fs::dir_create()
+
+## Build ini file for Omniscape
+cat(
+  c(
+    glue::glue("[Input files]"),
+    glue::glue("resistance_file = {input_files[['resistance_composite_all']]}"),
+    glue::glue("source_file = {input_files[['sourcewt_composite_all']]}"),
+    glue::glue("[Options]"),
+    glue::glue("block_size = {block_size_all}"),
+    glue::glue("radius = {radius_all}"),
+    glue::glue("buffer = 0"),
+    glue::glue("source_threshold = 0"),
+    glue::glue("project_name = {output_dir_all}"),
+    glue::glue("calc_flow_potential = true"),
+    glue::glue("correct_artifacts = true"),
+    glue::glue("source_from_resistance = false"),
+    glue::glue("r_cutoff = 0.0"),
+    glue::glue("write_raw_currmap = true"),
+    glue::glue("calc_normalized_current = true"),
+    glue::glue("write_as_tif = true"),
+    glue::glue("parallelize = true")
+  ),
+  sep = "\n",
+  file = config_file_all
+)
+
+## create Julia script to run Omniscape
+cat(
+  c(
+    glue::glue("using Omniscape"),
+    glue::glue("run_omniscape(\"{config_file_bio}\")")
+  ),
+  sep = "\n",
+  file = julia_script_bio
+)
+
+## launch Julia
+withr::with_dir(omniscape_dir, {
+  system2(
+    "julia",
+    glue::glue("+{julia_version} script.jl"),
+    env = c(JULIA_NUM_THREADS = julia_threads)
+  )
+})
