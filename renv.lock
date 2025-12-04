@@ -879,27 +879,6 @@
       ],
       "Hash": "a065e21174bbce1866deff1e30d26ca5"
     },
-    "ggspatial": {
-      "Package": "ggspatial",
-      "Version": "1.1.10",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "abind",
-        "ggplot2",
-        "glue",
-        "grid",
-        "methods",
-        "rlang",
-        "rosm",
-        "scales",
-        "sf",
-        "tibble",
-        "tidyr"
-      ],
-      "Hash": "a065e21174bbce1866deff1e30d26ca5"
-    },
     "gh": {
       "Package": "gh",
       "Version": "1.5.0",
@@ -1300,19 +1279,6 @@
       ],
       "Hash": "6debfba65f9df176bbb98bc63f934272"
     },
-    "lwgeom": {
-      "Package": "lwgeom",
-      "Version": "0.2-14",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "Rcpp",
-        "sf",
-        "units"
-      ],
-      "Hash": "f1fb7cc9fc60f3b039201174268aaad9"
-    },
     "magrittr": {
       "Package": "magrittr",
       "Version": "2.0.4",
@@ -1569,7 +1535,7 @@
       "Package": "renv",
       "Version": "1.1.5",
       "Source": "Repository",
-      "Repository": "https://packagemanager.posit.co/all/latest",
+      "Repository": "RSPM",
       "Requirements": [
         "utils"
       ],
