@@ -7,80 +7,26 @@ base_raster <- terra::rast(input_files[["LCC"]])
 ## Create Forest Age Layer --------------------------------------------------------------------
 
 local({
-  forest_disturb <- sf::st_read(input_files[["forest_disturbance"]]) |>
-    dplyr::select(SIFA) ## simple inferred forest age (SIFA)
-
-  ## Load BEC feature layer containing BEC zones and Natural Disturbance Types;
-  ## ensure it matches the formatting in the Biodiversity Guidebook
-  bec_ndt <- sf::st_read(input_files[["BECNDT"]])
-
-  ## Load VRI for dominant species information to distinguish 4-IDF-Fd from 4-IDF-Pl,
-  ## which aligns with the Biodiversity Guidebook
-  vri <- sf::st_read(input_files[["VRI"]]) |>
-    dplyr::select(SPECIES_CD_1)
-
-  ## Join forest disturbance with VRI, then join with NDT-BEC to capture SIFA,
-  ## BEC Zone, NDT, and dominant species in one feature layer
-  disturb_vri <- sf::st_join(forest_disturb, vri, left = FALSE)
-  disturb_full <- sf::st_join(disturb_vri, bec_ndt, left = FALSE) ## very slow...
-
-  ## Refine NDT-BEC column to assign labels for NDT4-IDF-FD and NDT4-IDF-PL based on
-  ## dominant species in NDT4-IDF according to the Biodiversity Guidebook
-  disturb_full <- disturb_full |>
-    mutate(
-      base_NDT_BEC = paste0(NATURAL_DISTURBANCE, "-", ZONE),
-      NDT_BEC = dplyr::case_when(
-        base_NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD_1) ~ "NDT4-IDF-FD",
-        base_NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4-IDF-PL",
-        TRUE ~ base_NDT_BEC
-      )
-    )
-
-  ## Define NDT-BEC-specific age class thresholds according to the Biodiversity
-  ## Guidebook seral stage definitions table
-  thresholds <- tibble::tribble(
-    ~NDT_BEC      , ~Early , ~Mid , ~Mature , ~Old ,
-    "NDT1-ESSF"   ,      0 ,   40 ,     120 ,  250 ,
-    "NDT1-ICH"    ,      0 ,   40 ,     100 ,  250 ,
-    "NDT1-MH"     ,      0 ,   40 ,     120 ,  250 ,
-    "NDT2-CWH"    ,      0 ,   40 ,     80  ,  250 ,
-    "NDT2-ESSF"   ,      0 ,   40 ,     120 ,  250 ,
-    "NDT2-ICH"    ,      0 ,   40 ,     100 ,  250 ,
-    "NDT2-SBS"    ,      0 ,   40 ,     100 ,  250 ,
-    "NDT3-ESSF"   ,      0 ,   40 ,     120 ,  140 ,
-    "NDT3-ICH"    ,      0 ,   40 ,     100 ,  140 ,
-    "NDT3-MS"     ,      0 ,   40 ,     100 ,  140 ,
-    "NDT3-SBS"    ,      0 ,   40 ,     100 ,  140 ,
-    "NDT3-SBPS"   ,      0 ,   40 ,     100 ,  140 ,
-    "NDT4-IDF-FD" ,      0 ,   40 ,     100 ,  250 ,
-    "NDT4-IDF-PL" ,      0 ,   40 ,     100 ,  140
-  )
+  forest_disturb <- sf::st_read(input_files[["forest_disturbance_seral"]], quiet = TRUE)
 
   ## Apply resistance and source weight values to forest age class thresholds
-  disturb_classified <- disturb_full |>
-    dplyr::left_join(thresholds, by = "NDT_BEC") |>
+  disturb_classified <- forest_disturb |>
     dplyr::mutate(
-      SIFA = as.numeric(SIFA),
       Resistance = dplyr::case_when(
-        is.na(SIFA) ~ 1000,
-        SIFA < Mid ~ 750,
-        SIFA < Mature ~ 500,
-        SIFA < Old ~ 250,
-        TRUE ~ 1
+        is.na(Seral) ~ 1000,
+        Seral == "Early" ~ 750,
+        Seral == "Mid" ~ 500,
+        Seral == "Mature" ~ 250,
+        Seral == "Old" ~ 1,
+        .default = 1000
       ),
       SourceWt = dplyr::case_when(
-        is.na(SIFA) ~ 0,
-        SIFA < Mid ~ 0.25,
-        SIFA < Mature ~ 0.5,
-        SIFA < Old ~ 0.75,
-        TRUE ~ 1
-      ),
-      AgeClass = dplyr::case_when(
-        is.na(SIFA) ~ "Non-forested",
-        SIFA < Mid ~ "Early",
-        SIFA < Mature ~ "Mid",
-        SIFA < Old ~ "Mature",
-        TRUE ~ "Old"
+        is.na(Seral) ~ 0,
+        Seral == "Early" ~ 0.25,
+        Seral == "Mid" ~ 0.5,
+        Seral == "Mature" ~ 0.75,
+        Seral == "Old" ~ 1,
+        .default = 0
       )
     )
 
@@ -170,7 +116,7 @@ local({
   )
 })
 
-## WHA, MDWR, Moose Wetlands, and Wetland Layers ----------------------------------------------
+## WHA, MDWR, Moose Wetlands ------------------------------------------------------------------
 
 local({
   ## Assign resistance and source weight values directly
@@ -183,11 +129,8 @@ local({
   moose_wet_vals <- sf::st_read(input_files[["moose_wetlands"]]) |>
     dplyr::mutate(Resistance = 250, SourceWt = 0.75)
 
-  wetlands_vals <- sf::st_read(input_files[["wetlands"]]) |>
-    dplyr::mutate(Resistance = 250, SourceWt = 0.75)
-
   ## Combine all layers together for easy handling for composite raster creation
-  combined_features <- dplyr::bind_rows(wha_vals, mdwr_vals, moose_wet_vals, wetlands_vals)
+  combined_features <- dplyr::bind_rows(wha_vals, mdwr_vals, moose_wet_vals)
 
   ## Rasterize and save outputs
   terra::rasterize(
@@ -203,6 +146,30 @@ local({
     base_raster,
     field = "SourceWt",
     filename = input_files[["sourcewt_secondary"]],
+    overwrite = TRUE
+  )
+})
+
+## Wetlands -----------------------------------------------------------------------------------
+
+local({
+  wetlands <- sf::st_read(input_files[["wetlands"]]) |>
+    dplyr::mutate(Resistance = 250, SourceWt = 0.75)
+
+  ## Rasterize and save outputs
+  terra::rasterize(
+    wetlands,
+    base_raster,
+    field = "Resistance",
+    filename = input_files[["resistance_wetlands"]],
+    overwrite = TRUE
+  )
+
+  terra::rasterize(
+    wetlands,
+    base_raster,
+    field = "SourceWt",
+    filename = input_files[["sourcewt_wetlands"]],
     overwrite = TRUE
   )
 })

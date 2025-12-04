@@ -11,8 +11,6 @@ library(tibble)
 library(sf)
 library(spatialEco)
 library(terra)
-library(raster) ## TODO: remove and use terra
-library(fasterize) ## TODO: remove and use terra
 
 ## geospatial data packages
 library(bcdata)
@@ -63,6 +61,9 @@ input_files <- list(
   WHA = file.path(inputs_dir, "WHA.gpkg"),
 
   forest_disturbance = file.path(inputs_dir, "forest_disturbance.gpkg"),
+  forest_disturbance_joined = file.path(inputs_dir, "forest_disturbance_joined.gpkg"),
+  forest_disturbance_seral = file.path(inputs_dir, "forest_disturbance_seral.gpkg"),
+
   human_disturbance = file.path(inputs_dir, "human_disturbance.gpkg"),
   moose_wetlands = file.path(inputs_dir, "moose_wetlands.gpkg"),
   parks = file.path(inputs_dir, "parks.gpkg"),
@@ -86,9 +87,13 @@ input_files <- list(
   resistance_roads = file.path(inputs_raster_dir, "resistance_roads_.tif"),
   sourcewt_roads = file.path(inputs_raster_dir, "sourcewt_roads.tif"),
 
-  ## consolidated WHA, MDWR, moose wetlands, and wetlands (secondary protected areas)
+  ## consolidated WHA, MDWR, moose wetlands (secondary protected areas)
   resistance_secondary = file.path(inputs_raster_dir, "resistance_secondary.tif"),
   sourcewt_secondary = file.path(inputs_raster_dir, "sourcewt_secondary.tif"),
+
+  ## wetlands
+  resistance_wetlands = file.path(inputs_raster_dir, "resistance_wetlands.tif"),
+  sourcewt_wetlands = file.path(inputs_raster_dir, "sourcewt_wetlands.tif"),
 
   ## OGMA
   resistance_OGMA = file.path(inputs_raster_dir, "resistance_OGMA.tif"),
@@ -109,8 +114,8 @@ input_files <- list(
   sourcewt_streams = file.path(inputs_raster_dir, "sourcewt_streams.tif"),
 
   ## composite rasters
-  resistance_composite_all = file.path(inputs_raster_dir, "resistance_composite_all.tif"),
-  sourcewt_composite_all = file.path(inputs_raster_dir, "sourcewt_composite_all.tif")
+  resistance_composite = file.path(inputs_raster_dir, "resistance_composite.tif"),
+  sourcewt_composite = file.path(inputs_raster_dir, "sourcewt_composite.tif")
 )
 
 ## download data

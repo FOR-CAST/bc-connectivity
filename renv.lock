@@ -210,20 +210,6 @@
       ],
       "Hash": "0d3d8867aa41b0d9ad113b50c169ecb2"
     },
-    "RcppArmadillo": {
-      "Package": "RcppArmadillo",
-      "Version": "15.0.2-2",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "Rcpp",
-        "methods",
-        "stats",
-        "utils"
-      ],
-      "Hash": "58f3d2b5e2b8d44756c2d21e24b719e9"
-    },
     "S7": {
       "Package": "S7",
       "Version": "0.2.1",
@@ -701,20 +687,6 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "680887028577f3fa2a81e410ed0d6e42"
-    },
-    "fasterize": {
-      "Package": "fasterize",
-      "Version": "1.1.0",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "R",
-        "Rcpp",
-        "RcppArmadillo",
-        "raster",
-        "wk"
-      ],
-      "Hash": "1f5c0d9e5f788c5d6ff2d03b949effae"
     },
     "fastmap": {
       "Package": "fastmap",
