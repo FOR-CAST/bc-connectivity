@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-03"
+date: "Last updated: 2025-12-04"
 output: 
   html_document: 
     keep_md: true
@@ -30,35 +30,65 @@ After originally following a human disturbance-based connectivity modelling appr
 
 The `R` programming language and environment for statistical computing [@RCore:2025] was used for compiling spatial data, using the [`bcdata`](https://github.com/bcgov/bcdata) [@Teucher:2021] and [`bcmaps`](https://github.com/bcgov/bcmaps) [@Teucher:2024] packages wherever possible; manual downloads were used as needed from government repositories.
 
-The script downloads the following feature layers: 
-
-1. Protected area features (Old Growth Management Areas, BC Parks/Ecological Reserves, Mule Deer Winter Range Zones, Wildlife Habitat Areas, High Value Moose Wetlands);
-
-2. Water features (lakes, wetlands, rivers, stream networks);
-
-3. Anthropogenic features (human disturbance, highways, roads, railway);
-
-4. Environmental features (Vegetation Resource Inventory, burn severity, forest disturbances, Biogeoclimatic Ecosystem Classifications);
-
-5. Other (landscape units, landcover, Digital Elevation Model (DEM)). 
-
 All vector data layers were projected to a common CRS and clipped to a boundary of the Quesnel NRD using the `sf` package [@Pebesma:2018; @Pebesma:2023].
 
-## Landscape resistance scores
+**Planning Area Boundaries:**
 
-Data layers with associated variables and attributes were compiled into a spreadsheet to organize the downloaded feature data. 
+- Landscape Units of British Columbia [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/11277e35-d8be-47e4-bb1f-c38e393179c6>);
 
-A column detailing data treatment for Omniscape was created, including resistance/source weights rationales, if/how the data was buffered, or if/how the data was filtered). 
+- Natural Resource District Boundaries [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/0bc73892-e41f-41d0-8d8e-828c16139337/resource/2d9d0a5c-bdf7-47e8-9038-103a93e6205a);
 
-Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies.
+**Landcover:**
 
-### Biodiversity-focused analyses
+- Land Cover of Canada (2020) [&#x1F517;](https://open.canada.ca/data/en/dataset/ee1580ab-a23d-4f86-a09b-79763677eb47/resource/f1ba2faa-ff10-4526-815a-c57b99eef1bb);
 
-Set resistance scores via the Forest Disturbance layer, based on seral stage via BEC classification.
+**Digital Elevation Model:**
 
-## Extended analyses
+- Canadian Digital Elevation Model (CDED) via the [`bcmaps`](https://github.com/bcgov/bcmaps) package [@Teucher:2024];
 
-Set resistance scores via composite of all layers.
+**Environmental Features:**
+
+<!-- TODO: add source for `BC_CEF_Forest_Disturbance_2024` -->
+- BC Cumulative Effects Framework Forest Disturbance (2024) (not publicly available);
+
+- Biogeoclimatic Ecosystem Classification (BEC) Zone/Subzone/Variant/Phase map (version 12, September 2, 2021) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f358a53b-ffde-4830-a325-a5a03ff672c3);
+
+- Fire Burn Severity [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/c58a54e5-76b7-4921-94a7-b5998484e697);
+
+- Vegetation Resource Inventory (2023) [&#x1F517;](https://open.canada.ca/data/en/dataset/02dba161-fdb7-48ae-a4bb-bd6ef017c36d/resource/c55269ee-ed89-4a47-8362-0a627c599689);
+
+**Primary Biodiversity Features:**
+
+- BC Parks, Ecological Reserves, and Protected Areas [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/1130248f-f1a3-4956-8b2e-38d29d3e4af7);
+
+- Old Growth Management Areas (OGMAs) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/1b30f3bd-0ad0-4128-916b-66c6dd91dea4);
+
+**Secondary Biodiversity Features:**
+
+- High Value Moose Wetlands (HVMW) from Cariboo Chilcotin Land Use Plan [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/2c02040c-d7c5-4960-8d04-dea01d6d3e9f);
+
+- Mule Deer Winter Range Habitat Management Zones - Cariboo Region [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/a60d7b6e-88b2-4105-95e2-aaf6cc3468cf);
+
+- Freshwater Atlas Wetlands [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/93b413d8-1840-4770-9629-641d74bd1cc6);
+
+- Wildlife Habitat Areas (WHAs) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/b19ff409-ef71-4476-924e-b3bcf26a0127);
+
+**Water Features:**
+
+- Freshwater Atlas Lakes [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/cb1e3aba-d3fe-4de1-a2d4-b8b6650fb1f6);
+
+- Freshwater Atlas Rivers [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f7dac054-efbf-402f-ab62-6fc4b32a619e);
+
+- Freshwater Atlas Stream Network [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/92344413-8035-4c08-b996-65a9b3f62fca);
+
+**Anthropogenic Disturbance Features:**
+
+- BC Cumulative Effects Framework Human Disturbance (2023) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/bc-cumulative-effects-framework-human-disturbance-current);
+
+<!-- TODO: add source for `Cariboo_Consolidated_Roads.gdb` -->
+- Cariboo Consolidated Roads (not publicly available);
+
+- Railway Track Lines [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/4ff93cda-9f58-4055-a372-98c22d04a9f8);
 
 ## Moving window size
 
@@ -82,11 +112,6 @@ Stratified interpatch assessments where protected area polygon distances were ba
 
 Similarly, we performed edge-to-edge Nearest Neighbour distances for protected features in order to compare the values with the centroid analyses.
 
-## Static barriers for intact forest resistance
-
-<!-- TODO -->
-- *in progress*
-
 ## Connectivity modelling
 
 ### Data preparation
@@ -101,24 +126,35 @@ Feature layers were rasterized from vector data into a resistance raster and a s
 
 #### Input layer creation
 
-**Forest Age Classification:**
+Data layers with associated variables and attributes were compiled into a spreadsheet to organize the downloaded feature data. 
 
-Projected stand age after significant disturbances (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and BEC-NDT (Natural Disturbance Type and BEC Zone) layers. 
+A column detailing data treatment for Omniscape was created, including resistance/source weights rationales, if/how the data was buffered, or if/how the data was filtered). 
+
+Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies.
+
+**Environmental Features:**
+
+Projected stand age after significant disturbances (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers.
 
 Each polygon was assigned a seral stage using thresholds from the Biodiversity Guidebook [@BritishColumbia:1995], and corresponding resistance and source weight values were applied (*e.g.*, early forest = high resistance, old forest = low resistance).
 
+<!-- TODO: verify Biodiversity Guidebook vs CEF -->
+
 Patch definitions follow the Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
-**Primary Biodiversity Features:**
+**Biodiversity Features:**
 
-OGMAs and BC Parks/Ecological Reserves were assigned the lowest resistance (1) and highest source weight (1) reflecting optimal biodiversity potential.
+General wetlands were assigned moderate resistance (250) and source weight (0.75), reflecting secondary biodiversity potential.
 
+Other biodiversity features were used for summarizing connectivity analyses, rather than informing landscape resistance and source weight values directly:
 
-**Secondary Biodiversity Features:**
+- BC Parks, Protected Areas, and Ecological Reserves layers 
+- Old Growth Management Areas;
+- Wildlife Habitat Areas;
+- Mule Deer Winter Ranges;
+- High Value Moose Wetlands (HVMW);
 
-Wildlife Habitat Areas, Mule Deer Winter Range (MDWR) Zones, High Value Moose Wetlands (HVMW), and general wetlands were assigned moderate resistance (250) and source weight (0.75), reflecting secondary biodiversity potential. 
-
-**Linear Disturbance Features:**
+**Anthropogenic Disturbance Features:**
 
 A consolidated roads layer for the Cariboo region was merged with a provincial railways layer. 
 
