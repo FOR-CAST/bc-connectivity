@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-04"
+date: "Last updated: 2025-12-09"
 output: 
   html_document: 
     keep_md: true
@@ -262,7 +262,7 @@ import Pkg; Pkg.add("Omniscape")
 
 
 ``` r
-fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]") 
+fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
 ```
 
 ```
@@ -275,6 +275,10 @@ fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
 ## ├── README.Rmd
 ## ├── README.html
 ## ├── README.md
+## ├── README_files
+## ├── _dependencies.R
+## ├── _targets
+## ├── _targets.R
 ## ├── air.toml
 ## ├── bc-connectivity.Rproj
 ## ├── citations
@@ -285,6 +289,16 @@ fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
 ```
 
 ## Workflow
+
+This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
+
+```
+## Run the workflow:
+tar_make()
+
+## Visualize the target dependencies:
+tar_visnetwork()
+```
 
 
 

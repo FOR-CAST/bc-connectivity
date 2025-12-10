@@ -7,7 +7,7 @@ graph [layout = dot, rankdir = LR]
 node [shape = rectangle, style = filled, fillcolor = linen]
 
 subgraph cluster_data {
-  label = 'Data preparation'
+  label = 'Download data'
   bgcolor = azure
 
   data_prtct [label = 'Protected Area Features', shape = cylinder]
@@ -18,24 +18,23 @@ subgraph cluster_data {
 }
 
 subgraph cluster_resistance {
-  label = 'Landscape resistance scores'
-  bgcolor = lightsalmon
-
-  resist_value [label = 'Assign values', shape = tab]
-  resist_weigh [label = 'Assign weights', shape = tab]
-}
-
-subgraph cluster_moving_window {
-  label = 'Moving window size'
+  label = 'Connectivity scores'
   bgcolor = sandybrown
 
-  nn_ogma [label = 'Nearest Neighbour OGMAs', shape = tab]
-  nn_parks [label = 'Nearest Neighbour OGMAs + Parks', shape = tab]
-  nn_wha [label = 'Nearest Neighbour OGMAs + Parks + WHAs', shape = tab]
+  resist_value [label = 'Assign resistance values', shape = tab]
+  resist_weigh [label = 'Assign source weights', shape = tab]
+}
+
+subgraph cluster_interpatch {
+  label = 'Interpatch assessment'
+  bgcolor = palegreen
+
+  patches [label = 'Define patches\n(Seral = Old)', shape = tab]
+  nn_patches [label = 'Nearest neighbour distances', shape = tab]
 }
 
 subgraph cluster_rasterize {
-  label = 'Rasterize'
+  label = 'Create rasters'
   bgcolor = lavender
 
   raster_create [label = 'Rasterize polygons', shape = tab]
@@ -44,18 +43,18 @@ subgraph cluster_rasterize {
 
 subgraph cluster_connectivity {
   label = 'Omniscape runs'
-  bgcolor = sandybrown
+  bgcolor = steelblue1
 
   omniscape [label = 'Connectivity maps', shape = tab]
 }
 
 # edge definitions with the node IDs
-{data_prtct, data_water, data_anthr, data_envir, data_other} -> raster_create
-{data_prtct, data_water, data_anthr, data_envir, data_other} -> {nn_ogma, nn_parks, nn_wha}
-raster_create -> {resist_value, resist_weigh}
-{resist_value, resist_weigh} -> raster_composite
-{nn_ogma, nn_parks, nn_wha} -> omniscape [style = dashed]
-raster_composite -> omniscape
+{data_prtct, data_water, data_anthr, data_envir, data_other} -> {resist_value, resist_weigh}
+{resist_value, resist_weigh} -> raster_create
+data_envir -> patches
+raster_create -> raster_composite
+patches -> nn_patches
+{nn_patches, raster_composite} -> omniscape [style = dashed]
 
 }"
 ) |>
