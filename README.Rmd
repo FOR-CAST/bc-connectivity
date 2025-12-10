@@ -263,10 +263,20 @@ import Pkg; Pkg.add("Omniscape")
 ## Directory structure
 
 ```{r dir-structure}
-fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]") 
+fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
 ```
 
 ## Workflow
+
+This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
+
+```
+## Run the workflow:
+tar_make()
+
+## Visualize the target dependencies:
+tar_visnetwork()
+```
 
 ```{r workflow-diagram, echo = FALSE}
 source("scripts/workflow_diagram.R")

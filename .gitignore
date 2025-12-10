@@ -1,7 +1,9 @@
+_targets/
 Data
 Data/
 Outputs
 Outputs/
+README_files/
 Teams
 Teams/
 *.html
