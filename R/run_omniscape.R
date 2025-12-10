@@ -27,7 +27,6 @@ if (FALSE) {
   })
 }
 
-## TODO: add to _targets.R
 write_omniscape_config <- function(run_name, window_size) {
   block_size <- 101
   pixel_size <- 30

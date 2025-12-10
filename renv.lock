@@ -397,6 +397,18 @@
       ],
       "Hash": "40415719b5a479b87949f3aa0aee737c"
     },
+    "boot": {
+      "Package": "boot",
+      "Version": "1.3-32",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "graphics",
+        "stats"
+      ],
+      "Hash": "d39b147eb7fe9df64a1a55f72346360c"
+    },
     "bslib": {
       "Package": "bslib",
       "Version": "0.9.0",
@@ -662,6 +674,18 @@
         "withr"
       ],
       "Hash": "e38d7151c767b00b919091be4686e274"
+    },
+    "deldir": {
+      "Package": "deldir",
+      "Version": "2.0-4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "grDevices",
+        "graphics"
+      ],
+      "Hash": "24754fce82729ff85317dd195b6646a8"
     },
     "desc": {
       "Package": "desc",
@@ -1895,6 +1919,34 @@
       ],
       "Hash": "ce0c8d7dc7715a383d874eb5be01edd5"
     },
+    "sfdep": {
+      "Package": "sfdep",
+      "Version": "0.2.5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "cli",
+        "rlang",
+        "sf",
+        "spdep",
+        "stats"
+      ],
+      "Hash": "28be127a2d1e38195d19a555e63548d3"
+    },
+    "smoothr": {
+      "Package": "smoothr",
+      "Version": "1.2.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "sf",
+        "stats",
+        "units"
+      ],
+      "Hash": "cdc3d9340fb6d0aed63e6f2342462ea5"
+    },
     "sp": {
       "Package": "sp",
       "Version": "2.2-0",
@@ -1912,6 +1964,17 @@
       ],
       "Hash": "d9ff3b753db98bc50650314c8782abe6"
     },
+    "spData": {
+      "Package": "spData",
+      "Version": "2.3.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "sp"
+      ],
+      "Hash": "0ca3db75e1dcb69b2de1cf5a8097e822"
+    },
     "spatialEco": {
       "Package": "spatialEco",
       "Version": "2.0-3",
@@ -1923,6 +1986,29 @@
         "terra"
       ],
       "Hash": "c5c07c8ed9a0559572f52b26f1b3bb37"
+    },
+    "spdep": {
+      "Package": "spdep",
+      "Version": "1.4-1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "boot",
+        "deldir",
+        "e1071",
+        "grDevices",
+        "graphics",
+        "methods",
+        "s2",
+        "sf",
+        "sp",
+        "spData",
+        "stats",
+        "units",
+        "utils"
+      ],
+      "Hash": "16955765fd82e0e4b105392d400f4ff2"
     },
     "stringi": {
       "Package": "stringi",

@@ -2,8 +2,9 @@
 
 calc_patch_stats <- function(for_dist_seral) {
   for_dist_seral_summary <- for_dist_seral |>
-    ## TODO: filter(Area < min_area) |> ## b/c of slivers
-    dplyr::mutate(Area = sf::st_area(geom), .before = "geom") |>
+    ## reset geometry col name to ensure it's consistent
+    sf::st_set_geometry("geom") |>
+    dplyr::mutate(Area = sf::st_area(geom, .before = "geom")) |>
     dplyr::filter(!is.na(Seral)) |>
     dplyr::group_by(NDT_BEC, Seral) |>
     dplyr::summarise(
@@ -32,20 +33,40 @@ save_patch_stats <- function(stats_df) {
 
 # Interpatch assessment (moving window size) --------------------------------------------------
 
+## per the CEF Biodiversity Protocol (§3.2.2):
+##   Unique patches are formed if similarly-aged forest polygons are separated >100m,
+##   such that small residual patches <1ha in size and 'peninsulas' or corridors
+##   (e.g. riparian corridors) of different aged forest <100m wide within a larger
+##   similarly aged forest patch are included as part of that singular patch.
+
 ## extract old forest patches and dissolve the polygons
 extract_old_patches <- function(for_dist_seral) {
   for_dist_seral |>
+    smoothr::fill_holes(units::set_units(1, ha)) |>
     dplyr::filter(Seral == "Old") |>
     sf::st_collection_extract("POLYGON") |>
     spatialEco::sf_dissolve("Seral") |>
     sf::st_cast("POLYGON")
 }
 
-## plot for visual inspection
-plot_old_patches <- function(for_dist_old) {
+## combine old patches within 100m
+combine_old_patches <- function(for_dist_old) {
+  ## combine polygons that are within specified distance,
+  ## following <https://github.com/r-spatial/sf/issues/2022>
+  nb <- suppressWarnings({
+    sfdep::st_contiguity(for_dist_old, snap = 100) ## some observations have no neighbours
+  })
+
+  comp <- spdep::n.comp.nb(nb)
+
+  aggregate(for_dist_old, list(comp$comp.id), head, n = 1) |>
+    smoothr::fill_holes(units::set_units(1, ha))
+}
+
+plot_old_patches <- function(for_dist_old_agg) {
   dst <- file.path(get_path("figures"), "Quesnel_TSA_for_dist_old.png")
 
-  gg_for_dist_old <- ggplot(for_dist_old) +
+  gg_for_dist_old <- ggplot(for_dist_old_agg) +
     geom_sf() +
     theme_bw() +
     annotation_north_arrow(
@@ -57,7 +78,7 @@ plot_old_patches <- function(for_dist_old) {
     ) +
     xlab("Longitude") +
     ylab("Latitude") +
-    ggtitle("Quesnel NRD Old Patches")
+    ggtitle("Quesnel NRD Old Patches (Aggregated)")
 
   ggsave(dst, gg_for_dist_old)
 

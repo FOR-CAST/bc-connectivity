@@ -37,7 +37,7 @@ tar_option_set(
   ## Pipelines that take a long time to run may benefit from
   ## optional distributed computing. To use this capability
   ## in tar_make(), supply a {crew} controller
-  ## as discussed at https://books.ropensci.org/targets/crew.html.
+  ## as discussed at <https://books.ropensci.org/targets/crew.html>.
   ## Choose a controller that suits your needs. For example, the following
   ## sets a controller that scales up to a maximum of two workers
   ## which run as local R processes. Each worker launches when there is work
@@ -134,7 +134,7 @@ list(
   ),
   tar_target(
     name = BECNDT_png,
-    command = plot_bec_ndt(BECNDT),
+    command = plot_bec_ndt(BECNDT, Quesnel_TSA),
     format = "file"
   ),
 
@@ -167,21 +167,17 @@ list(
     format = "file"
   ),
   tar_target(
-    name = forest_disturbance_joined,
-    command = create_forest_disturbance_joined(forest_disturbance, VRI_BECNDT)
-  ),
-  tar_target(
-    name = forest_disturbance_joined_gpkg,
-    command = save_gpkg(forest_disturbance_joined, "forest_disturbance_joined.gpkg"),
-    format = "file"
-  ),
-  tar_target(
     name = forest_disturbance_seral,
-    command = create_forest_disturbance_seral(forest_disturbance_joined)
+    command = create_forest_disturbance_seral(forest_disturbance, VRI_BECNDT)
   ),
   tar_target(
     name = forest_disturbance_seral_gpkg,
     command = save_gpkg(forest_disturbance_seral, "forest_disturbance_seral.gpkg"),
+    format = "file"
+  ),
+  tar_target(
+    name = forest_disturbance_seral_png,
+    command = plot_forest_disturbance_seral(forest_disturbance_seral),
     format = "file"
   ),
 
@@ -298,15 +294,15 @@ list(
     command = save_gpkg(roads, "roads.gpkg"),
     format = "file"
   ),
-  # tar_target(
-  #   name = roads_railways,
-  #   command = create_roads_railways(roads, railways)
-  # ),
-  # tar_target(
-  #   name = roads_railways_gpkg,
-  #   command = save_gpkg(roads_railways, "roads_railways.gpkg"),
-  #   format = "file"
-  # ),
+  tar_target(
+    name = roads_railways,
+    command = create_roads_railways(roads, railways)
+  ),
+  tar_target(
+    name = roads_railways_gpkg,
+    command = save_gpkg(roads_railways, "roads_railways.gpkg"),
+    format = "file"
+  ),
   tar_target(
     name = human_disturbance,
     command = get_human_disturbance(Quesnel_TSA, LCC)
@@ -334,13 +330,17 @@ list(
     command = extract_old_patches(forest_disturbance_seral)
   ),
   tar_target(
+    name = old_patches_agg,
+    command = combine_old_patches(old_patches)
+  ),
+  tar_target(
     name = old_patches_png,
-    command = plot_old_patches(old_patches),
+    command = plot_old_patches(old_patches_agg),
     format = "file"
   ),
   tar_target(
     name = nn_dist,
-    command = calc_nn_dists(old_patches)
+    command = calc_nn_dists(old_patches_agg)
   ),
   tar_target(
     name = nn_dist_png,
@@ -349,7 +349,7 @@ list(
   ),
   tar_target(
     name = all_dist,
-    command = calc_all_dists(old_patches)
+    command = calc_all_dists(old_patches_agg)
   ),
   tar_target(
     name = all_dist_png,
@@ -363,7 +363,7 @@ list(
     command = create_resistance_raster(
       polys = forest_disturbance_seral,
       rasterToMatch = LCC,
-      dst = "resistance_forest_disturbance.tif"
+      dst = "resistance_forest.tif"
     ),
     format = "file"
   ),
@@ -372,29 +372,29 @@ list(
     command = create_sourcewt_raster(
       polys = forest_disturbance_seral,
       rasterToMatch = LCC,
-      dst = "sourcewt_forest_disturbance.tif"
+      dst = "sourcewt_forest.tif"
     ),
     format = "file"
   ),
 
-  # tar_target(
-  #   name = resistance_roads_railways,
-  #   command = create_resistance_raster(
-  #     polys = roads_railways,
-  #     rasterToMatch = LCC,
-  #     dst = "resistance_roads.tif"
-  #   ),
-  #   format = "file"
-  # ),
-  # tar_target(
-  #   name = sourcewt_roads_railways,
-  #   command = create_sourcewt_raster(
-  #     polys = roads_railways,
-  #     rasterToMatch = LCC,
-  #     dst = "sourcewt_roads.tif"
-  #   ),
-  #   format = "file"
-  # ),
+  tar_target(
+    name = resistance_roads_railways,
+    command = create_resistance_raster(
+      polys = roads_railways,
+      rasterToMatch = LCC,
+      dst = "resistance_roads.tif"
+    ),
+    format = "file"
+  ),
+  tar_target(
+    name = sourcewt_roads_railways,
+    command = create_sourcewt_raster(
+      polys = roads_railways,
+      rasterToMatch = LCC,
+      dst = "sourcewt_roads.tif"
+    ),
+    format = "file"
+  ),
 
   tar_target(
     name = resistance_ogma,
@@ -554,6 +554,13 @@ list(
   #     wetlands = sourcewt_wetlands,
   #     dst = "sourcewt_composite.tif"
   #   ),
+  #   format = "file"
+  # ),
+
+  ## omniscape config
+  # tar_target(
+  #   name = omniscape_config,
+  #   command = write_omniscape_config(run_name, window_size), ## TODO
   #   format = "file"
   # ),
 

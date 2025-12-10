@@ -131,7 +131,7 @@ seral_stages <- function() {
   )
 }
 
-seral_stages_long <- function() {
+seral_stages_long <- function(max_age) {
   seral_stages() |>
     tidyr::pivot_longer(
       cols = Early:Old,
@@ -141,7 +141,7 @@ seral_stages_long <- function() {
     dplyr::group_by(NDT_BEC) |>
     dplyr::arrange(match(Seral, c("Early", "Mid", "Mature", "Old")), .by_group = TRUE) |>
     dplyr::mutate(
-      Age_Max = dplyr::lead(Age_Min, default = max(for_dist_joined$SIFA, na.rm = TRUE) + 1)
+      Age_Max = dplyr::lead(Age_Min, default = max_age + 1)
     ) |>
     dplyr::relocate(Seral, .after = Age_Max)
 }
@@ -184,11 +184,12 @@ create_bec_ndt <- function(BEC) {
     dplyr::mutate(NDT_BEC = paste0(NATURAL_DISTURBANCE, "-", ZONE), BEC_ZONE = ZONE)
 }
 
-plot_bec_ndt <- function(BECNDT) {
+plot_bec_ndt <- function(BECNDT, studyArea) {
   dst <- file.path(get_path("figures"), "Quesnel_TSA_NDT-BEC.png")
 
   gg_bec_ndt <- ggplot(BECNDT) +
     geom_sf(aes(fill = NDT_BEC)) +
+    geom_sf(data = studyArea) +
     theme_bw() +
     annotation_north_arrow(
       location = "bl",
@@ -201,7 +202,7 @@ plot_bec_ndt <- function(BECNDT) {
     ylab("Latitude") +
     ggtitle("Quesnel NRD")
 
-  ggsave(dst, gg_bec_ndt)
+  ggsave(dst, gg_bec_ndt, width = 16, height = 12)
 
   return(dst)
 }
@@ -391,12 +392,16 @@ get_roads <- function(studyAreaLCC, rasterToMatch) {
 }
 
 create_roads_railways <- function(roads, railways) {
-  railways <- railways |> dplyr::mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
+  railways <- railways |>
+    ## reset geometry col name to ensure it's consistent
+    sf::st_set_geometry("geom") |>
+    dplyr::mutate(Resistance = 750, Buffer = 50, SourceWt = 0)
 
   ## Filter out roads that do not exist or are being planned
   roads <- roads |>
+    ## reset geometry col name to ensure it's consistent
+    sf::st_set_geometry("geom") |>
     dplyr::filter(!TRANSPORT_LINE_TYPE_CODE %in% c("PRP", "X"))
-  # table(roads$TRANSPORT_LINE_TYPE_CODE)
 
   ## Filter out higher use ftaFSR roads from other resource roads and assign
   ## them a higher resistance and lower source weight
@@ -428,7 +433,7 @@ create_roads_railways <- function(roads, railways) {
   ## buffer the roads based on their assigned buffer value
   dplyr::bind_rows(roads_res_high, roads_res_low, roads_other, railways) |>
     dplyr::rowwise() |>
-    dplyr::mutate(geom = sf::st_buffer(geom, dist = Buffer)) |> ## TODO: buffer not working
+    dplyr::mutate(geom = sf::st_buffer(geom, dist = Buffer)) |>
     dplyr::ungroup() |>
     sf::st_as_sf()
 }
@@ -501,19 +506,15 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
   })
 }
 
-## Forest Disturbance spatial join with VRI-NDT-BEC; this join is slow!
-create_forest_disturbance_joined <- function(for_dist, vri_joined) {
+## Forest Disturbance spatial join with VRI-NDT-BEC and
+## assign seral stage classifications based on seral stage table
+create_forest_disturbance_seral <- function(for_dist, vri_joined) {
   for_dist |>
     dplyr::select(SIFA) |>
     sf::st_join(vri_joined, left = FALSE) |>
-    sf::st_make_valid()
-}
-
-## assign seral stage classifications based on seral stage table; this join is slow!
-create_forest_disturbance_seral <- function(for_dist_joined) {
-  for_dist_joined |>
+    sf::st_make_valid() |>
     dplyr::left_join(
-      seral_stages_long(),
+      seral_stages_long(max(for_dist$SIFA, na.rm = TRUE)),
       by = dplyr::join_by(NDT_BEC, dplyr::between(SIFA, Age_Min, Age_Max, bounds = "[)"))
     ) |>
     sf::st_make_valid() |>
@@ -537,4 +538,27 @@ create_forest_disturbance_seral <- function(for_dist_joined) {
         .default = 0
       )
     )
+}
+
+plot_forest_disturbance_seral <- function(for_dist_seral) {
+  dst <- file.path(get_path("figures"), "Quesnel_TSA_for_dist_seral.png")
+
+  gg_for_dist_seral <- ggplot(for_dist_seral) +
+    geom_sf() +
+    facet_wrap(vars(Seral)) +
+    theme_bw() +
+    annotation_north_arrow(
+      location = "bl",
+      which_north = "true",
+      pad_x = unit(0.25, "in"),
+      pad_y = unit(0.25, "in"),
+      style = north_arrow_fancy_orienteering
+    ) +
+    xlab("Longitude") +
+    ylab("Latitude") +
+    ggtitle("Quesnel NRD Seral Stages (Unaggregated)")
+
+  ggsave(dst, gg_for_dist_seral, width = 16, height = 16)
+
+  return(dst)
 }
