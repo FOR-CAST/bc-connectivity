@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-09"
+date: "Last updated: 2025-12-10"
 output: 
   html_document: 
     keep_md: true
@@ -25,6 +25,49 @@ to develop analytical tools for practitioners to implement Connectivity, Corrido
 Relevant feature layers were compiled to build a database of shapefiles for circuit theory–based connectivity modelling [e.g., @McRae:2008; @McRae:2016] using [Omniscape](https://github.com/Circuitscape/Omniscape.jl) [@Landau:2021].
 
 After originally following a human disturbance-based connectivity modelling approach [@McRae:2016], the decision to switch to a biodiversity emphasis for modelling was made to better distinguish the ecological values of forest ages.
+
+## Workflow
+
+This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
+
+```
+## Run the workflow:
+targets::tar_make()
+
+## Visualize the target dependencies:
+targets::tar_visnetwork()
+```
+
+
+
+![](workflow.png)
+
+### Directory structure
+
+
+```
+## .
+## ├── Data
+## ├── INFO.md
+## ├── Omniscape
+## ├── Outputs
+## ├── R
+## ├── README.Rmd
+## ├── README.html
+## ├── README.md
+## ├── README_files
+## ├── _dependencies.R
+## ├── _targets
+## ├── _targets.R
+## ├── _tmp.R
+## ├── air.toml
+## ├── bc-connectivity.Rproj
+## ├── citations
+## ├── renv
+## ├── renv.lock
+## ├── scripts
+## └── workflow.png
+```
 
 ## Data sources
 
@@ -98,6 +141,8 @@ Cumulative Effects Framework [§3.2.2, @CEF:2020].
 We calculate patch area and other statistics for all seral stages by NDT-BEC.
 
 We calculate edge-to-edge nearest-neighbour distances for old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
+
+
 
 ## Connectivity modelling
 
@@ -257,52 +302,6 @@ Install Omniscape:
 ```julia
 import Pkg; Pkg.add("Omniscape")
 ```
-
-## Directory structure
-
-
-``` r
-fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
-```
-
-```
-## .
-## ├── Data
-## ├── INFO.md
-## ├── Omniscape
-## ├── Outputs
-## ├── R
-## ├── README.Rmd
-## ├── README.html
-## ├── README.md
-## ├── README_files
-## ├── _dependencies.R
-## ├── _targets
-## ├── _targets.R
-## ├── air.toml
-## ├── bc-connectivity.Rproj
-## ├── citations
-## ├── renv
-## ├── renv.lock
-## ├── scripts
-## └── workflow.png
-```
-
-## Workflow
-
-This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
-
-```
-## Run the workflow:
-tar_make()
-
-## Visualize the target dependencies:
-tar_visnetwork()
-```
-
-
-
-![](workflow.png)
 
 # References
 

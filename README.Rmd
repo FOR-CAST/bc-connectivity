@@ -28,6 +28,30 @@ Relevant feature layers were compiled to build a database of shapefiles for circ
 
 After originally following a human disturbance-based connectivity modelling approach [@McRae:2016], the decision to switch to a biodiversity emphasis for modelling was made to better distinguish the ecological values of forest ages.
 
+## Workflow
+
+This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
+
+```
+## Run the workflow:
+targets::tar_make()
+
+## Visualize the target dependencies:
+targets::tar_visnetwork()
+```
+
+```{r workflow-diagram, echo = FALSE}
+source("scripts/workflow_diagram.R")
+```
+
+![](workflow.png)
+
+### Directory structure
+
+```{r dir-structure, echo = FALSE}
+fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
+```
+
 ## Data sources
 
 The `R` programming language and environment for statistical computing [@RCore:2025] was used for compiling spatial data, using the [`bcdata`](https://github.com/bcgov/bcdata) [@Teucher:2021] and [`bcmaps`](https://github.com/bcgov/bcmaps) [@Teucher:2024] packages wherever possible; manual downloads were used as needed from government repositories.
@@ -100,6 +124,12 @@ Cumulative Effects Framework [§3.2.2, @CEF:2020].
 We calculate patch area and other statistics for all seral stages by NDT-BEC.
 
 We calculate edge-to-edge nearest-neighbour distances for old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
+
+```{r nn, echo = FALSE}
+## TODO: display distribution of nn_dist values
+# targets::tar_load(nn_dist)
+# quantile(nn_dist, seq(0, 1, 0.05))
+```
 
 ## Connectivity modelling
 
@@ -259,30 +289,6 @@ Install Omniscape:
 ```julia
 import Pkg; Pkg.add("Omniscape")
 ```
-
-## Directory structure
-
-```{r dir-structure}
-fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
-```
-
-## Workflow
-
-This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
-
-```
-## Run the workflow:
-targets::tar_make()
-
-## Visualize the target dependencies:
-targets::tar_visnetwork()
-```
-
-```{r workflow-diagram, echo = FALSE}
-source("scripts/workflow_diagram.R")
-```
-
-![](workflow.png)
 
 # References
 
