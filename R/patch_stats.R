@@ -4,15 +4,10 @@ calc_patch_stats <- function(for_dist_seral) {
   for_dist_seral_summary <- for_dist_seral |>
     ## reset geometry col name to ensure it's consistent
     sf::st_set_geometry("geom") |>
-    dplyr::mutate(Area = sf::st_area(geom, .before = "geom")) |>
     dplyr::filter(!is.na(Seral)) |>
-    dplyr::group_by(NDT_BEC, Seral) |>
+    dplyr::group_by(Seral) |>
+    dplyr::mutate(Area = sf::st_area(geom, .before = "geom")) |>
     dplyr::summarise(
-      Age_Min = min(SIFA),
-      Age_Mean = mean(SIFA),
-      Age_Median = median(SIFA),
-      Age_Max = max(SIFA),
-
       Area_Min = min(Area),
       Area_Mean = mean(Area),
       Area_Median = median(Area),
@@ -33,73 +28,10 @@ save_patch_stats <- function(stats_df) {
 
 # Interpatch assessment (moving window size) --------------------------------------------------
 
-## per the CEF Biodiversity Protocol (§3.2.2):
-##   Unique patches are formed if similarly-aged forest polygons are separated >100m,
-##   such that small residual patches <1ha in size and 'peninsulas' or corridors
-##   (e.g. riparian corridors) of different aged forest <100m wide within a larger
-##   similarly aged forest patch are included as part of that singular patch.
-
-## extract old forest patches and dissolve the polygons
-extract_old_patches <- function(for_dist_seral) {
-  for_dist_seral |>
-    smoothr::fill_holes(units::set_units(1, ha)) |>
-    dplyr::filter(Seral == "Old") |>
-    sf::st_collection_extract("POLYGON") |>
-    spatialEco::sf_dissolve("Seral") |>
-    sf::st_cast("POLYGON")
-}
-
-## combine old patches within 100m
-combine_old_patches <- function(for_dist_old) {
-  ## combine polygons that are within specified distance,
-  ## following <https://github.com/r-spatial/sf/issues/2022>
-  nb <- suppressWarnings({
-    sfdep::st_contiguity(for_dist_old, snap = 100) ## some observations have no neighbours
-  })
-
-  comp <- spdep::n.comp.nb(nb)
-
-  aggregate(for_dist_old, list(comp$comp.id), head, n = 1) |>
-    smoothr::fill_holes(units::set_units(1, ha))
-}
-
-plot_old_patches <- function(for_dist_old_agg) {
-  dst <- file.path(get_path("figures"), "Quesnel_TSA_for_dist_old.png")
-
-  gg_for_dist_old <- ggplot(for_dist_old_agg) +
-    geom_sf() +
-    theme_bw() +
-    annotation_north_arrow(
-      location = "bl",
-      which_north = "true",
-      pad_x = unit(0.25, "in"),
-      pad_y = unit(0.25, "in"),
-      style = north_arrow_fancy_orienteering
-    ) +
-    xlab("Longitude") +
-    ylab("Latitude") +
-    ggtitle("Quesnel NRD Old Patches (Aggregated)")
-
-  ggsave(dst, gg_for_dist_old)
-
-  return(dst)
-}
-
-## calculate nearest neighbour distances; very slow...31167 polygons
+## calculate nearest neighbour distances
 calc_nn_dists <- function(for_dist_old) {
   nn <- sf::st_nearest_feature(for_dist_old)
   nn_dists <- sf::st_distance(for_dist_old, for_dist_old[nn, ], by_element = TRUE)
-
-  ## > quantile(nn_dists, seq(0, 1, 0.05))
-  ## Units: [m]
-  ##          0%          5%         10%         15%         20%         25%
-  ##    0.000000    0.000000    0.000000    0.000000    0.000000    0.000000
-  ##         30%         35%         40%         45%         50%         55%
-  ##    1.476026    3.960346    6.450645    9.272795   12.377916   17.265910
-  ##         60%         65%         70%         75%         80%         85%
-  ##   22.029441   29.047189   35.843593   47.102736   61.796614   83.751292
-  ##         90%         95%        100%
-  ##  127.926552  242.972648 5757.345139
 
   return(nn_dists)
 }
@@ -117,7 +49,7 @@ plot_nn_dists <- function(nn_dists) {
   return(dst)
 }
 
-## calculate all interpatch distances; very slow...31167 polygons
+## calculate all interpatch distances
 calc_all_dists <- function(for_dist_old) {
   sf::st_distance(for_dist_old)
 }

@@ -272,10 +272,10 @@ This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
 ```
 ## Run the workflow:
-tar_make()
+targets::tar_make()
 
 ## Visualize the target dependencies:
-tar_visnetwork()
+targets::tar_visnetwork()
 ```
 
 ```{r workflow-diagram, echo = FALSE}

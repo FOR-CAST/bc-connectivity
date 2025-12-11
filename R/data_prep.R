@@ -149,11 +149,14 @@ seral_stages_long <- function(max_age) {
 # bcdata layers -------------------------------------------------------------------------------
 
 get_bcdata <- function(id, select_cols, studyArea, rasterToMatch) {
-  bcdata::bcdc_query_geodata(id) |>
-    dplyr::filter(INTERSECTS(studyArea)) |>
-    dplyr::select(any_of(select_cols)) |>
-    dplyr::collect() |>
-    sf::st_transform(terra::crs(rasterToMatch))
+  suppressWarnings({
+    bcdata::bcdc_query_geodata(id) |>
+      dplyr::filter(INTERSECTS(studyArea)) |>
+      dplyr::select(any_of(select_cols)) |>
+      dplyr::collect() |>
+      sf::st_intersection(studyArea) |>
+      sf::st_transform(terra::crs(rasterToMatch))
+  })
 }
 
 ## planning area boundaries
@@ -189,7 +192,6 @@ plot_bec_ndt <- function(BECNDT, studyArea) {
 
   gg_bec_ndt <- ggplot(BECNDT) +
     geom_sf(aes(fill = NDT_BEC)) +
-    geom_sf(data = studyArea) +
     theme_bw() +
     annotation_north_arrow(
       location = "bl",
@@ -263,6 +265,7 @@ get_moose_wetlands <- function(studyArea, rasterToMatch) {
     dplyr::select(STRGC_LAND_RSRCE_PLAN_NAME, LEGAL_FEAT_OBJECTIVE) |>
     dplyr::filter(INTERSECTS(studyArea)) |>
     dplyr::collect() |>
+    sf::st_intersection(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -350,9 +353,10 @@ get_streams <- function(studyArea, rasterToMatch) {
 ## !! use 2024 VRI to match that of the CEF Forest Disturbance Layer
 get_vri <- function(studyArea, rasterToMatch) {
   bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
-    dplyr::filter(INTERSECTS(studyArea)) |> ## intersection works, but not select?
+    dplyr::filter(INTERSECTS(studyArea)) |>
+    dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
     dplyr::collect() |>
-    dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |> ## select after collecting
+    sf::st_intersection(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -366,7 +370,8 @@ create_vri_becndt <- function(VRI, BECNDT) {
         NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4-IDF-PL",
         TRUE ~ NDT_BEC
       )
-    )
+    ) |>
+    sf::st_set_geometry("geom")
 }
 
 ## anthropogenic disturbance features
@@ -510,6 +515,7 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
 ## assign seral stage classifications based on seral stage table
 create_forest_disturbance_seral <- function(for_dist, vri_joined) {
   for_dist |>
+    sf::st_set_geometry("geom") |>
     dplyr::select(SIFA) |>
     sf::st_join(vri_joined, left = FALSE) |>
     sf::st_make_valid() |>
@@ -518,9 +524,53 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
       by = dplyr::join_by(NDT_BEC, dplyr::between(SIFA, Age_Min, Age_Max, bounds = "[)"))
     ) |>
     sf::st_make_valid() |>
+    dplyr::mutate(Age_Min = NULL, Age_Max = NULL) |>
+    sf::st_cast("POLYGON", warn = FALSE)
+}
+
+## extract old forest patches
+subset_forest_seral_ageclass <- function(for_dist_seral, age_class) {
+  for_dist_seral |>
+    dplyr::filter(Seral == !!age_class)
+}
+
+## per the CEF Biodiversity Protocol (§3.2.2):
+##   Unique patches are formed if similarly-aged forest polygons are separated >100m,
+##   such that small residual patches <1ha in size and 'peninsulas' or corridors
+##   (e.g. riparian corridors) of different aged forest <100m wide within a larger
+##   similarly aged forest patch are included as part of that singular patch.
+##
+## NOTE: this function is meant to be called for each `Seral` group (age class).
+##
+## for each age class:
+## 1. identify queen contiguity neighbours up to 100 m away;
+## 2. aggregate these neighbour polygons into groups;
+## 3. build a concave hull arround each group of neighbours, preserving all holes;
+## 4. remove holes smaller than 1ha.
+## (based on the approach suggested in <https://github.com/r-spatial/sf/issues/2022>)
+##
+## the rows from each age class will be recombined into a single sf polygon object
+define_forest_seral_patches <- function(for_dist_seral) {
+  sub_sf <- for_dist_seral |> select(Seral)
+
+  nb <- suppressWarnings({
+    ## some observations have no neighbours
+    sfdep::st_contiguity(sub_sf, snap = 100)
+  })
+
+  comp <- spdep::n.comp.nb(nb)
+
+  ## NOTE: may need to tweak segmentize and concave hull args
+  aggregate(sub_sf, list(comp$comp.id), head, n = 1) |>
+    sf::st_segmentize(bu_10, 10) |>
+    sf::st_concave_hull(ratio = 0.1, allow_holes = TRUE) |>
+    smoothr::fill_holes(units::set_units(1, ha))
+}
+
+define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
+  ## add resistance and sourcewt based on aggregated patches
+  for_dist_seral_agg |>
     dplyr::mutate(
-      Age_Min = NULL,
-      Age_Max = NULL,
       Resistance = dplyr::case_when(
         is.na(Seral) ~ 1000,
         Seral == "Early" ~ 750,
@@ -540,12 +590,12 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
     )
 }
 
-plot_forest_disturbance_seral <- function(for_dist_seral) {
-  dst <- file.path(get_path("figures"), "Quesnel_TSA_for_dist_seral.png")
+plot_forest_disturbance_seral <- function(for_dist_seral, dst) {
+  dst <- file.path(get_path("figures"), dst)
 
   gg_for_dist_seral <- ggplot(for_dist_seral) +
-    geom_sf() +
-    facet_wrap(vars(Seral)) +
+    geom_sf(aes(fill = Seral)) +
+    facet_wrap(vars(Seral), ncol = 2) +
     theme_bw() +
     annotation_north_arrow(
       location = "bl",
@@ -556,7 +606,7 @@ plot_forest_disturbance_seral <- function(for_dist_seral) {
     ) +
     xlab("Longitude") +
     ylab("Latitude") +
-    ggtitle("Quesnel NRD Seral Stages (Unaggregated)")
+    ggtitle("Quesnel NRD Seral Stages")
 
   ggsave(dst, gg_for_dist_seral, width = 16, height = 16)
 

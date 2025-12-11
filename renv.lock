@@ -1975,18 +1975,6 @@
       ],
       "Hash": "0ca3db75e1dcb69b2de1cf5a8097e822"
     },
-    "spatialEco": {
-      "Package": "spatialEco",
-      "Version": "2.0-3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "sf",
-        "terra"
-      ],
-      "Hash": "c5c07c8ed9a0559572f52b26f1b3bb37"
-    },
     "spdep": {
       "Package": "spdep",
       "Version": "1.4-1",
