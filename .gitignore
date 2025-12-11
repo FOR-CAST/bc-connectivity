@@ -11,3 +11,4 @@ Teams/
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 .Rproj.user
+_tmp.R
