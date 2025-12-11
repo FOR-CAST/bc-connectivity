@@ -562,7 +562,7 @@ define_forest_seral_patches <- function(for_dist_seral) {
 
   ## NOTE: may need to tweak segmentize and concave hull args
   aggregate(sub_sf, list(comp$comp.id), head, n = 1) |>
-    sf::st_segmentize(sub_sf, 10) |> ## add nodes at most 10m apart
+    sf::st_segmentize(10) |> ## add nodes at most 10m apart
     sf::st_concave_hull(ratio = 0.1, allow_holes = TRUE) |>
     smoothr::fill_holes(units::set_units(1, ha))
 }
