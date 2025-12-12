@@ -397,8 +397,9 @@ create_vri_becndt <- function(VRI, BECNDT, LGC) {
     sf::st_make_valid() |>
     dplyr::mutate(
       NDT_BEC = dplyr::case_when(
-        NDT_BEC %in% c("NDT4-IDF", "NDT4-BG") & LEADING_GRP == "FirGroup" ~ "NDT4-IDF-FD",
-        NDT_BEC %in% c("NDT4-IDF", "NDT4-BG") & LEADING_GRP == "PineGroup" ~ "NDT4-IDF-PL",
+        LEADING_GRP == "FirGroup" ~ "NDT4-IDF-FD",
+        LEADING_GRP == "PineGroup" ~ "NDT4-IDF-PL",
+        grepl("^NDT4", NDT_BEC) ~ "NDT4-IDF-FD",
         TRUE ~ NDT_BEC
       )
     ) |>
