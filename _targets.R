@@ -139,7 +139,7 @@ list(
 
   tar_target(
     name = leading_group_cariboo,
-    command = get_leading_group_cariboo(BECNDT, Quesnel_TSA)
+    command = get_leading_group_cariboo(Quesnel_TSA, LCC)
   ),
   tar_target(
     name = leading_group_cariboo_gpkg,

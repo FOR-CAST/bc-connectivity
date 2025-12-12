@@ -382,10 +382,8 @@ get_vri <- function(studyArea, rasterToMatch) {
 ## IDF-Pl Group: includes all forest polygons in NDT 4 (IDF and BG biogeoclimatic zones)
 ## that do not meet the above definition for IDF-Fir Group.
 get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
-  bcdata::bcdc_query_geodata("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
-    dplyr::filter(INTERSECTS(studyArea)) |>
+  bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
     dplyr::select(LEADING_GRP) |>
-    dplyr::collect() |>
     sf::st_intersection(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
