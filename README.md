@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-10"
+date: "Last updated: 2025-12-12"
 output: 
   html_document: 
     keep_md: true
@@ -95,6 +95,8 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 - BC Cumulative Effects Framework Forest Disturbance (2024) (not publicly available);
 
 - Biogeoclimatic Ecosystem Classification (BEC) Zone/Subzone/Variant/Phase map (version 12, September 2, 2021) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f358a53b-ffde-4830-a325-a5a03ff672c3);
+
+- Leading Group for the Cariboo Region [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/leading-group-for-the-cariboo-region);
 
 - Vegetation Resource Inventory (VRI) Forest Vegetation Composite Rank 1 Layer (R1) (2024) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/2ebb35d8-c82f-4a17-9c96-612ac3532d55);
 

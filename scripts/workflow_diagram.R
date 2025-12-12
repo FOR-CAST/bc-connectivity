@@ -29,7 +29,7 @@ subgraph cluster_interpatch {
   label = 'Interpatch assessment'
   bgcolor = palegreen
 
-  patches [label = 'Define patches\n(Seral = Old)', shape = tab]
+  patches [label = 'Define patches\n(Seral == Old)', shape = tab]
   nn_patches [label = 'Nearest neighbour distances', shape = tab]
 }
 
