@@ -360,14 +360,46 @@ get_vri <- function(studyArea, rasterToMatch) {
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
+## Leading Group for the Cariboo Region
+## <https://catalogue.data.gov.bc.ca/dataset/leading-group-for-the-cariboo-region>
+##
+## IDF - Fir Group: includes all forest polygons in NDT 4 (IDF and BG biogeoclimatic zones)
+## that meet any of the following criteria:
+## a) Douglas-fir (Fd or Fdi) leading or ponderosa pine leading;
+## b) Lodgepole pine leading, and Douglas-fir (Fd or Fdi) or
+##    ponderosa pine greater than 15% in any inventory layer;
+## c) Trembling aspen leading, and Douglas-fir (Fd or Fdi) or
+##    ponderosa pine greater than 15% in any inventory layer,
+##    and spruce, red-cedar, cottonwood and birch less than 6% in any inventory layer;
+## d) No species information in inventory data (usually NSR stands),
+##    and inventory type group for pre-harvest stand or the current
+##    stand = 1, 2, 3, 4, 5, 6, 7, 8, 29, or 32.
+##    These inventory type groups correspond to the following species compositions:
+##    F, FC, FCy, FH, FS, FPl, Fpy, FL, FDEcid, PlF and Py.
+##    If inventory type group=0 and pre-harvest inventory type is not available,
+##    classify the polygon as Pine Group.
+##
+## IDF-Pl Group: includes all forest polygons in NDT 4 (IDF and BG biogeoclimatic zones)
+## that do not meet the above definition for IDF-Fir Group.
+get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
+  bcdata::bcdc_query_geodata("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
+    dplyr::filter(INTERSECTS(studyArea)) |>
+    dplyr::select(LEADING_GRP) |>
+    dplyr::collect() |>
+    sf::st_intersection(studyArea) |>
+    sf::st_transform(terra::crs(rasterToMatch))
+}
+
 ## VRI spatial join with NDT-BEC; this join is slow!
-create_vri_becndt <- function(VRI, BECNDT) {
+create_vri_becndt <- function(VRI, BECNDT, LGC) {
   sf::st_join(VRI, BECNDT, left = FALSE) |>
+    sf::st_make_valid() |>
+    sf::st_join(LGC, left = FALSE) |>
     sf::st_make_valid() |>
     dplyr::mutate(
       NDT_BEC = dplyr::case_when(
-        NDT_BEC == "NDT4-IDF" & grepl("^FD", SPECIES_CD_1) ~ "NDT4-IDF-FD",
-        NDT_BEC == "NDT4-IDF" & grepl("^PL", SPECIES_CD_1) ~ "NDT4-IDF-PL",
+        NDT_BEC == "NDT4-IDF" & LEADING_GRP == "FirGroup" ~ "NDT4-IDF-FD",
+        NDT_BEC == "NDT4-IDF" & LEADING_GRP == "PineGroup" ~ "NDT4-IDF-PL",
         TRUE ~ NDT_BEC
       )
     ) |>

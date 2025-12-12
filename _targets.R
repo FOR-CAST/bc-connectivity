@@ -138,6 +138,16 @@ list(
   ),
 
   tar_target(
+    name = leading_group_cariboo,
+    command = get_leading_group_cariboo(BECNDT, Quesnel_TSA)
+  ),
+  tar_target(
+    name = leading_group_cariboo_gpkg,
+    command = save_gpkg(leading_group_cariboo, "leading_group_cariboo.gpkg"),
+    format = "file"
+  ),
+
+  tar_target(
     name = VRI,
     command = get_vri(Quesnel_TSA, LCC)
   ),
@@ -148,7 +158,7 @@ list(
   ),
   tar_target(
     name = VRI_BECNDT,
-    command = create_vri_becndt(VRI, BECNDT)
+    command = create_vri_becndt(VRI, BECNDT, leading_group_cariboo)
   ),
   tar_target(
     name = VRI_BECNDT_gpkg,
