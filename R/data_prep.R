@@ -11,6 +11,7 @@ get_path <- function(type) {
     rasters = file.path(project_dir, "Data", "processed", "rasters") |> fs::dir_create(),
     omniscape = file.path(project_dir, "Omniscape") |> fs::dir_create(),
     outputs = file.path(project_dir, "Outputs") |> fs::dir_create(),
+    project = fs::path(project_dir),
     figures = file.path(project_dir, "Outputs", "figures") |> fs::dir_create(),
   )
 }

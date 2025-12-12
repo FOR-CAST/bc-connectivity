@@ -49,8 +49,7 @@ create_composite_resistance_raster <- function(
   wetlands,
   dst
 ) {
-  inputs_raster_dir <- file.path("Data", "processed", "rasters") |> fs::dir_create()
-  dst <- file.path(inputs_raster_dir, dst)
+  dst <- file.path(get_path("rasters"), dst)
 
   ## Load resistance rasters
   resistance <- c(forest, roads, streams, rivers, lakes, wetlands) |> terra::rast()
@@ -104,8 +103,7 @@ create_composite_sourcewt_raster <- function(
   wetlands,
   dst
 ) {
-  inputs_raster_dir <- file.path("Data", "processed", "rasters") |> fs::dir_create()
-  dst <- file.path(inputs_raster_dir, dst)
+  dst <- file.path(get_path("rasters"), dst)
 
   ## Load resistance rasters
   sourcewt <- c(forest, roads, streams, rivers, lakes, wetlands) |> terra::rast()

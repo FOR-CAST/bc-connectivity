@@ -20,21 +20,51 @@ if (FALSE) {
       c(
         glue::glue("+{julia_version}"),
         glue::glue("-t {julia_threads}"),
-        glue::glue("-e 'import Pkg; Pkg.add(\"Omniscape\")'")
+        glue::glue("-e 'using Pkg; Pkg.add(\"Omniscape\")'")
       ),
       stdout = TRUE
     )
   })
 }
 
-write_omniscape_config <- function(run_name, window_size) {
-  block_size <- 101
-  pixel_size <- 30
-  radius <- 500 ## use nearest neighbour analysis to inform moving window size
+write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
+  ## use relative paths when writing config and script files
+  res <- fs::path_rel(res, get_path("project"))
+  srcwt <- fs::path_rel(srcwt, get_path("project"))
 
-  config_file <- file.path(get_path("omniscape"), glue::glue("config_{run_name}.ini"))
-  julia_script <- file.path(get_path("omniscape"), glue::glue("script_{run_name}.jl"))
-  output_dir <- file.path(get_path("outputs"), run_name)
+  omni_path_rel <- fs::path_rel(get_path("omniscape"), get_path("project"))
+
+  output_dir <- fs::path(get_path("outputs"), run_name)
+  output_path_rel <- fs::path_rel(output_dir, get_path("project"))
+
+  config_file <- file.path(omni_path_rel, glue::glue("config_{run_name}.ini"))
+  julia_script <- file.path(omni_path_rel, glue::glue("script_{run_name}.jl"))
+
+  ## see <https://docs.circuitscape.org/Omniscape.jl/stable/usage/> for full info
+  ##
+  ## NOTE: use of conditional connectivity options not implemented here
+  args <- list(
+    allow_different_projections = "false",
+    block_size = 101, ## TODO: is this reasonable for 30m pixels?
+    buffer = 0,
+    calc_flow_potential = "true",
+    calc_normalized_current = "true",
+    connect_four_neighbors_only = "false",
+    correct_artifacts = "true",
+    mask_nodata = "true",
+    parallelize = "true",
+    parallel_batch_size = 10,
+    pixel_size = 30, ## TODO: could be passed from the input data
+    project_name = output_path_rel,
+    r_cutoff = 0.0,
+    radius = round(quantile(nn_distances, seq(0, 1, 0.05))[["90%"]]), ## TODO: discuss + confirm
+    resistance_is_conductance = "false",
+    solver = "cg+amg", ## use default "cg+amg"
+    source_from_resistance = "false",
+    source_threshold = 0,
+    write_as_tif = "true",
+    write_raw_currmap = "true"
+  )
 
   ## Omniscape refuses to accidentally overwrite existing directory,
   ## so need to preemptively cleanup
@@ -42,26 +72,34 @@ write_omniscape_config <- function(run_name, window_size) {
     unlink(output_dir, recursive = TRUE)
   }
 
-  ## Build ini file for Omniscape
+  ## write ini file for Omniscape
   cat(
     c(
       glue::glue("[Input files]"),
-      glue::glue("resistance_file = {input_files[['resistance_fordist']]}"),
-      glue::glue("source_file = {input_files[['sourcewt_fordist']]}"),
-      glue::glue("[Options]"),
-      glue::glue("block_size = {block_size}"),
-      glue::glue("radius = {radius}"),
-      glue::glue("buffer = 0"),
-      glue::glue("source_threshold = 0"),
-      glue::glue("project_name = {output_dir}"),
-      glue::glue("calc_flow_potential = true"),
-      glue::glue("correct_artifacts = true"),
-      glue::glue("source_from_resistance = false"),
-      glue::glue("r_cutoff = 0.0"),
-      glue::glue("write_raw_currmap = true"),
-      glue::glue("calc_normalized_current = true"),
-      glue::glue("write_as_tif = true"),
-      glue::glue("parallelize = true")
+      glue::glue("resistance_file = {res}"),
+      glue::glue("source_file = {srcwt}"),
+      glue::glue("[Required options]"),
+      glue::glue("block_size = {args$block_size}"),
+      glue::glue("project_name = {args$project_name}"),
+      glue::glue("radius = {args$radius}"),
+      glue::glue("[General options]"),
+      glue::glue("allow_different_projections = {args$allow_different_projections}"),
+      glue::glue("buffer = {args$buffer}"),
+      glue::glue("calc_flow_potential = {args$calc_flow_potential}"),
+      glue::glue("calc_normalized_current = {args$calc_normalized_current}"),
+      glue::glue("connect_four_neighbors_only = {args$connect_four_neighbors_only}"),
+      glue::glue("correct_artifacts = {args$correct_artifacts}"),
+      glue::glue("r_cutoff = {args$r_cutoff}"),
+      glue::glue("resistance_is_conductance = {args$resistance_is_conductance}"),
+      glue::glue("source_from_resistance = {args$source_from_resistance}"),
+      glue::glue("source_threshold = {args$source_threshold}"),
+      glue::glue("[Processing options]"),
+      glue::glue("parallelize = {args$parallelize}"),
+      glue::glue("parallel_batch_size = {args$parallel_batch_size}"),
+      glue::glue("[Output options]"),
+      glue::glue("mask_nodata = {args$mask_nodata}"),
+      glue::glue("write_as_tif = {args$write_as_tif}"), ## whether to use .tif or .asc
+      glue::glue("write_raw_currmap = {args$write_raw_currmap}")
     ),
     sep = "\n",
     file = config_file
@@ -71,25 +109,55 @@ write_omniscape_config <- function(run_name, window_size) {
   cat(
     c(
       glue::glue("using Omniscape"),
-      glue::glue("run_omniscape('{config_file}')")
+      glue::glue("run_omniscape(\"{config_file}\")")
     ),
     sep = "\n",
     file = julia_script
   )
+
+  return(c(config_file, julia_script))
 }
 
-if (FALSE) {
-  ## launch Julia
-  withr::with_dir(get_path("omniscape"), {
-    system2(
-      fs::path_expand("~/.juliaup/bin/julia"),
-      c(
-        glue::glue("+{julia_version}"),
-        glue::glue("-t {julia_threads}"),
-        glue::glue("{julia_script}")
-      ),
-      # env = c(JULIA_NUM_THREADS = julia_threads),
-      stdout = TRUE
+run_omniscape <- function(omniscape_files, julia_threads) {
+  stopifnot(all(file.exists(omniscape_files)))
+  config_file <- fs::path_rel(omniscape_files[1], get_path("omniscape"))
+  julia_script <- fs::path_rel(omniscape_files[2], get_path("omniscape"))
+
+  run_name <- sub("^config_(.*)[.]ini$", "\\1", basename(config_file))
+  output_dir <- file.path(get_path("outputs"), run_name)
+  log_file <- file.path(output_dir, "omniscape_run.log")
+
+  output_files <- file.path(
+    output_dir,
+    c(
+      "cum_currmap.tif",
+      "flow_potential.tif",
+      "normalized_cum_currmap.tif",
+      log_file
     )
-  })
+  )
+
+  julia_version <- "1.11.7"
+
+  ## use tmpfile for logging since omniscape output dir won't exist yet
+  ## (and omniscape won't write to the directory if it exists)
+  tmp_log <- tempfile(pattern = glue::glue("omniscape_{run_name}_"), fileext = ".log")
+  on.exit(file.copy(tmp_log, log_file))
+
+  ## launch Julia
+  ps2 <- processx::run(
+    command = Sys.which("julia"), ## TODO: doesn't always work?
+    # command = fs::path_expand("~/.juliaup/bin/julia"),
+    args = paste(
+      glue::glue("+{julia_version}"),
+      glue::glue("-t {julia_threads}"),
+      glue::glue("{julia_script}")
+    ),
+    error_on_status = TRUE,
+    wd = get_path("project"),
+    stdout = tmp_log,
+    stderr = tmp_log,
+  )
+
+  return(output_files)
 }

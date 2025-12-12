@@ -440,21 +440,21 @@ list(
 
   ## interpatch assesments
   tar_target(
-    name = nn_dist,
+    name = nn_distances,
     command = calc_nn_dists(forest_patches_old)
   ),
   tar_target(
-    name = nn_dist_png,
-    command = plot_nn_dists(nn_dist),
+    name = nn_distances_png,
+    command = plot_nn_dists(nn_distances),
     format = "file"
   ),
   tar_target(
-    name = all_dist,
+    name = all_distances,
     command = calc_all_dists(forest_patches_old)
   ),
   tar_target(
-    name = all_dist_png,
-    command = plot_all_dists(all_dist),
+    name = all_distances_png,
+    command = plot_all_dists(all_distances),
     format = "file"
   ),
 
@@ -492,7 +492,7 @@ list(
     command = create_sourcewt_raster(
       polys = roads_railways,
       rasterToMatch = LCC,
-      dst = "sourcewt_roads.tif"
+      dst = "sourcewt_roads_railways.tif"
     ),
     format = "file"
   ),
@@ -630,38 +630,52 @@ list(
     format = "file"
   ),
 
-  ## composite rasters
-  # tar_target(
-  #   name = resistance_composite,
-  #   command = create_composite_resistance_raster(
-  #     forest = resistance_forest,
-  #     roads = resistance_roads,
-  #     streams = resistance_streams,
-  #     rivers = resistance_rivers,
-  #     lakes = resistance_lakes,
-  #     wetlands = resistance_wetlands,
-  #     dst = "resistance_composite.tif"
-  #   ),
-  #   format = "file"
-  # ),
-  # tar_target(
-  #   name = sourcewt_composite,
-  #   command = create_composite_sourcewt_raster(
-  #     forest = sourcewt_forest,
-  #     roads = sourcewt_roads,
-  #     streams = sourcewt_streams,
-  #     rivers = sourcewt_rivers,
-  #     lakes = sourcewt_lakes,
-  #     wetlands = sourcewt_wetlands,
-  #     dst = "sourcewt_composite.tif"
-  #   ),
-  #   format = "file"
-  # ),
+  # composite rasters
+  tar_target(
+    name = resistance_composite,
+    command = create_composite_resistance_raster(
+      forest = resistance_forest,
+      roads = sourcewt_roads_railways,
+      streams = resistance_streams,
+      rivers = resistance_rivers,
+      lakes = resistance_lakes,
+      wetlands = resistance_wetlands,
+      dst = "resistance_composite.tif"
+    ),
+    format = "file"
+  ),
+  tar_target(
+    name = sourcewt_composite,
+    command = create_composite_sourcewt_raster(
+      forest = sourcewt_forest,
+      roads = sourcewt_roads_railways,
+      streams = sourcewt_streams,
+      rivers = sourcewt_rivers,
+      lakes = sourcewt_lakes,
+      wetlands = sourcewt_wetlands,
+      dst = "sourcewt_composite.tif"
+    ),
+    format = "file"
+  ),
 
-  ## omniscape config
+  ## omniscape
+  tar_target(
+    name = omniscape_config,
+    command = write_omniscape_config(
+      resistance_composite,
+      sourcewt_composite,
+      ## TODO: dynamic branching for different runs / params?
+      "2025-12-12_seral_agg_by_class",
+      nn_distances
+    ),
+    format = "file"
+  ),
+  ## TODO: too many issues launching julia, running Omniscape from R;
+  ## -- run manually from bash shell (but not via Rstudio terminal!)
   # tar_target(
-  #   name = omniscape_config,
-  #   command = write_omniscape_config(run_name, window_size), ## TODO
+  #   name = omniscape_run,
+  #   ## estimated <8h using 8 cores; <2.5h using 64 cores (~300GB RAM).
+  #   command = run_omniscape(omniscape_config, 64L),
   #   format = "file"
   # ),
 
@@ -670,5 +684,5 @@ list(
     name = reproducibility_receipt,
     command = write_reproducibility_receipt("INFO.md"),
     format = "file"
-  )
+  ) ## TODO: add julia and omniscape info?
 )
