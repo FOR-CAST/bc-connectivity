@@ -96,25 +96,6 @@
       ],
       "Hash": "21e1cb313a641634215226782a49e5a1"
     },
-    "JuliaCall": {
-      "Package": "JuliaCall",
-      "Version": "0.17.6",
-      "Source": "GitHub",
-      "RemoteType": "github",
-      "RemoteHost": "api.github.com",
-      "RemoteUsername": "JuliaInterop",
-      "RemoteRepo": "JuliaCall",
-      "RemoteRef": "master",
-      "RemoteSha": "ee05072bdee7a6b91ff4e41813f98d11c47c2126",
-      "Requirements": [
-        "R",
-        "Rcpp",
-        "knitr",
-        "rjson",
-        "utils"
-      ],
-      "Hash": "e4c82429b1248411e2ec543417e21222"
-    },
     "KernSmooth": {
       "Package": "KernSmooth",
       "Version": "2.23-26",
@@ -1738,21 +1719,11 @@
       "Package": "renv",
       "Version": "1.1.5",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "https://packagemanager.posit.co/all/latest",
       "Requirements": [
         "utils"
       ],
       "Hash": "770fcbc2c4616e8fbcb187cccd46a6b1"
-    },
-    "rjson": {
-      "Package": "rjson",
-      "Version": "0.2.23",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R"
-      ],
-      "Hash": "7a04e9eff95857dbf557b4e5f0b3d1a8"
     },
     "rlang": {
       "Package": "rlang",
@@ -2422,10 +2393,10 @@
     },
     "yaml": {
       "Package": "yaml",
-      "Version": "2.3.10",
+      "Version": "2.3.12",
       "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "51dab85c6c98e50a18d7551e9d49f76c"
+      "Repository": "RSPM",
+      "Hash": "7cd77cb32abd9220d744307e9fc94ffb"
     },
     "yyjsonr": {
       "Package": "yyjsonr",

@@ -1,30 +1,35 @@
-if (FALSE) {
-  library(JuliaCall)
+## JuliaCall doesn't work with "non-standard" installation locations (i.e. used by rig)
+## see <https://github.com/JuliaInterop/JuliaCall/issues/272>
 
-  julia_threads <- 64L ## estimated <8h using 8 cores; <2.5h using 64 cores (~300GB RAM).
+# library(JuliaCall)
+#
+# julia_threads <- 64L
+# julia_version <- "1.11.7"
+#
+# ## TODO: diagnose + fix failures
+# julia <- julia_setup(
+#   # installJulia = TRUE,
+#   rebuild = TRUE,
+#   version = julia_version
+# )
+#
+# julia_install_package_if_needed("Omniscape")
+
+## NOTE: can't run julia from R (some env vars clash); segfaults
+if (FALSE) {
+  julia_threads <- 64L
   julia_version <- "1.11.7"
 
-  ## TODO: diagnose + fix failures
-  julia <- julia_setup(
-    # installJulia = TRUE,
-    rebuild = TRUE,
-    version = julia_version
-  )
-
-  julia_install_package_if_needed("Omniscape")
-
   ## ensure Omniscape is installed
-  withr::with_dir(get_path("omniscape"), {
-    system2(
-      fs::path_expand("~/.juliaup/bin/julia"),
-      c(
-        glue::glue("+{julia_version}"),
-        glue::glue("-t {julia_threads}"),
-        glue::glue("-e 'using Pkg; Pkg.add(\"Omniscape\")'")
-      ),
-      stdout = TRUE
-    )
-  })
+  system2(
+    fs::path_expand("~/.juliaup/bin/julia"),
+    c(
+      glue::glue("+{julia_version}"),
+      glue::glue("-t {julia_threads}"),
+      glue::glue("-e 'using Pkg; Pkg.add(\"Omniscape\")'")
+    ),
+    stdout = TRUE
+  )
 }
 
 write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
