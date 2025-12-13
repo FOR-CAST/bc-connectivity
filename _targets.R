@@ -674,7 +674,8 @@ list(
   ## -- run manually from bash shell (but not via Rstudio terminal!)
   # tar_target(
   #   name = omniscape_run,
-  #   ## estimated <8h using 8 cores; <2.5h using 64 cores (~300GB RAM).
+  #   ## radius 500: estimated <8h using 8 cores; <2.5h using 64 cores (~300 GB RAM).
+  #   ## radius 832: 1.5d using 64 cores (~350 GB RAM).
   #   command = run_omniscape(omniscape_config, 64L),
   #   format = "file"
   # ),
