@@ -17,19 +17,28 @@
 
 ## NOTE: can't run julia from R (some env vars clash); segfaults
 if (FALSE) {
-  julia_threads <- 64L
+  julia_threads <- 4L
   julia_version <- "1.11.7"
+
+  err <- tempfile("error_", fileext = ".log")
+  out <- tempfile("output_", fileext = ".log")
 
   ## ensure Omniscape is installed
   system2(
-    fs::path_expand("~/.juliaup/bin/julia"),
+    # fs::path_expand("~/.juliaup/bin/julia"),
+    Sys.which("julia"),
     c(
-      glue::glue("+{julia_version}"),
-      glue::glue("-t {julia_threads}"),
-      glue::glue("-e 'using Pkg; Pkg.add(\"Omniscape\")'")
+      sprintf("+%s", julia_version),
+      sprintf("-t %s", julia_threads),
+      "Omniscape/install.jl"
     ),
-    stdout = TRUE
+    wait = TRUE,
+    stderr = err,
+    stdout = out
   )
+
+  file.edit(err) ## Segmentation fault (core dumped)
+  file.edit(out)
 }
 
 write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
