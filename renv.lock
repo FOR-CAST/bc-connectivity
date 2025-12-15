@@ -1092,7 +1092,7 @@
     },
     "htmltools": {
       "Package": "htmltools",
-      "Version": "0.5.8.1",
+      "Version": "0.5.9",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -1104,7 +1104,7 @@
         "rlang",
         "utils"
       ],
-      "Hash": "81d371a9cc60640e74e4ab6ac46dcedc"
+      "Hash": "102298e238c14eb830cc4b5edd23c3e8"
     },
     "htmlwidgets": {
       "Package": "htmlwidgets",
@@ -1145,9 +1145,9 @@
     },
     "httr2": {
       "Package": "httr2",
-      "Version": "1.2.1",
+      "Version": "1.2.2",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "R6",
@@ -1162,7 +1162,7 @@
         "vctrs",
         "withr"
       ],
-      "Hash": "6e29f1ed132b927f7d52e9fd8869f0ea"
+      "Hash": "c20959a9442c0e3adb1e8d3809c5d1f7"
     },
     "igraph": {
       "Package": "igraph",
@@ -1196,14 +1196,17 @@
     },
     "isoband": {
       "Package": "isoband",
-      "Version": "0.2.7",
+      "Version": "0.3.0",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
+        "cli",
+        "cpp11",
         "grid",
+        "rlang",
         "utils"
       ],
-      "Hash": "0080607b4a1a7b28979aecef976d8bc2"
+      "Hash": "0f9a864bbd7ce0232ad05cb76249cc1a"
     },
     "jose": {
       "Package": "jose",
@@ -1465,15 +1468,15 @@
     },
     "parallelly": {
       "Package": "parallelly",
-      "Version": "1.45.1",
+      "Version": "1.46.0",
       "Source": "Repository",
-      "Repository": "RSPM",
+      "Repository": "CRAN",
       "Requirements": [
         "parallel",
         "tools",
         "utils"
       ],
-      "Hash": "1e127bc944e0c1ec7c0297d685917dfe"
+      "Hash": "092447d2876e713646707eb1e51ee58f"
     },
     "pillar": {
       "Package": "pillar",
@@ -1567,7 +1570,7 @@
     },
     "proxy": {
       "Package": "proxy",
-      "Version": "0.4-27",
+      "Version": "0.4-28",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -1575,7 +1578,7 @@
         "stats",
         "utils"
       ],
-      "Hash": "e0ef355c12942cf7a6b91a6cfaea8b3e"
+      "Hash": "6d2eb9d63d5635488de8a65294dee22d"
     },
     "ps": {
       "Package": "ps",
@@ -1701,11 +1704,10 @@
       "Version": "2.5.0.9000",
       "Source": "GitHub",
       "RemoteType": "github",
-      "RemoteHost": "api.github.com",
-      "RemoteRepo": "remotes",
       "RemoteUsername": "r-lib",
-      "RemotePkgRef": "r-lib/remotes",
-      "RemoteSha": "bcd35d5ce22d7565397dea1bcf3f1bba5fd96d3e",
+      "RemoteRepo": "remotes",
+      "RemoteSha": "6c988cca5d5dc10f0825eb36872360618238539a",
+      "RemoteHost": "api.github.com",
       "Requirements": [
         "R",
         "methods",
@@ -1713,13 +1715,13 @@
         "tools",
         "utils"
       ],
-      "Hash": "3c481897b4a669118d0af13bced4e1c9"
+      "Hash": "41491e7842084fc088b67d13216b19c1"
     },
     "renv": {
       "Package": "renv",
       "Version": "1.1.5",
       "Source": "Repository",
-      "Repository": "https://packagemanager.posit.co/all/latest",
+      "Repository": "RSPM",
       "Requirements": [
         "utils"
       ],
@@ -2277,7 +2279,7 @@
     },
     "vroom": {
       "Package": "vroom",
-      "Version": "1.6.6",
+      "Version": "1.6.7",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -2299,7 +2301,7 @@
         "vctrs",
         "withr"
       ],
-      "Hash": "a9d1c6bf67f15a0d07be840caeaab49a"
+      "Hash": "28a6b7464407ac68327ec02445e7b0fd"
     },
     "whisker": {
       "Package": "whisker",
@@ -2380,16 +2382,16 @@
     },
     "xml2": {
       "Package": "xml2",
-      "Version": "1.5.0",
+      "Version": "1.5.1",
       "Source": "Repository",
-      "Repository": "https://packagemanager.posit.co/all/latest",
+      "Repository": "CRAN",
       "Requirements": [
         "R",
         "cli",
         "methods",
         "rlang"
       ],
-      "Hash": "6f2f33a55f861826edaf3db617088e55"
+      "Hash": "df249a568f7fbfa996016695d1da7ea1"
     },
     "yaml": {
       "Package": "yaml",
