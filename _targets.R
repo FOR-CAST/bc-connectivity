@@ -665,7 +665,7 @@ list(
       resistance_composite,
       sourcewt_composite,
       ## TODO: dynamic branching for different runs / params?
-      "2025-12-12_seral_agg_by_class",
+      "2025-12-15_seral_agg_by_class",
       nn_distances
     ),
     format = "file"
