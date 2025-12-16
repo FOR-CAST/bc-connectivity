@@ -55,14 +55,16 @@ write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
   config_file <- file.path(omni_path_rel, glue::glue("config.ini"))
   julia_script <- file.path(omni_path_rel, glue::glue("script.jl"))
 
+  ## block_size ~1/10 of radius per Philips et. al (2021) Landscape Ecol. 36:1647–1661
   use_block_size <- function(radius, frac) {
     x <- round(radius * frac, digits = 0)
     ifelse(x %% 2 == 0, x + 1, x) ## must be odd
   }
 
   ## TODO: test, discuss, confirm
-  radius <- round(quantile(units::drop_units(nn_distances), seq(0, 1, 0.05))[["90%"]], digits = 0)
-  block_size <- use_block_size(radius, frac = 0.5) ## TODO: test with block_size = 1; frac = 0.5; frac = 0.1;
+  ## using max distance between patches, which will yield larger block size, speeding up computation
+  radius <- round(quantile(units::drop_units(nn_distances), seq(0, 1, 0.05))[["100%"]], digits = 0)
+  block_size <- use_block_size(radius, frac = 0.1)
 
   ## see <https://docs.circuitscape.org/Omniscape.jl/stable/usage/> for full info
   ##
