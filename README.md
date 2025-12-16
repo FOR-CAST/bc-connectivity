@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-12"
+date: "Last updated: 2025-12-16"
 output: 
   html_document: 
     keep_md: true
@@ -40,7 +40,7 @@ targets::tar_visnetwork()
 
 
 
-![](workflow.png)
+![](workflow_summary.png)
 
 ### Directory structure
 
@@ -63,10 +63,13 @@ targets::tar_visnetwork()
 ## ├── air.toml
 ## ├── bc-connectivity.Rproj
 ## ├── citations
+## ├── docker
 ## ├── renv
 ## ├── renv.lock
 ## ├── scripts
-## └── workflow.png
+## ├── workflow.png
+## ├── workflow_seral.png
+## └── workflow_summary.png
 ```
 
 ## Data sources
@@ -145,6 +148,15 @@ We calculate patch area and other statistics for all seral stages by NDT-BEC.
 We calculate edge-to-edge nearest-neighbour distances for old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
 
 
+```
+## Units: [m]
+##        0%        5%       10%       15%       20%       25%       30%       35% 
+##     0.000  3039.958  5043.378  6652.057  8066.458  9330.962 10514.822 11599.022 
+##       40%       45%       50%       55%       60%       65%       70%       75% 
+## 12670.947 13749.211 14807.837 15879.033 16920.690 18096.042 19297.914 20646.648 
+##       80%       85%       90%       95%      100% 
+## 22091.147 23792.736 25875.014 28864.863 42984.643
+```
 
 ## Connectivity modelling
 
@@ -170,7 +182,13 @@ Columns were created for the assignment of resistance and source weight values; 
 
 Projected stand age after significant disturbances (Simple Inferred Forest Age, SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers.
 
-Each polygon was assigned a seral stage using thresholds following the Biodiversity Guidebook [@BritishColumbia:1995], and corresponding resistance and source weight values were applied (*e.g.*, early forest = high resistance, old forest = low resistance).
+Each polygon was assigned a seral stage using thresholds following the Biodiversity Guidebook [@BritishColumbia:1995], and landscape patches identified following the Forest Biodiversity Cumulative Effects Framework [§3.2.2, @CEF:2020].
+ 
+
+
+![](workflow_seral.png)
+
+Corresponding resistance and source weight values were subsequently applied (*e.g.*, early forest = high resistance, old forest = low resistance; early forest = low source weight, old forest = high source weight).
 
 **Biodiversity Features:**
 
@@ -179,9 +197,9 @@ General wetlands were assigned moderate resistance (250) and source weight (0.75
 Other biodiversity features were used for summarizing connectivity analyses, rather than informing landscape resistance and source weight values directly:
 
 - BC Parks, Protected Areas, and Ecological Reserves layers 
-- Old Growth Management Areas;
-- Wildlife Habitat Areas;
-- Mule Deer Winter Ranges;
+- Old Growth Management Areas (OGMA);
+- Wildlife Habitat Areas (WHA);
+- Mule Deer Winter Ranges (MDWR);
 - High Value Moose Wetlands (HVMW);
 
 **Anthropogenic Disturbance Features:**
@@ -202,25 +220,17 @@ Stream resistance values varied by stream order, and streams were buffered by or
 
 To create a composite resistance raster, all feature layer resistance rasters were combined using the following stacking rules: 
 
-- OGMAs override all other features (lowest resistance);
-
-- Old forest areas reduce the resistance of secondary biodiversity features;
-
 - Roads and water features can only increase resistance, not decrease it;
 
-- Final composite raster was reclassified to avoid 0 values (set to 1) and fill NA values as high resistance (1000).
+- Final composite raster was reclassified to avoid 0 values (set to 1) and fill `NA` values as high resistance (1000).
 
 **Source Weight:**
 
 To create a composite source weight raster used inverse logic, all feature layer source weight rasters were combined using the following stacking rules: 
 
-- OGMAs override all (highest weight);
-
-- Old forest area increase the source weight of overlapping secondary features;
-
 - Roads and water features can only reduce source weight, never increase it;
 
-- NA values were replaced with 0 to ensure compatibility with Omniscape. 
+- `NA` values were replaced with 0 to ensure compatibility with Omniscape. 
 
 ### Omniscape runs
 

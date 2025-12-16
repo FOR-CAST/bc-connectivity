@@ -60,4 +60,4 @@ patches -> nn_patches
 ) |>
   DiagrammeRsvg::export_svg() |>
   charToRaw() |>
-  rsvg::rsvg_png("workflow.png")
+  rsvg::rsvg_png("workflow_summary.png")
