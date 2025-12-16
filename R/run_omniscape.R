@@ -80,7 +80,6 @@ write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
     mask_nodata = "true",
     parallelize = "true",
     parallel_batch_size = 10,
-    pixel_size = 30, ## TODO: could be passed from the input data
     project_name = output_path_rel,
     r_cutoff = 0.0,
     radius = radius,
