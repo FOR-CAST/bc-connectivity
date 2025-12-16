@@ -36,28 +36,14 @@ calc_nn_dists <- function(for_dist_old) {
   return(nn_dists)
 }
 
-plot_nn_dists <- function(nn_dists) {
-  dst <- file.path(get_path("figures"), "histogram_old_patch_nn_distances.png")
-
-  ## stick to base plot; ggplot is super slow
-  hist_nn_dists <- hist(nn_dists, breaks = 60, plot = FALSE)
-
-  png(dst, width = 800, height = 600)
-  plot(hist_nn_dists)
-  dev.off()
-
-  return(dst)
-}
-
 ## calculate all interpatch distances
 calc_all_dists <- function(for_dist_old) {
-  sf::st_distance(for_dist_old)
+  dist_mat <- sf::st_distance(for_dist_old)
+  dist_mat[upper.tri(dist_mat)]
 }
 
-plot_all_dists <- function(dist_mat) {
-  dst <- file.path(get_path("figures"), "histogram_old_patch_all_distances.png")
-
-  dists <- dist_mat[upper.tri(dist_mat)]
+plot_hist_dists <- function(dists, dst) {
+  dst <- file.path(get_path("figures"), dst)
 
   md <- median(dists) ## 54948.62 [m]
   mn <- mean(dists) ## 67630.84 [m]
@@ -66,7 +52,11 @@ plot_all_dists <- function(dist_mat) {
   hist_dists <- hist(dists, plot = FALSE)
 
   png(dst, width = 800, height = 600)
-  plot(hist_dists)
+  plot(
+    hist_dists,
+    main = "Frequency distribution of interpatch distances",
+    xlab = "Interpatch distance (m)"
+  )
   abline(v = md, col = "blue", lty = 2)
   abline(v = mn, col = "black", lty = 2)
   dev.off()

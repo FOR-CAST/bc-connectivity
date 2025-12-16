@@ -186,6 +186,7 @@ list(
     name = forest_disturbance_seral_png,
     command = plot_forest_disturbance_seral(
       forest_disturbance_seral,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_seral.png"
     ),
     format = "file"
@@ -238,6 +239,7 @@ list(
     name = forest_patches_early_png,
     command = plot_forest_disturbance_seral(
       forest_patches_early,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_early_patches.png"
     ),
     format = "file"
@@ -246,6 +248,7 @@ list(
     name = forest_patches_mid_png,
     command = plot_forest_disturbance_seral(
       forest_patches_mid,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_mid_patches.png"
     ),
     format = "file"
@@ -254,6 +257,7 @@ list(
     name = forest_patches_mature_png,
     command = plot_forest_disturbance_seral(
       forest_patches_mature,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_mature_patches.png"
     ),
     format = "file"
@@ -262,6 +266,7 @@ list(
     name = forest_patches_old_png,
     command = plot_forest_disturbance_seral(
       forest_patches_old,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_old_patches.png"
     ),
     format = "file"
@@ -290,6 +295,7 @@ list(
     name = forest_patches_all_png,
     command = plot_forest_disturbance_seral(
       forest_patches_all,
+      Quesnel_TSA,
       "Quesnel_TSA_for_dist_seral_patches.png"
     ),
     format = "file"
@@ -445,7 +451,7 @@ list(
   ),
   tar_target(
     name = nn_distances_png,
-    command = plot_nn_dists(nn_distances),
+    command = plot_hist_dists(nn_distances, "histogram_old_patch_nn_distances.png"),
     format = "file"
   ),
   tar_target(
@@ -454,7 +460,7 @@ list(
   ),
   tar_target(
     name = all_distances_png,
-    command = plot_all_dists(all_distances),
+    command = plot_hist_dists(all_distances, "histogram_old_patch_all_distances.png"),
     format = "file"
   ),
 
@@ -665,8 +671,8 @@ list(
       resistance_composite,
       sourcewt_composite,
       ## TODO: dynamic branching for different runs / params?
-      "2025-12-15_seral_agg_by_class",
-      nn_distances
+      "2025-12-16_seral_agg_by_class_all_r100_bs01",
+      all_distances
     ),
     format = "file"
   ),

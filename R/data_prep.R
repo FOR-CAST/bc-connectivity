@@ -196,6 +196,7 @@ plot_bec_ndt <- function(BECNDT, studyArea) {
 
   gg_bec_ndt <- ggplot(BECNDT) +
     geom_sf(aes(fill = NDT_BEC)) +
+    geom_sf(data = studyArea, color = "black", fill = NA) +
     theme_bw() +
     annotation_north_arrow(
       location = "bl",
@@ -636,12 +637,13 @@ define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
     )
 }
 
-plot_forest_disturbance_seral <- function(for_dist_seral, dst) {
+plot_forest_disturbance_seral <- function(for_dist_seral, studyArea, dst) {
   dst <- file.path(get_path("figures"), dst)
 
   gg_for_dist_seral <- ggplot(for_dist_seral) +
     geom_sf(aes(fill = Seral)) +
     facet_wrap(vars(Seral), ncol = 2) +
+    geom_sf(data = studyArea, color = "black", fill = NA) +
     theme_bw() +
     annotation_north_arrow(
       location = "bl",
