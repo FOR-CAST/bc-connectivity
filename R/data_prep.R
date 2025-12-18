@@ -399,9 +399,9 @@ get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
 
 ## VRI spatial join with NDT-BEC; this join is slow!
 create_vri_becndt <- function(VRI, BECNDT, LGC) {
-  sf::st_join(VRI, BECNDT, left = FALSE) |>
+  sf::st_join(VRI, BECNDT, left = FALSE) |> ## inner join; keeps obs from VRI with matching key in BECNDT
     sf::st_make_valid() |>
-    sf::st_join(LGC, left = FALSE) |>
+    sf::st_join(LGC) |> ## left join; keeps all obs from the prev joined BECNDT/VRI
     sf::st_make_valid() |>
     dplyr::mutate(
       NDT_BEC = dplyr::case_when(
@@ -553,7 +553,7 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
   for_dist |>
     sf::st_set_geometry("geom") |>
     dplyr::select(SIFA) |>
-    sf::st_join(vri_joined, left = FALSE) |>
+    sf::st_join(vri_joined, left = FALSE) |> ## inner join; keeps obs from for_dist with matching key in vri_joined
     sf::st_make_valid() |>
     dplyr::left_join(
       seral_stages_long(max(for_dist$SIFA, na.rm = TRUE)),
