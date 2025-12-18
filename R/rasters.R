@@ -1,8 +1,9 @@
 # prepare resistance and source weight rasters ------------------------------------------------
 
 create_resistance_raster <- function(polys, rasterToMatch, dst) {
-  inputs_raster_dir <- file.path("Data", "processed", "rasters") |> fs::dir_create()
-  dst <- file.path(inputs_raster_dir, dst)
+  ## append raster resolution to filename
+  dst <- sub("[.]tif$", paste0("_", terra::res(rasterToMatch)[1], ".tif"), dst)
+  dst <- file.path(get_path("rasters"), dst)
 
   terra::rasterize(
     polys,
@@ -16,8 +17,9 @@ create_resistance_raster <- function(polys, rasterToMatch, dst) {
 }
 
 create_sourcewt_raster <- function(polys, rasterToMatch, dst) {
-  inputs_raster_dir <- file.path("Data", "processed", "rasters") |> fs::dir_create()
-  dst <- file.path(inputs_raster_dir, dst)
+  ## append raster resolution to filename
+  dst <- sub("[.]tif$", paste0("_", terra::res(rasterToMatch)[1], ".tif"), dst)
+  dst <- file.path(get_path("rasters"), dst)
 
   terra::rasterize(
     polys,
@@ -49,8 +51,6 @@ create_composite_resistance_raster <- function(
   wetlands,
   dst
 ) {
-  dst <- file.path(get_path("rasters"), dst)
-
   ## Load resistance rasters
   resistance <- c(forest, roads, streams, rivers, lakes, wetlands) |> terra::rast()
 
@@ -85,6 +85,8 @@ create_composite_resistance_raster <- function(
   composite_resistance[composite_resistance == 0] <- 1
   composite_resistance[is.na(composite_resistance)] <- 1000
 
+  res <- terra::res(composite_resistance) |> unique()
+  dst <- file.path(get_path("rasters"), sub("[.]tif$", glue::glue("_{res}.tif"), dst))
   terra::writeRaster(composite_resistance, dst, overwrite = TRUE)
 
   return(dst)
@@ -103,8 +105,6 @@ create_composite_sourcewt_raster <- function(
   wetlands,
   dst
 ) {
-  dst <- file.path(get_path("rasters"), dst)
-
   ## Load resistance rasters
   sourcewt <- c(forest, roads, streams, rivers, lakes, wetlands) |> terra::rast()
 
@@ -141,7 +141,8 @@ create_composite_sourcewt_raster <- function(
   ## Replace NA values with 0 to avoid errors in Omniscape run
   composite_sourcewt[is.na(composite_sourcewt)] <- 0
 
-  ## write composite source weight raster for Omniscape run
+  res <- terra::res(composite_sourcewt) |> unique()
+  dst <- file.path(get_path("rasters"), sub("[.]tif$", glue::glue("_{res}.tif"), dst))
   terra::writeRaster(composite_sourcewt, dst, overwrite = TRUE)
 
   return(dst)

@@ -152,15 +152,13 @@ seral_stages_long <- function(max_age) {
 # bcdata layers -------------------------------------------------------------------------------
 
 get_bcdata <- function(id, select_cols, studyArea, rasterToMatch) {
-  polys <- bcdata::bcdc_query_geodata(id) |>
+  bcdata::bcdc_query_geodata(id) |>
     dplyr::filter(INTERSECTS(studyArea)) |>
     dplyr::select(any_of(select_cols)) |>
     dplyr::collect() |>
-    sf::st_intersection(studyArea)
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    sf::st_set_agr("constant") |>
+    sf::st_intersection(studyArea) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 ## planning area boundaries
@@ -262,7 +260,7 @@ get_wha <- function(studyArea, rasterToMatch) {
 ## High Value Moose Wetlands layer has been handled differently
 ## due to limits/issues querying and downloading the data using `bcdata`
 get_moose_wetlands <- function(studyArea, rasterToMatch) {
-  polys <- bcdata::bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") |>
+  bcdata::bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") |>
     dplyr::filter(
       STRGC_LAND_RSRCE_PLAN_NAME == "Cariboo Chilcotin Land Use Plan",
       LEGAL_FEAT_OBJECTIVE == "High Value Wetlands for Moose"
@@ -270,11 +268,9 @@ get_moose_wetlands <- function(studyArea, rasterToMatch) {
     dplyr::select(STRGC_LAND_RSRCE_PLAN_NAME, LEGAL_FEAT_OBJECTIVE) |>
     dplyr::filter(INTERSECTS(studyArea)) |>
     dplyr::collect() |>
-    sf::st_intersection(studyArea)
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    sf::st_set_agr("constant") |>
+    sf::st_intersection(studyArea) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 create_secondary <- function(WHA, MDWR, moose_wetlands) {
@@ -360,14 +356,13 @@ get_streams <- function(studyArea, rasterToMatch) {
 ## (has 191708 records and requires 20 paginated requests to complete);
 ## !! use 2024 VRI to match that of the CEF Forest Disturbance Layer
 get_vri <- function(studyArea, rasterToMatch) {
-  polys <- bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
+  bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
     dplyr::filter(INTERSECTS(studyArea)) |>
     dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
     dplyr::collect() |>
-    sf::st_intersection(studyArea)
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    sf::st_set_agr("constant") |>
+    sf::st_intersection(studyArea) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 ## Leading Group for the Cariboo Region
@@ -392,13 +387,10 @@ get_vri <- function(studyArea, rasterToMatch) {
 ## IDF-Pl Group: includes all forest polygons in NDT 4 (IDF and BG biogeoclimatic zones)
 ## that do not meet the above definition for IDF-Fir Group.
 get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
-  polys <- bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
+  bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
     dplyr::select(LEADING_GRP) |>
-    sf::st_intersection(studyArea)
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    sf::st_intersection(studyArea) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 ## VRI spatial join with NDT-BEC; this join is slow!
@@ -432,13 +424,10 @@ get_railways <- function(studyArea, rasterToMatch) {
 ## (No Web Feature Service resource available for this data set; different CRS);
 ## <https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads>
 get_roads <- function(studyAreaLCC, rasterToMatch) {
-  polys <- bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281") |>
+  bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281") |>
     dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
+    sf::st_transform(terra::crs(rasterToMatch)) |>
     sf::st_transform(terra::crs(rasterToMatch))
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
 }
 
 create_roads_railways <- function(roads, railways) {
@@ -516,19 +505,17 @@ get_human_disturbance <- function(studyArea, rasterToMatch) {
 
   studyArea_bbox <- create_bbox(studyArea)
 
-  polys <- sf::st_read(
+  sf::st_read(
     dsn = cef_hd_gdb,
     layer = "BC_CEF_Human_Disturb_BTM_2023",
     wkt_filter = sf::st_as_text(sf::st_as_sfc(studyArea_bbox))
   ) |>
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_make_valid() |>
+    sf::st_set_agr("constant") |>
     sf::st_intersection(studyArea) |>
-    dplyr::select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG)
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    dplyr::select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 # Forest Disturbance --------------------------------------------------------------------------
@@ -544,18 +531,16 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
 
   studyArea_bbox <- create_bbox(studyArea)
 
-  polys <- sf::st_read(
+  sf::st_read(
     dsn = for_dist_gdb,
     layer = "BC_CEF_ForestDisturbance_2024",
     wkt_filter = sf::st_as_text(sf::st_as_sfc(studyArea_bbox))
   ) |>
     sf::st_make_valid() |>
+    sf::st_set_agr("constant") |>
     ## fid will be recreated to be unique etc. during save
-    dplyr::mutate(fid = NULL)
-
-  suppressWarnings({
-    sf::st_transform(polys, terra::crs(rasterToMatch))
-  })
+    dplyr::mutate(fid = NULL) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 ## Forest Disturbance spatial join with VRI-NDT-BEC and
@@ -601,8 +586,7 @@ define_forest_seral_patches <- function(for_dist_seral) {
   sub_sf <- for_dist_seral |> select(Seral)
 
   nb <- suppressWarnings({
-    ## some observations have no neighbours
-    sfdep::st_contiguity(sub_sf, snap = 100)
+    sfdep::st_contiguity(sub_sf, snap = 100) ## some observations have no neighbours
   })
 
   comp <- spdep::n.comp.nb(nb)

@@ -41,10 +41,49 @@ if (FALSE) {
   file.edit(out)
 }
 
-write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
+#' Write Omniscape configuration file
+#'
+#' @param res,srcwt character specific the file path to the resistance and source weight rasters
+#' @param patch_distances numeric (units) vector of interpatch distances
+#' @param q percentile value from `patch_distances` to use as the Omniscape run `radius` (e.g., 90 means '90%')
+#' @param run_name character specifying the base run name, to which the pixel size, radius, and block size will be appended
+#'
+#' @returns character vector specifying the file paths of the saved configuration and launch script files
+#' (`config.ini` and `script.jl`, respectively)
+#'
+#' @export
+write_omniscape_config <- function(res, srcwt, patch_distances, q = 100, run_name = Sys.Date()) {
+  q <- as.integer(q)
+
+  stopifnot(q > 1 && q < 100)
+
   ## use relative paths when writing config and script files
   res <- fs::path_rel(res, get_path("project"))
   srcwt <- fs::path_rel(srcwt, get_path("project"))
+
+  res_r <- terra::rast(res) |> terra::res() |> unique()
+  res_s <- terra::rast(srcwt) |> terra::res() |> unique()
+
+  stopifnot(res_r == res_s)
+
+  ## NOTE: using larger radius increases computation time, even with increasing block_size
+  radius <- quantile(units::drop_units(patch_distances), seq(0, 1, 0.01))[[paste0(q, "%")]] |>
+    round(digits = 0)
+
+  ## use block_size ~1/10 of radius per Phillips et. al (2021) Landscape Ecol. 36:1647–1661
+  use_block_size <- function(radius, pixel_size, frac = 0.1) {
+    # x <- round((radius / pixel_size) * frac, digits = 0)
+    x <- round(radius * frac, digits = 0)
+    ifelse(x %% 2 == 0, x + 1, x) ## must be odd
+  }
+
+  block_size <- use_block_size(radius, pixel_size = res_r, frac = 0.1)
+
+  ## append the following to the run_name:
+  ## - pixel_size;
+  ## - radius;
+  ## - block_size;
+  run_name <- glue::glue("{run_name}_p{res_r}_r{radius}_bs{block_size}")
 
   omni_path <- fs::dir_create(get_path("omniscape"), run_name)
   omni_path_rel <- fs::path_rel(omni_path, get_path("project"))
@@ -54,17 +93,6 @@ write_omniscape_config <- function(res, srcwt, run_name, nn_distances) {
 
   config_file <- file.path(omni_path_rel, glue::glue("config.ini"))
   julia_script <- file.path(omni_path_rel, glue::glue("script.jl"))
-
-  ## block_size ~1/10 of radius per Phillips et. al (2021) Landscape Ecol. 36:1647–1661
-  use_block_size <- function(radius, frac) {
-    x <- round(radius * frac, digits = 0)
-    ifelse(x %% 2 == 0, x + 1, x) ## must be odd
-  }
-
-  ## TODO: test, discuss, confirm
-  ## using max distance between patches, which will yield larger block size, speeding up computation
-  radius <- round(quantile(units::drop_units(nn_distances), seq(0, 1, 0.05))[["100%"]], digits = 0)
-  block_size <- use_block_size(radius, frac = 0.1)
 
   ## see <https://docs.circuitscape.org/Omniscape.jl/stable/usage/> for full info
   ##

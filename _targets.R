@@ -28,6 +28,7 @@ tar_option_set(
     "sf",
     "terra",
     "tibble",
+    "units",
     "workflowtools"
   ),
 
@@ -85,9 +86,18 @@ list(
     command = get_landcover_raster(Quesnel_TSA),
     format = "file"
   ),
+  tar_target(
+    name = agg_fact_lcc,
+    command = c(1, 3) ## keep a version at 30m and aggregate another to 90m
+  ),
   tar_terra_rast(
     name = LCC,
     command = terra::rast(LCC_tif)
+  ),
+  tar_terra_rast(
+    name = LCC_agg,
+    command = terra::aggregate(LCC, fact = agg_fact_lcc),
+    pattern = map(agg_fact_lcc)
   ),
 
   ## DEM
@@ -446,22 +456,21 @@ list(
 
   ## interpatch assesments
   tar_target(
-    name = nn_distances,
-    command = calc_nn_dists(forest_patches_old)
+    name = distance_type,
+    command = c("all", "nn")
   ),
   tar_target(
-    name = nn_distances_png,
-    command = plot_hist_dists(nn_distances, "histogram_old_patch_nn_distances.png"),
-    format = "file"
+    name = interpatch_distances,
+    command = calc_interpatch_distances(forest_patches_old, distance_type),
+    pattern = map(distance_type),
+    iteration = "list"
   ),
   tar_target(
-    name = all_distances,
-    command = calc_all_dists(forest_patches_old)
-  ),
-  tar_target(
-    name = all_distances_png,
-    command = plot_hist_dists(all_distances, "histogram_old_patch_all_distances.png"),
-    format = "file"
+    name = interpatch_distances_png,
+    command = plot_hist_dists(interpatch_distances, distance_type),
+    format = "file",
+    pattern = map(interpatch_distances, distance_type),
+    iteration = "list"
   ),
 
   ## create resistance and sourcewt rasters
@@ -469,171 +478,207 @@ list(
     name = resistance_forest,
     command = create_resistance_raster(
       polys = forest_patches_all,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_forest.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_forest,
     command = create_sourcewt_raster(
       polys = forest_patches_all,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_forest.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_roads_railways,
     command = create_resistance_raster(
       polys = roads_railways,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_roads.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_roads_railways,
     command = create_sourcewt_raster(
       polys = roads_railways,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_roads_railways.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_ogma,
     command = create_resistance_raster(
       polys = OGMA,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_OGMA.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_ogma,
     command = create_sourcewt_raster(
       polys = OGMA,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_OGMA.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_parks,
     command = create_resistance_raster(
       polys = parks,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_parks.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_parks,
     command = create_sourcewt_raster(
       polys = parks,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_parks.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_secondary,
     command = create_resistance_raster(
       polys = secondary,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_secondary.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_secondary,
     command = create_sourcewt_raster(
       polys = secondary,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_secondary.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_lakes,
     command = create_resistance_raster(
       polys = lakes,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_lakes.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_lakes,
     command = create_sourcewt_raster(
       polys = lakes,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_lakes.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_rivers,
     command = create_resistance_raster(
       polys = rivers,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_rivers.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_rivers,
     command = create_sourcewt_raster(
       polys = rivers,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_rivers.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_streams,
     command = create_resistance_raster(
       polys = streams,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_streams.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_streams,
     command = create_sourcewt_raster(
       polys = streams,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_streams.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   tar_target(
     name = resistance_wetlands,
     command = create_resistance_raster(
       polys = wetlands,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "resistance_wetlands.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_wetlands,
     command = create_sourcewt_raster(
       polys = wetlands,
-      rasterToMatch = LCC,
+      rasterToMatch = LCC_agg,
       dst = "sourcewt_wetlands.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(LCC_agg),
+    iteration = "list"
   ),
 
   # composite rasters
@@ -641,14 +686,23 @@ list(
     name = resistance_composite,
     command = create_composite_resistance_raster(
       forest = resistance_forest,
-      roads = sourcewt_roads_railways,
+      roads = resistance_roads_railways,
       streams = resistance_streams,
       rivers = resistance_rivers,
       lakes = resistance_lakes,
       wetlands = resistance_wetlands,
       dst = "resistance_composite.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(
+      forest = resistance_forest,
+      roads = resistance_roads_railways,
+      streams = resistance_streams,
+      rivers = resistance_rivers,
+      lakes = resistance_lakes,
+      wetlands = resistance_wetlands
+    ),
+    iteration = "list"
   ),
   tar_target(
     name = sourcewt_composite,
@@ -661,27 +715,36 @@ list(
       wetlands = sourcewt_wetlands,
       dst = "sourcewt_composite.tif"
     ),
-    format = "file"
+    format = "file",
+    pattern = map(
+      forest = sourcewt_forest,
+      roads = sourcewt_roads_railways,
+      streams = sourcewt_streams,
+      rivers = sourcewt_rivers,
+      lakes = sourcewt_lakes,
+      wetlands = sourcewt_wetlands
+    ),
+    iteration = "list"
   ),
 
   ## omniscape
   tar_target(
     name = omniscape_config,
     command = write_omniscape_config(
-      resistance_composite,
-      sourcewt_composite,
-      ## TODO: dynamic branching for different runs / params?
-      "2025-12-16_seral_agg_by_class_all_r100_bs01",
-      all_distances
+      res = resistance_composite,
+      srcwt = sourcewt_composite,
+      patch_distances = interpatch_distances,
+      q = 99, ## could reasonably use e.g., 95, 99, 100 percentile
+      run_name = "2025-12-18"
     ),
-    format = "file"
+    format = "file",
+    pattern = cross(map(resistance_composite, sourcewt_composite), map(interpatch_distances)),
+    iteration = "list"
   ),
   ## TODO: too many issues launching julia, running Omniscape from R;
   ## -- run manually from bash shell (but not via Rstudio terminal!)
   # tar_target(
   #   name = omniscape_run,
-  #   ## radius 500: estimated <8h using 8 cores; <2.5h using 64 cores (~300 GB RAM).
-  #   ## radius 832: 1.5d using 64 cores (~350 GB RAM).
   #   command = run_omniscape(omniscape_config, 64L),
   #   format = "file"
   # ),

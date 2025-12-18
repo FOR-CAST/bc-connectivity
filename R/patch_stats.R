@@ -28,38 +28,56 @@ save_patch_stats <- function(stats_df) {
 
 # Interpatch assessment (moving window size) --------------------------------------------------
 
-## calculate nearest neighbour distances
-calc_nn_dists <- function(for_dist_old) {
-  nn <- sf::st_nearest_feature(for_dist_old)
-  nn_dists <- sf::st_distance(for_dist_old, for_dist_old[nn, ], by_element = TRUE)
+## calculate distances between nearest neighbours
+calc_nn_dists <- function(x) {
+  nn <- sf::st_nearest_feature(x)
+  nn_dists <- sf::st_distance(x, x[nn, ], by_element = TRUE)
 
   return(nn_dists)
 }
 
-## calculate all interpatch distances
-calc_all_dists <- function(for_dist_old) {
-  dist_mat <- sf::st_distance(for_dist_old)
-  dist_mat[upper.tri(dist_mat)]
+## calculate distances between all patches
+calc_all_dists <- function(x) {
+  dist_mat <- sf::st_distance(x)
+  dist_mat[upper.tri(x)]
 }
 
-plot_hist_dists <- function(dists, dst) {
-  dst <- file.path(get_path("figures"), dst)
-
-  md <- median(dists) ## 54948.62 [m]
-  mn <- mean(dists) ## 67630.84 [m]
-
-  ## stick to base plot; ggplot is super slow
-  hist_dists <- hist(dists, plot = FALSE)
-
-  png(dst, width = 800, height = 600)
-  plot(
-    hist_dists,
-    main = "Frequency distribution of interpatch distances",
-    xlab = "Interpatch distance (m)"
+calc_interpatch_distances <- function(for_dist_old, type) {
+  switch(
+    type,
+    all = calc_all_dists(for_dist_old),
+    nn = calc_nn_dists(for_dist_old),
+    stop("invalid interpatch distance type")
   )
-  abline(v = md, col = "blue", lty = 2)
-  abline(v = mn, col = "black", lty = 2)
-  dev.off()
+}
+
+plot_hist_dists <- function(dists, type) {
+  dst <- file.path(get_path("figures"), glue::glue("histogram_patch_distances_{type}.png"))
+
+  gg <- ggplot(data.frame(dists), aes(x = dists)) +
+    geom_histogram(fill = "lightgrey") +
+    geom_vline(
+      xintercept = c(median(dists), mean(dists)),
+      colour = c("blue", "darkred"),
+      linetype = 2,
+      linewidth = 1.5
+    ) +
+    annotate(
+      "text",
+      x = c(median(dists), mean(dists)),
+      y = Inf,
+      label = c("median", "mean"),
+      colour = c("blue", "darkred"),
+      angle = 90,
+      vjust = 1.5,
+      hjust = 1.5
+    ) +
+    xlab("Interpatch distance") +
+    ylab("Frequency") +
+    ggtitle(glue::glue("Frequency distribution of {type} interpatch distances")) +
+    theme_minimal()
+
+  ggsave(filename = dst, plot = gg, width = 8, height = 6)
 
   return(dst)
 }
