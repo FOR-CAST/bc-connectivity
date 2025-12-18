@@ -68,7 +68,7 @@ list(
   ),
   tar_target(
     name = Quesnel_TSA,
-    command = get_quesnel_NRD_boundary(NRD_shapefile)
+    command = get_quesnel_NRD_boundary(NRD_shapefile, buffer = FALSE)
   ),
   tar_target(
     name = Quesnel_TSA_gpkg,
@@ -76,14 +76,23 @@ list(
     format = "file"
   ),
   tar_target(
-    name = Quesnel_TSA_LCC,
-    command = sf::st_transform(Quesnel_TSA, crs = terra::crs(LCC))
+    name = Quesnel_TSA_buffered,
+    command = get_quesnel_NRD_boundary(NRD_shapefile, buffer = TRUE)
+  ),
+  tar_target(
+    name = Quesnel_TSA_buffered_gpkg,
+    command = save_gpkg(Quesnel_TSA_buffered, dst = "Quesnel_TSA_studyarea_buffered.gpkg"),
+    format = "file"
+  ),
+  tar_target(
+    name = Quesnel_TSA_buffered_LCC,
+    command = sf::st_transform(Quesnel_TSA_buffered, crs = terra::crs(LCC))
   ),
 
   ## LCC used as rasterToMatch
   tar_target(
     name = LCC_tif,
-    command = get_landcover_raster(Quesnel_TSA),
+    command = get_landcover_raster(Quesnel_TSA_buffered),
     format = "file"
   ),
   tar_target(
@@ -103,7 +112,7 @@ list(
   ## DEM
   tar_target(
     name = DEM_tif,
-    command = get_dem_raster(Quesnel_TSA),
+    command = get_dem_raster(Quesnel_TSA_buffered),
     format = "file"
   ),
   tar_terra_rast(
@@ -114,7 +123,7 @@ list(
   ## planning boundaries
   tar_target(
     name = LU,
-    command = get_landscape_units(Quesnel_TSA, LCC)
+    command = get_landscape_units(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = LU_gpkg,
@@ -125,7 +134,7 @@ list(
   ## ecological features
   tar_target(
     name = BEC,
-    command = get_bec(Quesnel_TSA, LCC)
+    command = get_bec(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = BEC_gpkg,
@@ -149,7 +158,7 @@ list(
 
   tar_target(
     name = leading_group_cariboo,
-    command = get_leading_group_cariboo(Quesnel_TSA, LCC)
+    command = get_leading_group_cariboo(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = leading_group_cariboo_gpkg,
@@ -159,7 +168,7 @@ list(
 
   tar_target(
     name = VRI,
-    command = get_vri(Quesnel_TSA, LCC)
+    command = get_vri(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = VRI_gpkg,
@@ -178,7 +187,7 @@ list(
 
   tar_target(
     name = forest_disturbance,
-    command = get_forest_disturbance(Quesnel_TSA, LCC)
+    command = get_forest_disturbance(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = forest_disturbance_gpkg,
@@ -314,7 +323,7 @@ list(
   ## biodiversity features
   tar_target(
     name = MDWR,
-    command = get_mdwr(Quesnel_TSA, LCC)
+    command = get_mdwr(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = MDWR_gpkg,
@@ -323,7 +332,7 @@ list(
   ),
   tar_target(
     name = moose_wetlands,
-    command = get_moose_wetlands(Quesnel_TSA, LCC)
+    command = get_moose_wetlands(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = moose_wetlands_gpkg,
@@ -332,7 +341,7 @@ list(
   ),
   tar_target(
     name = OGMA,
-    command = get_ogma(Quesnel_TSA, LCC)
+    command = get_ogma(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = OGMA_gpkg,
@@ -341,7 +350,7 @@ list(
   ),
   tar_target(
     name = parks,
-    command = get_parks(Quesnel_TSA, LCC)
+    command = get_parks(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = parks_gpkg,
@@ -350,7 +359,7 @@ list(
   ),
   tar_target(
     name = wetlands,
-    command = get_wetlands(Quesnel_TSA, LCC)
+    command = get_wetlands(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = wetlands_gpkg,
@@ -359,7 +368,7 @@ list(
   ),
   tar_target(
     name = WHA,
-    command = get_wha(Quesnel_TSA, LCC)
+    command = get_wha(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = WHA_gpkg,
@@ -379,7 +388,7 @@ list(
   ## water features
   tar_target(
     name = lakes,
-    command = get_lakes(Quesnel_TSA, LCC)
+    command = get_lakes(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = lakes_gpkg,
@@ -388,7 +397,7 @@ list(
   ),
   tar_target(
     name = rivers,
-    command = get_rivers(Quesnel_TSA, LCC)
+    command = get_rivers(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = rivers_gpkg,
@@ -397,7 +406,7 @@ list(
   ),
   tar_target(
     name = streams,
-    command = get_streams(Quesnel_TSA, LCC)
+    command = get_streams(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = streams_gpkg,
@@ -408,7 +417,7 @@ list(
   ## anthropogenic disturbance features
   tar_target(
     name = railways,
-    command = get_railways(Quesnel_TSA, LCC)
+    command = get_railways(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = railways_gpkg,
@@ -417,7 +426,7 @@ list(
   ),
   tar_target(
     name = roads,
-    command = get_roads(Quesnel_TSA_LCC, LCC), ## note differest studyArea CRS needed
+    command = get_roads(Quesnel_TSA_buffered_LCC, LCC), ## note differest studyArea CRS needed
   ),
   tar_target(
     name = roads_gpkg,
@@ -435,7 +444,7 @@ list(
   ),
   tar_target(
     name = human_disturbance,
-    command = get_human_disturbance(Quesnel_TSA, LCC)
+    command = get_human_disturbance(Quesnel_TSA_buffered, LCC)
   ),
   tar_target(
     name = human_disturbance_gpkg,

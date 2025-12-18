@@ -48,7 +48,7 @@ write_reproducibility_receipt <- function(dst = "INFO.md") {
 ## but that version is simplified; use the manually downloaded file for analyses
 ## <https://catalogue.data.gov.bc.ca/dataset/0bc73892-e41f-41d0-8d8e-828c16139337/resource/2d9d0a5c-bdf7-47e8-9038-103a93e6205a>
 
-get_quesnel_NRD_boundary <- function(file) {
+get_quesnel_NRD_boundary <- function(file, buffer = FALSE) {
   if (file.exists(file)) {
     Quesnel_TSA <- sf::st_read(file) |>
       filter(DSTRCT_NM == "Quesnel Natural Resource District") |>
@@ -61,7 +61,11 @@ get_quesnel_NRD_boundary <- function(file) {
       rename(DIST_NAME = DISTRICT_NAME)
   }
 
-  sf::st_buffer(Quesnel_TSA, 500 * 30) ## add 500-pixel buffer to mitigate edge-effects
+  if (isTRUE(buffer)) {
+    sf::st_buffer(Quesnel_TSA, 500 * 30) ## add 500-pixel buffer to mitigate edge-effects
+  } else {
+    Quesnel_TSA
+  }
 }
 
 # Landcover -----------------------------------------------------------------------------------
