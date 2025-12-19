@@ -170,16 +170,16 @@ Projected stand age after significant disturbances (Simple Inferred Forest Age, 
 Each polygon was assigned a seral stage using thresholds following the Biodiversity Guidebook [@BritishColumbia:1995], and landscape patches identified following the Forest Biodiversity Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
 ```{r workflow-seral-overview, echo = FALSE}
-source("scripts/workflow_seral_overview.R")
+source("scripts/workflow_seral.R")
 ```
 
-![Overview of seral stage workflow](workflow_seral_overview.png)
+![Overview of seral stage workflow](workflow_seral.png)
 
 ```{r workflow-seral-detailed, echo = FALSE}
-source("scripts/workflow_seral_detailed.R")
+source("scripts/workflow_patches.R")
 ```
 
-![Detailed seral stage classification](workflow_seral_detailed.png)
+![Overview of patch size workflow](workflow_patches.png)
 
 Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
 

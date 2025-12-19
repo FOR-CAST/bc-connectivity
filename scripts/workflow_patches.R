@@ -113,4 +113,4 @@ DiagrammeR::grViz(
 ) |>
   DiagrammeRsvg::export_svg() |>
   charToRaw() |>
-  rsvg::rsvg_png("workflow_seral_detailed.png")
+  rsvg::rsvg_png("workflow_patches.png")
