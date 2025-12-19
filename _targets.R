@@ -755,6 +755,21 @@ list(
   # tar_target(
   #   name = omniscape_run,
   #   command = run_omniscape(omniscape_config, 64L),
+  #   format = "file",
+  #   pattern = map(omniscape_config),
+  #   iteration = "list"
+  # ),
+  # tar_target(
+  #   name = omniscape_summary,
+  #   command = TODO,
+  #   pattern = map(omniscape_config),
+  #   iteration = "list"
+  # ),
+
+  ## TODO: render README
+  # tar_target(
+  #   name = readme,
+  #   command = TODO(all_distances, nn_distances),
   #   format = "file"
   # ),
 
@@ -763,5 +778,6 @@ list(
     name = reproducibility_receipt,
     command = write_reproducibility_receipt("INFO.md"),
     format = "file"
-  ) ## TODO: add julia and omniscape info?
+  )
+  ## TODO: add julia and omniscape info?
 )

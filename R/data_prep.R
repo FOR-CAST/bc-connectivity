@@ -550,6 +550,7 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
 ## Forest Disturbance spatial join with VRI-NDT-BEC and
 ## assign seral stage classifications based on seral stage table
 create_forest_disturbance_seral <- function(for_dist, vri_joined) {
+  ## TODO: fix repeated warnings 'polygon from first part only'
   for_dist |>
     sf::st_set_geometry("geom") |>
     dplyr::select(SIFA) |>
@@ -587,6 +588,7 @@ subset_forest_seral_ageclass <- function(for_dist_seral, age_class) {
 ##
 ## the rows from each age class will be recombined into a single sf polygon object
 define_forest_seral_patches <- function(for_dist_seral) {
+  ## TODO: rework this based on the BC python code
   sub_sf <- for_dist_seral |> select(Seral)
 
   nb <- suppressWarnings({
