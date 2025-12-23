@@ -183,10 +183,10 @@ source("scripts/workflow_patches.R")
 
 Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
 
-1. `get_input_data` loads the seral stage polygons:
+1. `get_input_data` loads the seral stage polygons and dissolves by seral stage:
   a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`;
   b. loads `aoi` (LU) study area polygon(s);
-  b. takes `seral_managed` polygon layer and repairs geometry, then dissolves polygons (`SINGLE_PART`) based on attributes `SERAL_STAGE` and `early_less20yrs`, saving as `seral` polygon layer;
+  c. takes `seral_managed` polygon layer and repairs geometry, then dissolves polygons (`SINGLE_PART`) based on attributes `SERAL_STAGE` and `early_less20yrs`, saving as `seral` polygon layer;
 
 2. `create_old_and_old_mature` creates `OLD` and `OLD_MATURE` feature classes:
   a. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% c('old', 'mature')` and sets `INTERIOR_CATEGORY = "MO"` for these polygons, saving to `x1_mature_old_from_seral` polygon layer;

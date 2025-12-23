@@ -161,7 +161,7 @@ get_bcdata <- function(id, select_cols, studyArea, rasterToMatch) {
     dplyr::select(any_of(select_cols)) |>
     dplyr::collect() |>
     sf::st_set_agr("constant") |>
-    sf::st_intersection(studyArea) |>
+    sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -273,7 +273,7 @@ get_moose_wetlands <- function(studyArea, rasterToMatch) {
     dplyr::filter(INTERSECTS(studyArea)) |>
     dplyr::collect() |>
     sf::st_set_agr("constant") |>
-    sf::st_intersection(studyArea) |>
+    sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -357,7 +357,7 @@ get_streams <- function(studyArea, rasterToMatch) {
 
 ## Vegetation Resource Inventory (VRI 2024) needs to be handled differently
 ## due to limits/issues querying and downloading the data using `bcdata`
-## (has 191708 records and requires 20 paginated requests to complete);
+## (has 320917 records and requires 33 paginated requests to complete);
 ## !! use 2024 VRI to match that of the CEF Forest Disturbance Layer
 get_vri <- function(studyArea, rasterToMatch) {
   bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
@@ -365,7 +365,7 @@ get_vri <- function(studyArea, rasterToMatch) {
     dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
     dplyr::collect() |>
     sf::st_set_agr("constant") |>
-    sf::st_intersection(studyArea) |>
+    sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -393,7 +393,7 @@ get_vri <- function(studyArea, rasterToMatch) {
 get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
   bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
     dplyr::select(LEADING_GRP) |>
-    sf::st_intersection(studyArea) |>
+    sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
@@ -517,7 +517,7 @@ get_human_disturbance <- function(studyArea, rasterToMatch) {
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_make_valid() |>
     sf::st_set_agr("constant") |>
-    sf::st_intersection(studyArea) |>
+    sf::st_crop(studyArea) |>
     dplyr::select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
@@ -542,15 +542,14 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
   ) |>
     sf::st_make_valid() |>
     sf::st_set_agr("constant") |>
-    ## fid will be recreated to be unique etc. during save
-    dplyr::mutate(fid = NULL) |>
+    sf::st_crop(studyArea) |>
+    dplyr::mutate(fid = NULL) |> ## fid will be recreated to be unique etc. during save
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
 ## Forest Disturbance spatial join with VRI-NDT-BEC and
 ## assign seral stage classifications based on seral stage table
 create_forest_disturbance_seral <- function(for_dist, vri_joined) {
-  ## TODO: fix repeated warnings 'polygon from first part only'
   for_dist |>
     sf::st_set_geometry("geom") |>
     dplyr::select(SIFA) |>
@@ -561,11 +560,15 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
       by = dplyr::join_by(NDT_BEC, dplyr::between(SIFA, Age_Min, Age_Max, bounds = "[)"))
     ) |>
     sf::st_make_valid() |>
-    dplyr::mutate(Age_Min = NULL, Age_Max = NULL) |>
+    dplyr::mutate(
+      Age_Min = NULL,
+      Age_Max = NULL,
+      early_less_20yrs = dplyr::if_else(SIFA < 20, "under_20", NA_character_)
+    ) |>
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 }
 
-## extract old forest patches
 subset_forest_seral_ageclass <- function(for_dist_seral, age_class) {
   for_dist_seral |>
     dplyr::filter(Seral == !!age_class)
@@ -576,32 +579,138 @@ subset_forest_seral_ageclass <- function(for_dist_seral, age_class) {
 ##   such that small residual patches <1ha in size and 'peninsulas' or corridors
 ##   (e.g. riparian corridors) of different aged forest <100m wide within a larger
 ##   similarly aged forest patch are included as part of that singular patch.
-##
-## NOTE: this function is meant to be called for each `Seral` group (age class).
-##
-## for each age class:
-## 1. identify queen contiguity neighbours up to 100 m away;
-## 2. aggregate these neighbour polygons into groups;
-## 3. build a concave hull arround each group of neighbours, preserving all holes;
-## 4. remove holes smaller than 1ha.
-## (based on the approach suggested in <https://github.com/r-spatial/sf/issues/2022>)
-##
-## the rows from each age class will be recombined into a single sf polygon object
-define_forest_seral_patches <- function(for_dist_seral) {
-  ## TODO: rework this based on the BC python code
-  sub_sf <- for_dist_seral |> select(Seral)
 
-  nb <- suppressWarnings({
-    sfdep::st_contiguity(sub_sf, snap = 100) ## some observations have no neighbours
-  })
+## NOTE: naming conventions for patch creation functions resemble those of the BC arcpy scripts.
 
-  comp <- spdep::n.comp.nb(nb)
+patches_get_input_data <- function(for_dist_seral) {
+  for_dist_seral |>
+    dplyr::group_by(Seral, early_less_20yrs) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE)
+}
 
-  ## NOTE: may need to tweak segmentize and concave hull args
-  aggregate(sub_sf, list(comp$comp.id), head, n = 1) |>
-    sf::st_segmentize(10) |> ## add nodes at most 10m apart
-    sf::st_concave_hull(ratio = 0.1, allow_holes = TRUE) |>
-    smoothr::fill_holes(units::set_units(1, ha))
+patches_create_buffers_to_delete <- function(seral, buffer_size) {
+  use_buffer <- switch(
+    as.character(buffer_size),
+    "200" = 200,
+    "100" = 101,
+    "50" = 52,
+    "25" = 25,
+    stop("buffer_size must be one of 200, 100, 50, or 25")
+  )
+
+  seral_subset <- switch(
+    as.character(buffer_size),
+    "200" = dplyr::filter(seral, early_less_20yrs == "under_20" & Seral == "Early"),
+    "100" = dplyr::filter(
+      seral,
+      (early_less_20yrs != "under_20" | is.na(early_less_20yrs)) & Seral == "Early"
+    ),
+    "50" = dplyr::filter(seral, Seral == "Mid"),
+    "25" = dplyr::filter(seral, Seral == "Mature")
+  )
+
+  seral_subset |>
+    dplyr::group_by(Seral) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE) |>
+    dplyr::filter(sf::st_area(geom) > units::set_units(1, ha)) |>
+    sf::st_buffer(use_buffer)
+}
+
+patches_create_old_mature <- function(seral, age_class) {
+  use_class <- switch(
+    paste0(age_class, collapse = "_"),
+    Mature_Old = "MO",
+    Old = "O",
+    stop("age_class must be one of `c('Mature', 'Old')` or `'Old'`")
+  )
+
+  p <- seral |>
+    dplyr::mutate(
+      INTERIOR_CATEGORY = dplyr::if_else(Seral %in% age_class, use_class, "other")
+    ) |>
+    dplyr::group_by(INTERIOR_CATEGORY) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  p_slivers <- p |>
+    dplyr::filter(
+      INTERIOR_CATEGORY != !!use_class & sf::st_area(geom) <= units::set_units(1, ha)
+    )
+  p_not_slivers <- p |>
+    dplyr::filter(
+      INTERIOR_CATEGORY == !!use_class | sf::st_area(geom) > units::set_units(1, ha)
+    )
+
+  if (nrow(p_not_slivers) < 1) {
+    stop("Threshold exceeds the area of every polygon. Please select a smaller number.")
+  }
+
+  ## emulate `arcpy.Eliminate_management` using LENGTH, via `terra::combineGeom`
+  v_slivers <- terra::vect(p_slivers)
+  v_not_slivers <- terra::vect(p_not_slivers)
+
+  v_merged <- terra::combineGeoms(
+    v_not_slivers,
+    v_slivers,
+    overlap = TRUE,
+    boundary = TRUE,
+    distance = TRUE,
+    append = TRUE,
+    minover = 0.05,
+    maxdist = 1, ## need some small distance to deal with possible topology errors
+    dissolve = TRUE,
+    erase = TRUE
+  )
+
+  p_merged <- sf::st_as_sf(v_merged) ## TODO: is e.g., st_cast("POLYGON") needed?
+
+  ## NOTE: it's unnecessary here to further classify patches by area
+
+  return(p_merged)
+}
+
+patches_create_patch_size_data <- function(seral) {
+  ## NOTE: it's unecessary here to further classify patches based on size
+  seral |>
+    dplyr::group_by(Seral) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE)
+}
+
+## st_erase modified from <https://github.com/r-spatial/sf/issues/346>
+st_erase <- function(x, y) {
+  sf::st_delete(x, sf::st_union(y))
+}
+
+patches_create_interior_forest <- function(
+  patches_mature_old,
+  patches_buffer_200,
+  patches_buffer_100,
+  patches_buffer_50,
+  patches_buffer_25,
+  age_class
+) {
+  st_erase(patches_mature_old, patches_buffer_200) |>
+    st_erase(patches_buffer_100) |>
+    st_erase(patches_buffer_50) |>
+    st_erase(patches_buffer_25) |>
+    dplyr::mutate(
+      patch_type = paste0(!!age_class, "interior", collapse = "_")
+    )
+}
+
+patches_union_into_final_resultant <- function(
+  interior_forest_mature_old,
+  interior_forest_old,
+  patch_size,
+  for_dist_seral
+) {
+  sf::st_make_valid(interior_forest_mature_old) |>
+    sf::st_union(sf::st_make_valid(interior_forest_old)) |>
+    sf::st_union(sf::st_make_valid(patch_size)) |>
+    sf::st_union(sf::st_make_valid(for_dist_seral))
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {

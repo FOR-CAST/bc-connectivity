@@ -37,7 +37,7 @@ tar_option_set(
   ## Pipelines that take a long time to run may benefit from distributed computing.
   ##  To use this capability in tar_make(), supply a {crew} controller
   ## as discussed at <https://books.ropensci.org/targets/crew.html>.
-  controller = crew::crew_controller_local(workers = 8, seconds_idle = 600),
+  controller = crew::crew_controller_local(workers = 16, seconds_idle = 600),
   storage = "worker",
   retrieval = "worker",
 
@@ -196,10 +196,7 @@ list(
   ),
   tar_target(
     name = forest_disturbance_seral,
-    command = create_forest_disturbance_seral(forest_disturbance, VRI_BECNDT) |>
-      dplyr::group_by(Seral) |>
-      tar_group(),
-    iteration = "group"
+    command = create_forest_disturbance_seral(forest_disturbance, VRI_BECNDT)
   ),
   tar_target(
     name = forest_disturbance_seral_png,
@@ -216,104 +213,102 @@ list(
     format = "file"
   ),
 
+  tar_target(
+    name = patches_input_data,
+    command = patches_get_input_data(forest_disturbance_seral)
+  ),
+
   ## TODO: targets branching not working with sf objects
   ## - even though sf inherits from data.frame, branching complains about it not being a data.frame;
-  ## - manually split the forest seral sf object to run in parallel, since it's only 4 predetermined groups;
-  ## - manually recombine all patches and add resistance and sourcewt values;
+  ## - manually split the forest seral sf object to run in parallel, since it's only a few predetermined groups;
+  ## - manually recombine at the end, then assign resistance and sourcewt values;
   tar_target(
-    name = forest_disturbance_seral_early,
-    command = subset_forest_seral_ageclass(forest_disturbance_seral, "Early")
+    name = patches_mature_old,
+    command = patches_create_old_mature(patches_input_data, c("Mature", "Old"))
   ),
   tar_target(
-    name = forest_disturbance_seral_mid,
-    command = subset_forest_seral_ageclass(forest_disturbance_seral, "Mid")
-  ),
-  tar_target(
-    name = forest_disturbance_seral_mature,
-    command = subset_forest_seral_ageclass(forest_disturbance_seral, "Mature")
-  ),
-  tar_target(
-    name = forest_disturbance_seral_old,
-    command = subset_forest_seral_ageclass(forest_disturbance_seral, "Old")
+    name = patches_old,
+    command = patches_create_old_mature(patches_input_data, "Old")
   ),
 
   tar_target(
-    name = forest_patches_early,
-    command = define_forest_seral_patches(forest_disturbance_seral_early)
+    name = patches_buffer_200,
+    command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 200)
   ),
   tar_target(
-    name = forest_patches_mid,
-    command = define_forest_seral_patches(forest_disturbance_seral_mid)
+    name = patches_buffer_100,
+    command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 100)
   ),
   tar_target(
-    name = forest_patches_mature,
-    command = define_forest_seral_patches(forest_disturbance_seral_mature)
+    name = patches_buffer_50,
+    command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 50)
   ),
   tar_target(
-    name = forest_patches_old,
-    command = define_forest_seral_patches(forest_disturbance_seral_old)
-  ),
-
-  tar_target(
-    name = forest_patches_early_png,
-    command = plot_forest_disturbance_seral(
-      forest_patches_early,
-      Quesnel_TSA,
-      "Quesnel_TSA_for_dist_early_patches.png"
-    ),
-    format = "file"
-  ),
-  tar_target(
-    name = forest_patches_mid_png,
-    command = plot_forest_disturbance_seral(
-      forest_patches_mid,
-      Quesnel_TSA,
-      "Quesnel_TSA_for_dist_mid_patches.png"
-    ),
-    format = "file"
-  ),
-  tar_target(
-    name = forest_patches_mature_png,
-    command = plot_forest_disturbance_seral(
-      forest_patches_mature,
-      Quesnel_TSA,
-      "Quesnel_TSA_for_dist_mature_patches.png"
-    ),
-    format = "file"
-  ),
-  tar_target(
-    name = forest_patches_old_png,
-    command = plot_forest_disturbance_seral(
-      forest_patches_old,
-      Quesnel_TSA,
-      "Quesnel_TSA_for_dist_old_patches.png"
-    ),
-    format = "file"
+    name = patches_buffer_25,
+    command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 25)
   ),
 
   tar_target(
-    name = forest_patches_seral,
-    command = rbind(
-      forest_patches_early,
-      forest_patches_mid,
-      forest_patches_mature,
-      forest_patches_old
+    name = patches_interior_forest_old,
+    command = patches_create_interior_forest(
+      patches_old,
+      patches_buffer_200,
+      patches_buffer_100,
+      patches_buffer_50,
+      patches_buffer_25,
+      "Old"
+    )
+  ),
+  tar_target(
+    name = patches_interior_forest_mature_old,
+    command = patches_create_interior_forest(
+      patches_mature_old,
+      patches_buffer_200,
+      patches_buffer_100,
+      patches_buffer_50,
+      patches_buffer_25,
+      "Mature"
     )
   ),
 
   tar_target(
-    name = forest_patches_all,
-    command = define_forest_seral_patch_conn_vals(forest_patches_seral)
+    name = patches_patch_size,
+    command = patches_create_patch_size_data(patches_input_data)
+  ),
+
+  tar_target(
+    name = patches_union_final,
+    command = patches_union_into_final_resultant(
+      patches_interior_forest_mature_old,
+      patches_interior_forest_old,
+      patches_patch_size,
+      forest_disturbance_seral
+    )
+  ),
+
+  tar_target(
+    name = forest_patches_png,
+    command = plot_forest_disturbance_seral(
+      patches_union_final,
+      Quesnel_TSA,
+      "Quesnel_TSA_seral_patches.png"
+    ),
+    format = "file"
+  ),
+
+  tar_target(
+    name = forest_patches_final,
+    command = define_forest_seral_patch_conn_vals(patches_union_final)
   ),
   tar_target(
-    name = forest_patches_all_gpkg,
-    command = save_gpkg(forest_patches_all, "forest_disturbance_seral.gpkg"),
+    name = forest_patches_final_gpkg,
+    command = save_gpkg(forest_patches_final, "forest_disturbance_seral.gpkg"),
     format = "file"
   ),
   tar_target(
-    name = forest_patches_all_png,
+    name = forest_patches_final_png,
     command = plot_forest_disturbance_seral(
-      forest_patches_all,
+      forest_patches_final,
       Quesnel_TSA,
       "Quesnel_TSA_for_dist_seral_patches.png"
     ),
@@ -455,7 +450,7 @@ list(
   ## patch statistics / summaries
   tar_target(
     name = patch_summary,
-    command = calc_patch_stats(forest_patches_all),
+    command = calc_patch_stats(forest_patches_final),
   ),
   tar_target(
     name = patch_summary_csv,
@@ -470,7 +465,7 @@ list(
   ),
   tar_target(
     name = interpatch_distances,
-    command = calc_interpatch_distances(forest_patches_old, distance_type),
+    command = calc_interpatch_distances(forest_patches_final, distance_type),
     pattern = map(distance_type),
     iteration = "list"
   ),
@@ -486,7 +481,7 @@ list(
   tar_target(
     name = resistance_forest,
     command = create_resistance_raster(
-      polys = forest_patches_all,
+      polys = forest_patches_final,
       rasterToMatch = LCC_agg,
       dst = "resistance_forest.tif"
     ),
@@ -497,7 +492,7 @@ list(
   tar_target(
     name = sourcewt_forest,
     command = create_sourcewt_raster(
-      polys = forest_patches_all,
+      polys = forest_patches_final,
       rasterToMatch = LCC_agg,
       dst = "sourcewt_forest.tif"
     ),
