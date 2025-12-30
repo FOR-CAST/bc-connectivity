@@ -664,7 +664,8 @@ patches_create_old_mature <- function(seral, age_class) {
     erase = TRUE
   )
 
-  p_merged <- sf::st_as_sf(v_merged) ## TODO: is e.g., st_cast("POLYGON") needed?
+  p_merged <- sf::st_as_sf(v_merged) |>
+    sf::st_set_geometry("geom")
 
   ## NOTE: it's unnecessary here to further classify patches by area
 
@@ -681,7 +682,7 @@ patches_create_patch_size_data <- function(seral) {
 
 ## st_erase modified from <https://github.com/r-spatial/sf/issues/346>
 st_erase <- function(x, y) {
-  sf::st_delete(x, sf::st_union(y))
+  sf::st_difference(x, sf::st_union(y))
 }
 
 patches_create_interior_forest <- function(
