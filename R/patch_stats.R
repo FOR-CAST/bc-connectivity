@@ -42,11 +42,14 @@ calc_all_dists <- function(x) {
   dist_mat[upper.tri(x)]
 }
 
-calc_interpatch_distances <- function(for_dist_old, type) {
+calc_interpatch_distances <- function(for_dist, type) {
+  for_dist_matold <- for_dist |>
+    dplyr::filter(Seral %in% c("Mature", "Old"))
+
   switch(
     type,
-    all = calc_all_dists(for_dist_old),
-    nn = calc_nn_dists(for_dist_old),
+    all = calc_all_dists(for_dist_matold),
+    nn = calc_nn_dists(for_dist_matold),
     stop("invalid interpatch distance type")
   )
 }

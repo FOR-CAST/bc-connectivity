@@ -32,12 +32,15 @@ tar_option_set(
     "workflowtools"
   ),
 
-  # format = "qs", ## Optionally set the default storage format. qs is fast.
+  ## Optional settings
+  # format = "qs",
+  # memory = "transient",
+  # garbage_collection = 100,
 
   ## Pipelines that take a long time to run may benefit from distributed computing.
-  ##  To use this capability in tar_make(), supply a {crew} controller
+  ## To use this capability in tar_make(), supply a {crew} controller
   ## as discussed at <https://books.ropensci.org/targets/crew.html>.
-  controller = crew::crew_controller_local(workers = 16, seconds_idle = 600),
+  controller = crew::crew_controller_local(workers = 16L, seconds_idle = 600),
   storage = "worker",
   retrieval = "worker",
 
@@ -739,7 +742,7 @@ list(
       srcwt = sourcewt_composite,
       patch_distances = interpatch_distances,
       q = 99, ## could reasonably use e.g., 95, 99, 100 percentile
-      run_name = "2025-12-18"
+      run_name = "2026-01-07"
     ),
     format = "file",
     pattern = cross(map(resistance_composite, sourcewt_composite), map(interpatch_distances)),

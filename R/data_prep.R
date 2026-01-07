@@ -393,6 +393,7 @@ get_vri <- function(studyArea, rasterToMatch) {
 get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
   bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
     dplyr::select(LEADING_GRP) |>
+    sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
@@ -569,11 +570,6 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
     sf::st_cast("POLYGON", warn = FALSE)
 }
 
-subset_forest_seral_ageclass <- function(for_dist_seral, age_class) {
-  for_dist_seral |>
-    dplyr::filter(Seral == !!age_class)
-}
-
 ## per the CEF Biodiversity Protocol (§3.2.2):
 ##   Unique patches are formed if similarly-aged forest polygons are separated >100m,
 ##   such that small residual patches <1ha in size and 'peninsulas' or corridors
@@ -682,7 +678,11 @@ patches_create_patch_size_data <- function(seral) {
 
 ## st_erase modified from <https://github.com/r-spatial/sf/issues/346>
 st_erase <- function(x, y) {
-  sf::st_difference(x, sf::st_union(y))
+  x <- sf::st_set_agr(x, "constant")
+  y <- sf::st_set_agr(y, "constant")
+
+  sf::st_difference(x, sf::st_union(y)) |>
+    sf::st_make_valid()
 }
 
 patches_create_interior_forest <- function(
@@ -698,8 +698,53 @@ patches_create_interior_forest <- function(
     st_erase(patches_buffer_50) |>
     st_erase(patches_buffer_25) |>
     dplyr::mutate(
-      patch_type = paste0(!!age_class, "interior", collapse = "_")
-    )
+      INTERIOR_CATEGORY = NULL,
+      # patch_type = paste(!!age_class, "interior", sep = "_"),
+      Seral = !!age_class
+    ) |>
+    dplyr::group_by(Seral) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE)
+}
+
+## copied from FOR-CAST/spatialutils for testing with these large sf objects
+st_union_analysis <- function(x, y, union_by = NULL) {
+  x <- sf::st_set_geometry(x, "geometry")
+  y <- sf::st_set_geometry(y, "geometry")
+
+  i <- sf::st_intersection(x, y) |>
+    sf::st_make_valid() |>
+    dplyr::select(-dplyr::ends_with(".1")) ## use attribute values from x for intersections
+
+  dx <- sf::st_difference(x, sf::st_union(y))
+  dy <- sf::st_difference(y, sf::st_union(x))
+
+  names_diff_x <- setdiff(names(x), names(y))
+  names_diff_y <- setdiff(names(y), names(x))
+
+  if (length(names_diff_y) > 0) {
+    for (col_name in seq_along(names_diff_y)) {
+      dx <- dplyr::mutate(dx, {{ col_name }} := NA_character_, .before = "geometry")
+    }
+  }
+
+  if (length(names_diff_x) > 0) {
+    for (col_name in seq_along(names_diff_x)) {
+      dy <- dplyr::mutate(dy, {{ names_diff_x }} := NA_character_, .before = "geometry")
+    }
+  }
+
+  u <- rbind(i, dx, dy)
+
+  if (is.null(union_by)) {
+    u <- u |> dplyr::summarise()
+  } else {
+    stopifnot(is.character(union_by), length(union_by) == 1)
+
+    u <- u |> dplyr::group_by(.data[[union_by]]) |> dplyr::summarise()
+  }
+
+  return(u)
 }
 
 patches_union_into_final_resultant <- function(
@@ -708,10 +753,27 @@ patches_union_into_final_resultant <- function(
   patch_size,
   for_dist_seral
 ) {
-  sf::st_make_valid(interior_forest_mature_old) |>
-    sf::st_union(sf::st_make_valid(interior_forest_old)) |>
-    sf::st_union(sf::st_make_valid(patch_size)) |>
-    sf::st_union(sf::st_make_valid(for_dist_seral))
+  interior_forest_mature_old <- interior_forest_mature_old |>
+    dplyr::mutate(Seral = "Mature", patch_type = NULL, .before = "geom") |>
+    sf::st_set_agr("constant")
+  interior_forest_old <- interior_forest_old |>
+    dplyr::mutate(Seral = "Old", patch_type = NULL, .before = "geom") |>
+    sf::st_set_agr("constant")
+  patch_size <- patch_size |>
+    sf::st_set_agr("constant")
+
+  for_dist_seral <- sf::st_make_valid(for_dist_seral) |>
+    dplyr::group_by(Seral) |>
+    dplyr::summarise() |> ## this union is very slow b/c 7.8 million polygons
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  interior_forest_mature_old |>
+    st_union_analysis(interior_forest_old) |>
+    sf::st_cast("POLYGON", warn = FALSE) |>
+    st_union_analysis(patch_size, by = "Seral") |>
+    sf::st_cast("POLYGON", warn = FALSE) |>
+    st_union_analysis(for_dist_seral, by = "Seral") |>
+    sf::st_cast("POLYGON", warn = FALSE)
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
