@@ -771,12 +771,15 @@ patches_union_into_final_resultant <- function(
 
   interior_forest_mature_old |>
     st_union_analysis(interior_forest_old) |>
+    sf::st_make_valid() |>
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE) |>
     st_union_analysis(patch_size, by = "Seral") |>
+    sf::st_make_valid() |>
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE) |>
     st_union_analysis(for_dist_seral, by = "Seral") |>
+    sf::st_make_valid() |>
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 }
