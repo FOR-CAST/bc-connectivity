@@ -762,17 +762,22 @@ patches_union_into_final_resultant <- function(
   patch_size <- patch_size |>
     sf::st_set_agr("constant")
 
+  ## NOTE: cast multipolygon before cast polygon b/c mix of polygon/multiploygon produced
   for_dist_seral <- sf::st_make_valid(for_dist_seral) |>
     dplyr::group_by(Seral) |>
     dplyr::summarise() |> ## this union is very slow b/c 7.8 million polygons
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 
   interior_forest_mature_old |>
     st_union_analysis(interior_forest_old) |>
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE) |>
     st_union_analysis(patch_size, by = "Seral") |>
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE) |>
     st_union_analysis(for_dist_seral, by = "Seral") |>
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 }
 
