@@ -55,7 +55,7 @@ if (FALSE) {
 write_omniscape_config <- function(res, srcwt, patch_distances, q = 100, run_name = Sys.Date()) {
   q <- as.integer(q)
 
-  stopifnot(q > 1 && q < 100)
+  stopifnot(q >= 1 && q <= 100)
 
   ## use relative paths when writing config and script files
   res <- fs::path_rel(res, get_path("project"))
@@ -70,10 +70,9 @@ write_omniscape_config <- function(res, srcwt, patch_distances, q = 100, run_nam
   radius <- quantile(units::drop_units(patch_distances), seq(0, 1, 0.01))[[paste0(q, "%")]] |>
     round(digits = 0)
 
-  ## use block_size ~1/10 of radius per Phillips et. al (2021) Landscape Ecol. 36:1647–1661
+  ## use block_size ~1/10 of radius (in pixels) per Phillips et. al (2021) Landscape Ecol. 36:1647–1661
   use_block_size <- function(radius, pixel_size, frac = 0.1) {
-    # x <- round((radius / pixel_size) * frac, digits = 0)
-    x <- round(radius * frac, digits = 0)
+    x <- round((radius / pixel_size) * frac, digits = 0)
     ifelse(x %% 2 == 0, x + 1, x) ## must be odd
   }
 

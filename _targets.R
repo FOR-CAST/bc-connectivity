@@ -741,11 +741,14 @@ list(
       res = resistance_composite,
       srcwt = sourcewt_composite,
       patch_distances = interpatch_distances,
-      q = 99, ## could reasonably use e.g., 95, 99, 100 percentile
-      run_name = "2026-01-07"
+      q = ifelse(distance_type == "all", 20, 100), ## could reasonably use e.g., 95, 99, 100
+      run_name = "2026-01-11"
     ),
     format = "file",
-    pattern = cross(map(resistance_composite, sourcewt_composite), map(interpatch_distances)),
+    pattern = cross(
+      map(resistance_composite, sourcewt_composite),
+      map(interpatch_distances, distance_type)
+    ),
     iteration = "list"
   ),
   ## TODO: too many issues launching julia, running Omniscape from R;
