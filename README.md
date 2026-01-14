@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2025-12-16"
+date: "Last updated: 2026-01-12"
 output: 
   html_document: 
     keep_md: true
@@ -68,6 +68,7 @@ targets::tar_visnetwork()
 ## ├── renv.lock
 ## ├── scripts
 ## ├── workflow.png
+## ├── workflow_patches.png
 ## ├── workflow_seral.png
 ## └── workflow_summary.png
 ```
@@ -145,17 +146,32 @@ Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
 We calculate patch area and other statistics for all seral stages by NDT-BEC.
 
-We calculate edge-to-edge nearest-neighbour distances for old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
+We calculate edge-to-edge distances for all and nearest-neighbour old seral stage patches, to inform the selection of moving window size for subsequent connectivity analyses.
+
+**All interpatch distances (quantiles)**
 
 
 ```
-## Units: [m]
 ##        0%        5%       10%       15%       20%       25%       30%       35% 
-##     0.000  3039.958  5043.378  6652.057  8066.458  9330.962 10514.822 11599.022 
+##      0.00  38341.59  42784.41  47622.06  54053.44  59472.45  63708.02  67538.24 
 ##       40%       45%       50%       55%       60%       65%       70%       75% 
-## 12670.947 13749.211 14807.837 15879.033 16920.690 18096.042 19297.914 20646.648 
+##  70926.67  75888.73  81568.67  87788.37  95432.09 102417.27 109717.98 127567.92 
 ##       80%       85%       90%       95%      100% 
-## 22091.147 23792.736 25875.014 28864.863 42984.643
+## 145756.10 165820.97 184108.42 208407.14 326528.08
+```
+
+**Nearest neighbour interpatch distances (quantiles)**
+
+
+```
+##          0%          5%         10%         15%         20%         25% 
+##    0.000000    0.000000    0.000000    0.000000    0.000000    1.063544 
+##         30%         35%         40%         45%         50%         55% 
+##    3.589605    5.753667    8.377813   11.134379   15.235237   19.763118 
+##         60%         65%         70%         75%         80%         85% 
+##   25.570065   31.178605   39.854422   51.823310   68.061192   92.414589 
+##         90%         95%        100% 
+##  138.403964  260.189777 5476.274753
 ```
 
 ## Connectivity modelling
@@ -183,10 +199,54 @@ Columns were created for the assignment of resistance and source weight values; 
 Projected stand age after significant disturbances (Simple Inferred Forest Age, SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers.
 
 Each polygon was assigned a seral stage using thresholds following the Biodiversity Guidebook [@BritishColumbia:1995], and landscape patches identified following the Forest Biodiversity Cumulative Effects Framework [§3.2.2, @CEF:2020].
- 
 
 
-![](workflow_seral.png)
+
+![Overview of seral stage workflow](workflow_seral.png)
+
+
+
+![Overview of patch size workflow](workflow_patches.png)
+
+Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
+
+1. `get_input_data` loads the seral stage polygons and dissolves by seral stage:
+  a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`;
+  b. loads `aoi` (LU) study area polygon(s);
+  c. takes `seral_managed` polygon layer and repairs geometry, then dissolves polygons (`SINGLE_PART`) based on attributes `SERAL_STAGE` and `early_less20yrs`, saving as `seral` polygon layer;
+
+2. `create_old_and_old_mature` creates `OLD` and `OLD_MATURE` feature classes:
+  a. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% c('old', 'mature')` and sets `INTERIOR_CATEGORY = "MO"` for these polygons, saving to `x1_mature_old_from_seral` polygon layer;
+  b. takes `x1_mature_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category` polygon layer;
+  c. takes `x2_dissolved_interior_category` polygon layer, filters polygons with `INTERIOR_CATEGORY != "MO"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_matold_eliminated_lessthan_1ha` polygon layer;
+  d. takes `x3_matold_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "MO"` and adds fields/attributes, setting `mature_old = "MO"`, `mature_old_patch_size = <AREA>/10000`, then filters polygons with `mature_old_patch_size > 0` and adds field/attribute, setting `mature_old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `mature_old_patch_size > 40` and adds field/attribute, setting `mature_old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `mature_old_patch_size > 80` and adds field/attribute, setting `mature_old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `mature_old_patch_size > 250` and adds field/attribute, setting `mature_old_patch_category = "patch_class_250up_ha"`, saving to `r1_mature_old_1ha_eliminated` polygon layer;
+  e. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% 'old'` and sets `INTERIOR_CATEGORY = "O"` for these polygons, saving to `x1_old_from_seral` polygon layer;
+  f. takes `x1_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category_old` polygon layer;
+  g. takes `x2_dissolved_interior_category_old` polygon layer, filters polygons with `INTERIOR_CATEGORY != "O"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_old_eliminated_lessthan_1ha` polygon layer;
+  h. takes `x3_old_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "O"` and adds fields/attributes, setting `old = "MO"`, `old_patch_size = <AREA>/10000`, then filters polygons with `old_patch_size > 0` and adds field/attribute, setting `old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `old_patch_size > 40` and adds field/attribute, setting `old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `old_patch_size > 80` and adds field/attribute, setting `old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `old_patch_size > 250` and adds field/attribute, setting `old_patch_category = "patch_class_250up_ha"`, saving to `r1_old_1ha_eliminated` polygon layer;
+
+3. `create_buffers_to_delete` creates multiple sets of buffered polygons to be removed from the `OLD`/`OLD_MATURE` feature classes:
+  a. takes `seral` polygon layer, copying it for each of the buffer distances (nominally $200 m$, $100 m$, $50 m$, $25 m$), and saving to polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, respectively;
+  b. takes each of polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, dissolves the polygons (`SINGLE_PART`), saving to polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, respectively;
+  c. takes each of polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, filters those polygons larger than 1 $ha$ and buffer these to the corresponding buffer distance (actually using $200 m$, $101 m$, $52 m$, $25 m$), saving polygon layers `x3_200m_to_erase`, `x3_100m_to_erase`, `x3_50m_to_erase`, `x3_25m_to_erase`, respectively;
+
+4. `create_interior_forest` creates interior forest layer by erasing relevant buffers from `OLD`/`OLD_MATURE` patches:
+  a. takes `r1_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving `x1_old_200_erased` polygon layer;
+  b. takes `x1_old_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_old_100_erased` polygon layer;
+  c. takes `x2_old_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_old_50_erased` polygon layer;
+  d. takes `x4_old_50_erased` polygon layer and erases `x3_25m_to_erase` from it, saving `x5_old_25_erased` polygon layer;
+  e. takes `r1_mature_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving to `x1_matold_200_erased` polygon layer;
+  f. takes `x1_matold_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_matold_100_erased` polygon layer;
+  g. takes `x2_matold_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_matold_50_erased` polygon layer;
+  h. takes `x4_matold_50_erased` polygon layer, adds a field/attribute, setting `matold_interior = "matold_interior"` for polygons with `mature_old == "MO"`, saving to `r1_matold_interior` polygon layer;
+  i. takes `x5_old_25_erased` polygon layer, adds a field/attribute, setting `old_interior = "old_interior"` for polygons with `old == "O"`, saving to `r1_old_interior` polygon layer;
+
+5. `create_patch_size_data` calculates patch sizes:
+  a. takes `seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `seral_stage` attribute, and add field/attribute, setting `patch_size = "<10 ha"` for polygons with `<AREA> <= 100000`, then `patch_size = "11-40 ha"` for polygons with `<AREA> > 100000`, then `patch_size = "41-80 ha"` for polygons with `<AREA> > 400000`, then `patch_size = "81-250 ha"` for polygons with `<AREA> > 800000`, then `patch_size = "251-1000 ha"` for polygons with `<AREA> > 2500000`, then `patch_size = "1001-10000 ha"` for polygons with `<AREA> > 10000000`, then `patch_size = ">1000 ha"` for polygons with `<AREA> > 1000000`, then filters polygons with `seral_stage is NULL` setting `seral_stage = NA`, then add field/attribute `patch_cat` setting it to `paste0(seral_stage, "_", patch_size)`, and finally saving to `x1_dissolved_on_seral_stage` polygon layer;
+
+6. `union_into_final_resultant` creates the final polygon unions:
+  a. takes polygon layers `r1_matold_interior`, `r1_old_interior`, and `x1_dissolved_on_seral_stage`, repairs geometries, then performs union, saving to `r1_patch` polygon layer;
+  b. takes polygon layers `r1_patch` and `seral_managed`, repairs geomtries, then unions, saving to `r1_final_resultant_union` polygon layer;
 
 Corresponding resistance and source weight values were subsequently applied (*e.g.*, early forest = high resistance, old forest = low resistance; early forest = low source weight, old forest = high source weight).
 

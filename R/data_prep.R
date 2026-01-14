@@ -431,8 +431,9 @@ get_railways <- function(studyArea, rasterToMatch) {
 get_roads <- function(studyAreaLCC, rasterToMatch) {
   bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281") |>
     dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
+    sf::st_set_agr("constant") |>
     sf::st_transform(terra::crs(rasterToMatch)) |>
-    sf::st_transform(terra::crs(rasterToMatch))
+    sf::st_crop(studyAreaLCC)
 }
 
 create_roads_railways <- function(roads, railways) {

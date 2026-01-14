@@ -9,6 +9,8 @@ create_resistance_raster <- function(polys, rasterToMatch, dst) {
     polys,
     rasterToMatch,
     field = "Resistance",
+    fun = mean,
+    na.rm = TRUE,
     filename = dst,
     overwrite = TRUE
   )
@@ -25,6 +27,8 @@ create_sourcewt_raster <- function(polys, rasterToMatch, dst) {
     polys,
     rasterToMatch,
     field = "SourceWt",
+    fun = mean,
+    na.rm = TRUE,
     filename = dst,
     overwrite = TRUE
   )

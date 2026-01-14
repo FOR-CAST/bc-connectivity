@@ -305,7 +305,7 @@ list(
   ),
   tar_target(
     name = forest_patches_final_gpkg,
-    command = save_gpkg(forest_patches_final, "forest_disturbance_seral.gpkg"),
+    command = save_gpkg(forest_patches_final, "forest_patches_final.gpkg"),
     format = "file"
   ),
   tar_target(
@@ -424,7 +424,7 @@ list(
   ),
   tar_target(
     name = roads,
-    command = get_roads(Quesnel_TSA_buffered_LCC, LCC), ## note differest studyArea CRS needed
+    command = get_roads(Quesnel_TSA_buffered_LCC, LCC), ## NOTE: different studyArea CRS needed
   ),
   tar_target(
     name = roads_gpkg,
@@ -734,7 +734,7 @@ list(
     iteration = "list"
   ),
 
-  ## omniscape
+  ## Omniscape --------------------------------------------------------------------------------
   tar_target(
     name = omniscape_config,
     command = write_omniscape_config(
@@ -742,7 +742,8 @@ list(
       srcwt = sourcewt_composite,
       patch_distances = interpatch_distances,
       q = ifelse(distance_type == "all", 20, 100), ## could reasonably use e.g., 95, 99, 100
-      run_name = "2026-01-11"
+      run_name = "2026-01-13",
+      ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
     format = "file",
     pattern = cross(
@@ -751,6 +752,7 @@ list(
     ),
     iteration = "list"
   ),
+
   ## TODO: too many issues launching julia, running Omniscape from R;
   ## -- run manually from bash shell (but not via Rstudio terminal!)
   # tar_target(
@@ -760,19 +762,27 @@ list(
   #   pattern = map(omniscape_config),
   #   iteration = "list"
   # ),
+
   # tar_target(
-  #   name = omniscape_summary,
-  #   command = TODO,
-  #   pattern = map(omniscape_config),
+  #   name = omniscape_mosaic,
+  #   command = mosaic_raster_tiles(omniscape_run),
+  #   format = "file",
+  #   pattern = map(omniscape_run),
   #   iteration = "list"
   # ),
 
-  ## TODO: render README
   # tar_target(
-  #   name = readme,
-  #   command = TODO(all_distances, nn_distances),
-  #   format = "file"
+  #   name = omniscape_summary,
+  #   command = TODO(omniscape_mosaic),
+  #   pattern = map(omniscape_mosaic),
+  #   iteration = "list"
   # ),
+
+  ## render README
+  tar_render(
+    name = readme,
+    path = "README.Rmd"
+  ),
 
   ## write reproducibility receipt
   tar_target(
