@@ -27,6 +27,7 @@ tar_option_set(
     "ggspatial",
     "sf",
     "terra",
+    "tidyterra",
     "tibble",
     "units",
     "workflowtools"
