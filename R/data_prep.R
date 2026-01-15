@@ -196,22 +196,22 @@ create_bec_ndt <- function(BEC) {
 plot_bec_ndt <- function(BECNDT, studyArea) {
   dst <- file.path(get_path("figures"), "Quesnel_TSA_NDT-BEC.png")
 
-  gg_bec_ndt <- ggplot(BECNDT) +
-    geom_sf(aes(fill = NDT_BEC)) +
-    geom_sf(data = studyArea, color = "black", fill = NA) +
-    theme_bw() +
-    annotation_north_arrow(
+  gg_bec_ndt <- ggplot2::ggplot(BECNDT) +
+    ggplot2::geom_sf(aes(fill = NDT_BEC)) +
+    ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
+    ggplot2::theme_bw() +
+    ggspatial::annotation_north_arrow(
       location = "bl",
       which_north = "true",
       pad_x = unit(0.25, "in"),
       pad_y = unit(0.25, "in"),
       style = north_arrow_fancy_orienteering
     ) +
-    xlab("Longitude") +
-    ylab("Latitude") +
-    ggtitle("Quesnel NRD")
+    ggplot2::xlab("Longitude") +
+    ggplot2::ylab("Latitude") +
+    ggplot2::ggtitle("Quesnel NRD")
 
-  ggsave(dst, gg_bec_ndt, width = 16, height = 12)
+  ggplot2::ggsave(dst, gg_bec_ndt, width = 16, height = 12)
 
   return(dst)
 }
@@ -843,23 +843,23 @@ define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
 plot_forest_disturbance_seral <- function(for_dist_seral, studyArea, dst) {
   dst <- file.path(get_path("figures"), dst)
 
-  gg_for_dist_seral <- ggplot(for_dist_seral) +
-    geom_sf(aes(fill = Seral)) +
-    facet_wrap(vars(Seral), ncol = 2) +
-    geom_sf(data = studyArea, color = "black", fill = NA) +
-    theme_bw() +
-    annotation_north_arrow(
+  gg_for_dist_seral <- ggplot2::ggplot(for_dist_seral) +
+    ggplot2::geom_sf(aes(fill = Seral)) +
+    ggplot2::facet_wrap(vars(Seral), ncol = 2) +
+    ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
+    ggplot2::theme_bw() +
+    ggspatial::annotation_north_arrow(
       location = "bl",
       which_north = "true",
       pad_x = unit(0.25, "in"),
       pad_y = unit(0.25, "in"),
       style = north_arrow_fancy_orienteering
     ) +
-    xlab("Longitude") +
-    ylab("Latitude") +
-    ggtitle("Quesnel NRD Seral Stages")
+    ggplot2::xlab("Longitude") +
+    ggplot2::ylab("Latitude") +
+    ggplot2::ggtitle("Quesnel NRD Seral Stages")
 
-  ggsave(dst, gg_for_dist_seral, width = 16, height = 16)
+  ggplot2::ggsave(dst, gg_for_dist_seral, width = 16, height = 16)
 
   return(dst)
 }
