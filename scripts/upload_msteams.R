@@ -1,7 +1,10 @@
 library("Microsoft365R")
 
+inputRasterPath <- "Data/processed/rasters"
 outputPath <- "Outputs"
-uploadPath <- "Content/Phase 3/Case Study -- Omniscape Quesnel TSA/Omniscape Outputs"
+
+upload_path_inputs <- "Content/Phase 3/Case Study -- Omniscape Quesnel TSA/Omniscape Inputs"
+upload_path_outputs <- "Content/Phase 3/Case Study -- Omniscape Quesnel TSA/Omniscape Outputs"
 
 ## see https://github.com/Azure/Microsoft365R?tab=readme-ov-file#teams
 auth_type <- if (quickPlot::isRstudioServer()) "device_code" else NULL
@@ -18,31 +21,33 @@ team <- get_team(
 )
 shpt <- team$get_sharepoint_site()$list_drives()[[1]] ## Documents
 
-# shpt$list_files(path = uploadPath)
+# shpt$list_files(path = upload_path_outputs)
 
 shpt$upload_file(
   src = file.path(outputPath, "Quesnel_TSA_seral_patch_stats.csv"),
-  dest = file.path(uploadPath, "Quesnel_TSA_seral_patch_stats.csv")
+  dest = file.path(upload_path_outputs, "Quesnel_TSA_seral_patch_stats.csv")
 )
 
 shpt$upload_folder(
   src = file.path(outputPath, "figures"),
-  dest = file.path(uploadPath, "figures"),
-  recursive = TRUE
+  dest = file.path(upload_path_outputs, "figures")
 )
+
+# shpt$create_folder(path = upload_path_inputs)
+shpt$upload_folder(src = inputRasterPath, dest = upload_path_inputs, recursive = TRUE)
 
 omniscape_outputs <- fs::dir_ls(outputPath, type = "directory", regexp = "2026-01-13_.*") |>
   fs::path_rel(outputPath)
 
 purrr::walk2(
   .x = file.path(outputPath, omniscape_outputs),
-  .y = file.path(uploadPath, omniscape_outputs),
+  .y = file.path(upload_path_outputs, omniscape_outputs),
   .f = function(x, y) {
     ## create the remote directory if it doesn't exist
-    if (!basename(y) %in% shpt$list_items(uploadPath)$name) {
+    if (!basename(y) %in% shpt$list_items(upload_path_outputs)$name) {
       shpt$create_folder(path = y)
     }
 
-    shpt$upload_folder(src = x, dest = y, recursive = TRUE)
+    shpt$upload_folder(src = x, dest = y)
   }
 )
