@@ -13,6 +13,8 @@ zonal_summaries <- function(Quesnel_TSA, LCC, moose_wetlands, MDWR, OGMA, parks,
     unique()
 
   summary_polys <- list(
+    bec_lu = (tar_read(BEC) |> terra::vect() |> terra::crop(studyArea)) |>
+      terra::intersect(tar_read(LU) |> terra::vect() |> terra::crop(studyArea)),
     hvmw = moose_wetlands |> terra::vect() |> terra::crop(studyArea),
     mdwr = MDWR |> terra::vect() |> terra::crop(studyArea),
     ogma = OGMA |> terra::vect() |> terra::crop(studyArea),
@@ -29,18 +31,32 @@ zonal_summaries <- function(Quesnel_TSA, LCC, moose_wetlands, MDWR, OGMA, parks,
         terra::crop(studyArea, mask = TRUE)
 
       zonal_by_polys <- lapply(names(summary_polys), function(p) {
-        u <- summary_polys[[p]] |> terra::aggregate() ## e.g., all parks areas
-        d <- terra::erase(studyArea, u) ## e.g., all non-parks areas
+        if (p == "bec_lu") {
+          ## LUxBEC summaries, but don't do summaries in/out, just summarize each combo
+          u <- summary_polys[[p]] |>
+            tidyterra::select(LANDSCAPE_UNIT_NAME, ZONE) |>
+            terra::aggregate(by = c("LANDSCAPE_UNIT_NAME", "ZONE"))
 
-        z <- dplyr::bind_rows(
-          terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>
+          z <- terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>
             dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
-            dplyr::mutate(zone = !!p, .before = "mean_norm_cum_curr"),
-          terra::zonal(norm_curr, d, fun = "mean", na.rm = TRUE) |>
-            dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
-            dplyr::mutate(zone = !!glue::glue("non-{p}"), .before = "mean_norm_cum_curr")
-        ) |>
-          dplyr::mutate(run = basename(x), .before = "zone")
+            dplyr::mutate(
+              zone = !!glue::glue("LU_{u$LANDSCAPE_UNIT_NAME}_{u$ZONE}"),
+              .before = "mean_norm_cum_curr"
+            )
+        } else {
+          u <- summary_polys[[p]] |> terra::aggregate() ## e.g., all parks areas
+          d <- terra::erase(studyArea, u) ## e.g., all non-parks areas
+
+          z <- dplyr::bind_rows(
+            terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>
+              dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
+              dplyr::mutate(zone = !!p, .before = "mean_norm_cum_curr"),
+            terra::zonal(norm_curr, d, fun = "mean", na.rm = TRUE) |>
+              dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
+              dplyr::mutate(zone = !!glue::glue("non-{p}"), .before = "mean_norm_cum_curr")
+          ) |>
+            dplyr::mutate(run = basename(x), .before = "zone")
+        }
 
         return(z)
       }) |>
