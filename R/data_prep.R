@@ -844,7 +844,7 @@ plot_forest_disturbance_seral <- function(for_dist_seral, studyArea, dst) {
   dst <- file.path(get_path("figures"), dst)
 
   gg_for_dist_seral <- ggplot2::ggplot(for_dist_seral) +
-    ggplot2::geom_sf(aes(fill = Seral)) +
+    ggplot2::geom_sf(aes(fill = Seral, color = Seral)) +
     ggplot2::facet_wrap(vars(Seral), ncol = 2) +
     ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
     ggplot2::theme_bw() +
