@@ -65,9 +65,10 @@ purrr::walk(
           terra::zonal(norm_curr, d, fun = "mean", na.rm = TRUE) |>
             dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
             dplyr::mutate(zone = !!glue::glue("non-{p}"), .before = "mean_norm_cum_curr")
-        ) |>
-          dplyr::mutate(run = basename(x), .before = "zone")
+        )
       }
+
+      z <- z |> dplyr::mutate(run = basename(x), .before = "zone")
 
       return(z)
     }) |>
