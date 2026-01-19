@@ -1,37 +1,57 @@
-zonal_summaries <- function(TODO) {
+zonal_summaries <- function(Quesnel_TSA, LCC, moose_wetlands, MDWR, OGMA, parks, wetlands, WHA) {
   LCC <- tar_read(LCC)
 
   studyArea <- tar_read(Quesnel_TSA) |>
     sf::st_transform(terra::crs(LCC)) |>
     terra::vect()
 
-  norm_curr <- file.path("Outputs", "2026-01-13_p90_r61_bs7", "normalized_cum_currmap.tif") |>
-    terra::rast() |>
-    terra::crop(studyArea, mask = TRUE)
+  output_dirs <- "Outputs" |>
+    fs::dir_ls(type = "directory", regexp = "2026-01-13") |>
+    fs::dir_info() |> ## captures file info, therefore none for empty dirs
+    dplyr::pull(path) |>
+    dirname() |>
+    unique()
 
   summary_polys <- list(
-    hvmw = tar_read(moose_wetlands) |> terra::vect() |> terra::crop(studyArea),
-    mdwr = tar_read(MDWR) |> terra::vect() |> terra::crop(studyArea),
-    ogma = tar_read(OGMA) |> terra::vect() |> terra::crop(studyArea),
-    parks = tar_read(parks) |> terra::vect() |> terra::crop(studyArea),
-    wetlands = tar_read(wetlands) |> terra::vect() |> terra::crop(studyArea),
-    wha = tar_read(WHA) |> terra::vect() |> terra::crop(studyArea)
+    hvmw = moose_wetlands |> terra::vect() |> terra::crop(studyArea),
+    mdwr = MDWR |> terra::vect() |> terra::crop(studyArea),
+    ogma = OGMA |> terra::vect() |> terra::crop(studyArea),
+    parks = parks |> terra::vect() |> terra::crop(studyArea),
+    wetlands = wetlands |> terra::vect() |> terra::crop(studyArea),
+    wha = WHA |> terra::vect() |> terra::crop(studyArea)
   )
 
-  zonal_by_polys <- lapply(names(summary_polys), function(p) {
-    u <- summary_polys[[p]] |> terra::aggregate() ## e.g., all parks areas
-    d <- terra::erase(studyArea, u) ## e.g., all non-parks areas
+  purrr::walk(
+    .x = output_dirs,
+    .f = function(x) {
+      norm_curr <- file.path(x, "normalized_cum_currmap.tif") |>
+        terra::rast() |>
+        terra::crop(studyArea, mask = TRUE)
 
-    z <- dplyr::bind_rows(
-      terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>
-        dplyr::mutate(zone = !!p, .before = "normalized_cum_currmap"),
-      terra::zonal(norm_curr, d, fun = "mean", na.rm = TRUE) |>
-        dplyr::mutate(zone = !!glue::glue("non-{p}"), .before = "normalized_cum_currmap")
-    )
+      zonal_by_polys <- lapply(names(summary_polys), function(p) {
+        u <- summary_polys[[p]] |> terra::aggregate() ## e.g., all parks areas
+        d <- terra::erase(studyArea, u) ## e.g., all non-parks areas
 
-    return(z)
-  }) |>
-    dplyr::bind_rows()
+        z <- dplyr::bind_rows(
+          terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>
+            dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
+            dplyr::mutate(zone = !!p, .before = "mean_norm_cum_curr"),
+          terra::zonal(norm_curr, d, fun = "mean", na.rm = TRUE) |>
+            dplyr::rename(mean_norm_cum_curr = normalized_cum_currmap) |>
+            dplyr::mutate(zone = !!glue::glue("non-{p}"), .before = "mean_norm_cum_curr")
+        ) |>
+          dplyr::mutate(run = basename(x), .before = "zone")
 
-  return(zonal_by_polys)
+        return(z)
+      }) |>
+        dplyr::bind_rows()
+
+      gc(verbose = FALSE)
+
+      write.csv(zonal_by_polys, file = file.path(x, "zonal_by_polys.csv"), row.names = FALSE)
+
+      return(zonal_by_polys)
+    }
+  ) |>
+    file.path("zonal_by_polys.csv")
 }

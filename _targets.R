@@ -764,19 +764,10 @@ list(
   #   iteration = "list"
   # ),
 
-  # tar_target(
-  #   name = omniscape_mosaic,
-  #   command = mosaic_raster_tiles(omniscape_run),
-  #   format = "file",
-  #   pattern = map(omniscape_run),
-  #   iteration = "list"
-  # ),
-
+  ## TODO: use `pattern = map(omniscape_run)` instead of finding output dirs manually
   # tar_target(
   #   name = omniscape_summary,
-  #   command = TODO(omniscape_mosaic),
-  #   pattern = map(omniscape_mosaic),
-  #   iteration = "list"
+  #   command = zonal_summaries(Quesnel_TSA, LCC, moose_wetlands, MDWR, OGMA, parks, wetlands, WHA)
   # ),
 
   ## render README
