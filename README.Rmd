@@ -135,6 +135,8 @@ targets::tar_read(interpatch_distances, branches = 1) |>
   quantile(seq(0, 1, 0.05))
 ```
 
+We selected the 20th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(interpatch_distances, branches = 1) |> unlist() |> quantile(0.2) |> prod(0.001) |> round(1)` km).
+
 **Nearest neighbour interpatch distances (quantiles)**
 
 ```{r nn_distances, echo = FALSE}
@@ -142,6 +144,8 @@ targets::tar_read(interpatch_distances, branches = 2) |>
   unlist() |>
   quantile(seq(0, 1, 0.05))
 ```
+
+We selected the 100th percentile value of the nearest neighbour interpatch distances as the minimum search radius (`r targets::tar_read(interpatch_distances, branches = 2) |> unlist() |> quantile(1) |> prod(0.001) |> round(1)` km).
 
 ## Connectivity modelling
 
@@ -183,6 +187,9 @@ source("scripts/workflow_patches.R")
 
 Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
 
+<details>
+<summary>Click to expand</summary>
+
 1. `get_input_data` loads the seral stage polygons and dissolves by seral stage:
   a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`;
   b. loads `aoi` (LU) study area polygon(s);
@@ -221,6 +228,8 @@ Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
   a. takes polygon layers `r1_matold_interior`, `r1_old_interior`, and `x1_dissolved_on_seral_stage`, repairs geometries, then performs union, saving to `r1_patch` polygon layer;
   b. takes polygon layers `r1_patch` and `seral_managed`, repairs geomtries, then unions, saving to `r1_final_resultant_union` polygon layer;
 
+</details>
+
 Corresponding resistance and source weight values were subsequently applied (*e.g.*, early forest = high resistance, old forest = low resistance; early forest = low source weight, old forest = high source weight).
 
 **Biodiversity Features:**
@@ -229,7 +238,7 @@ General wetlands were assigned moderate resistance (250) and source weight (0.75
 
 Other biodiversity features were used for summarizing connectivity analyses, rather than informing landscape resistance and source weight values directly:
 
-- BC Parks, Protected Areas, and Ecological Reserves layers 
+- BC Parks, Protected Areas, and Ecological Reserves layers ;
 - Old Growth Management Areas (OGMA);
 - Wildlife Habitat Areas (WHA);
 - Mule Deer Winter Ranges (MDWR);
@@ -271,6 +280,44 @@ Used Omniscape to produce connectivity maps.
 
 **NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now.
   <https://github.com/Circuitscape/Omniscape.jl/issues/160>
+
+**NOTE:** Omniscape runs need to be run manually (i.e., outside of the `targets` data prep workflow) because of a problem preventing launch of `julia` from `R`.
+Consequently, post-processing and analyses of Omniscape outputs also needs to be run manually for the time being.
+
+The data preparation workflow generates several Omniscape configurations by adjusting the following:
+
+- _pixel size_ (`p`): either 30m or 90m (smaller pixel sizes increase computation time but may not produced qualitatively different results than larger pixel sizes);
+- _radius_ (`r`): the moving window size (in pixels), based on the results of the nearest neighbour / all nseighbour analyses (the smaller `r` value for a given pixel size corresponds to the nearest neighbour patch distances, whereas the larger `r` value for a given pixel size corresponds to the result of all patch distances);
+- _block size_ (`bs`): used to speed up computations, set to approximately 10% of `r` (in pixels), per [@Phillips:2021]).
+
+To allow for running Omniscape with large `r` values, the inputs resistance and source weight rasters are split into several tiles (`t`), and corresponding Omniscript configurations are produced.
+(The `2026-01-13_p30_r1802_bs181` configuration was run as tiles and the Omniscape outputs mosaicked together for subsequent analyses.)
+
+Omniscape configurations produced by the data preparation workflow:
+
+| **Omniscape configuration**  | **Description**                                       |
+| ---------------------------- | ----------------------------------------------------- |
+| `2026-01-13_p30_r1802_bs181` | 30m pixels; radius 1802 pixels; block size 181 pixels |
+| `2026-01-13_p30_r183_bs19`   | 30m pixels; radius 183 pixels; block size 19 pixels   |
+| `2026-01-13_p90_r601_bs61`   | 90m pixels; radius 601 pixels; block size 61 pixels   |
+| `2026-01-13_p90_r61_bs7`     | 90m pixels; radius 61 pixels; block size 7 pixels     |
+
+**NOTE:** 
+
+Additional (manual) configurations were produced manually as part of testing/benchmarking Omniscape runs, corresponding to $1/2$ and $1/4$ the search radius of the `2026-01-13_p30_r1802_bs181` configuration:
+
+| **Omniscape configuration**  | **Description**                                       |
+| ---------------------------- | ----------------------------------------------------- |
+| `2026-01-13_p30_r451_bs45`   | 30m pixels; radius 451 pixels; block size 45 pixels   |
+| `2026-01-13_p30_r901_bs91`   | 30m pixels; radius 901 pixels; block size 91 pixels   |
+
+
+Individual Omniscape runs can be launched from the terminal using e.g.,
+
+```bash
+## NOTE: adjust number of threads (`-t` argument) based on CPU and RAM availability
+julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
+```
 
 # Using this repository
 
