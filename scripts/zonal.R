@@ -8,6 +8,32 @@ library(ggplot2)
 library(ggspatial)
 library(tidyterra)
 
+###################################################################################################
+
+## mosaic tiled outputs together for analyses
+
+tiled_dirs <- "Outputs" |>
+  fs::dir_ls(type = "directory", regexp = "2026-01-13.*_t.+") |>
+  sort()
+
+ras_types <- c(
+  "cum_currmap.tif",
+  "flow_potential.tif",
+  "normalized_cum_currmap.tif"
+)
+
+purrr::walk(.x = ras_types, .f = function(type) {
+  mosaic_dir <- tiled_dirs |> sub("_t.+$", "", x = _) |> unique() |> fs::dir_create()
+  ras_list <- purrr::map(file.path(tiled_dirs, type), .f = terra::rast)
+
+  m <- do.call(
+    terra::mosaic,
+    append(ras_list, list(fun = "max", filename = file.path(mosaic_dir, type), overwrite = TRUE))
+  )
+})
+
+###################################################################################################
+
 LCC <- tar_read(LCC)
 
 studyArea <- tar_read(Quesnel_TSA) |>
@@ -16,6 +42,7 @@ studyArea <- tar_read(Quesnel_TSA) |>
 
 output_dirs <- "Outputs" |>
   fs::dir_ls(type = "directory", regexp = "2026-01-13") |>
+  grep("_t.+$", x = _, invert = TRUE, value = TRUE) |> ## exclude tiled dirs
   fs::dir_info() |> ## captures file info, therefore none for empty dirs
   dplyr::pull(path) |>
   dirname() |>
