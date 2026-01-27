@@ -291,16 +291,6 @@ list(
   ),
 
   tar_target(
-    name = forest_patches_png,
-    command = plot_forest_disturbance_seral(
-      patches_union_final,
-      Quesnel_TSA,
-      "Quesnel_TSA_seral_patches.png"
-    ),
-    format = "file"
-  ),
-
-  tar_target(
     name = forest_patches_final,
     command = define_forest_seral_patch_conn_vals(patches_union_final)
   ),
@@ -743,7 +733,7 @@ list(
       srcwt = sourcewt_composite,
       patch_distances = interpatch_distances,
       q = ifelse(distance_type == "all", 20, 100), ## could reasonably use e.g., 95, 99, 100
-      run_name = "2026-01-13",
+      run_name = "2026-01-23",
       ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
     format = "file",

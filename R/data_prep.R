@@ -710,8 +710,12 @@ patches_create_interior_forest <- function(
 
 ## copied from FOR-CAST/spatialutils for testing with these large sf objects
 st_union_analysis <- function(x, y, union_by = NULL) {
-  x <- sf::st_set_geometry(x, "geometry")
-  y <- sf::st_set_geometry(y, "geometry")
+  x <- x |> sf::st_set_geometry("geometry") |> sf::st_set_agr("constant")
+  y <- y |> sf::st_set_geometry("geometry") |> sf::st_set_agr("constant")
+
+  if (!is.null(union_by)) {
+    stopifnot(is.character(union_by), length(union_by) == 1)
+  }
 
   ## pre-filter the intersecting geometries to speed up calcs
   intersects_idx <- sf::st_intersects(x, y)
@@ -741,8 +745,8 @@ st_union_analysis <- function(x, y, union_by = NULL) {
   subset_x <- x[x_intersects, ]
   subset_y <- y[intersects_idy, ]
 
-  dx <- sf::st_difference(subset_x, sf::st_union(subset_y))
-  dy <- sf::st_difference(subset_y, sf::st_union(subset_x))
+  dx <- st_erase(subset_x, subset_y)
+  dy <- st_erase(subset_y, subset_x)
 
   ## deal with non-intersecting polygons
   nonintersected_x <- x[!x_intersects, ]
@@ -772,8 +776,6 @@ st_union_analysis <- function(x, y, union_by = NULL) {
   if (is.null(union_by)) {
     u <- u |> dplyr::summarise()
   } else {
-    stopifnot(is.character(union_by), length(union_by) == 1)
-
     u <- u |> dplyr::group_by(.data[[union_by]]) |> dplyr::summarise()
   }
 
@@ -787,33 +789,32 @@ patches_union_into_final_resultant <- function(
   for_dist_seral
 ) {
   interior_forest_mature_old <- interior_forest_mature_old |>
-    dplyr::mutate(Seral = "Mature", patch_type = NULL, .before = "geom") |>
     sf::st_set_agr("constant")
   interior_forest_old <- interior_forest_old |>
-    dplyr::mutate(Seral = "Old", patch_type = NULL, .before = "geom") |>
     sf::st_set_agr("constant")
   patch_size <- patch_size |>
+    dplyr::filter(!is.na(Seral)) |>
     sf::st_set_agr("constant")
-
-  ## NOTE: cast multipolygon before cast polygon b/c mix of polygon/multiploygon produced
   for_dist_seral <- sf::st_make_valid(for_dist_seral) |>
+    dplyr::filter(!is.na(Seral)) |>
     dplyr::group_by(Seral) |>
     dplyr::summarise() |> ## this union is very slow b/c 7.8 million polygons
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 
-  interior_forest_mature_old |>
+  step1 <- interior_forest_mature_old |>
     st_union_analysis(interior_forest_old, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON", warn = FALSE) |>
-    sf::st_make_valid() |>
-    sf::st_cast("POLYGON", warn = FALSE) |>
+    # sf::st_collection_extract("POLYGON", warn = FALSE) |> ## already POLYGON
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  step2 <- step1 |>
     st_union_analysis(patch_size, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON", warn = FALSE) |>
-    sf::st_make_valid() |>
-    sf::st_cast("POLYGON", warn = FALSE) |>
+    sf::st_collection_extract("POLYGON") |>
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  step3 <- step2 |>
     st_union_analysis(for_dist_seral, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON", warn = FALSE) |>
-    sf::st_make_valid() |>
+    sf::st_collection_extract("POLYGON") |>
     sf::st_cast("POLYGON", warn = FALSE)
 }
 
