@@ -782,19 +782,36 @@ st_union_analysis <- function(x, y, union_by = NULL) {
   return(u)
 }
 
-patches_union_into_final_resultant <- function(
-  interior_forest_mature_old,
-  interior_forest_old,
-  patch_size,
-  for_dist_seral
-) {
+patches_union_into_final_resultant_1 <- function(interior_forest_mature_old, interior_forest_old) {
   interior_forest_mature_old <- interior_forest_mature_old |>
     sf::st_set_agr("constant")
   interior_forest_old <- interior_forest_old |>
     sf::st_set_agr("constant")
+
+  ## relatively quick
+  step1 <- interior_forest_mature_old |>
+    st_union_analysis(interior_forest_old, union_by = "Seral") |>
+    # sf::st_collection_extract("POLYGON", warn = FALSE) |> ## already POLYGON
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  return(step1)
+}
+
+patches_union_into_final_resultant_2 <- function(step1, patch_size) {
   patch_size <- patch_size |>
     dplyr::filter(!is.na(Seral)) |>
     sf::st_set_agr("constant")
+
+  ## slow
+  step2 <- step1 |>
+    st_union_analysis(patch_size, union_by = "Seral") |>
+    sf::st_collection_extract("POLYGON") |>
+    sf::st_cast("POLYGON", warn = FALSE)
+
+  return(step2)
+}
+
+patches_union_into_final_resultant_3 <- function(step2, for_dist_seral) {
   for_dist_seral <- sf::st_make_valid(for_dist_seral) |>
     dplyr::filter(!is.na(Seral)) |>
     dplyr::group_by(Seral) |>
@@ -802,20 +819,13 @@ patches_union_into_final_resultant <- function(
     sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
     sf::st_cast("POLYGON", warn = FALSE)
 
-  step1 <- interior_forest_mature_old |>
-    st_union_analysis(interior_forest_old, union_by = "Seral") |>
-    # sf::st_collection_extract("POLYGON", warn = FALSE) |> ## already POLYGON
-    sf::st_cast("POLYGON", warn = FALSE)
-
-  step2 <- step1 |>
-    st_union_analysis(patch_size, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON") |>
-    sf::st_cast("POLYGON", warn = FALSE)
-
+  ## very slow (the longest step)
   step3 <- step2 |>
     st_union_analysis(for_dist_seral, union_by = "Seral") |>
     sf::st_collection_extract("POLYGON") |>
     sf::st_cast("POLYGON", warn = FALSE)
+
+  return(step3)
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {

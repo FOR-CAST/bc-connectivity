@@ -280,19 +280,26 @@ list(
     command = patches_create_patch_size_data(patches_input_data)
   ),
 
+  ## split into three steps to speed up rerunning
   tar_target(
-    name = patches_union_final,
-    command = patches_union_into_final_resultant(
+    name = patches_union_final_1,
+    command = patches_union_into_final_resultant_1(
       patches_interior_forest_mature_old,
-      patches_interior_forest_old,
-      patches_patch_size,
-      forest_disturbance_seral
+      patches_interior_forest_old
     )
+  ),
+  tar_target(
+    name = patches_union_final_2,
+    command = patches_union_into_final_resultant_2(patches_union_final_1, patches_patch_size)
+  ),
+  tar_target(
+    name = patches_union_final_3,
+    command = patches_union_into_final_resultant_3(patches_union_final_2, forest_disturbance_seral)
   ),
 
   tar_target(
     name = forest_patches_final,
-    command = define_forest_seral_patch_conn_vals(patches_union_final)
+    command = define_forest_seral_patch_conn_vals(patches_union_final_3)
   ),
   tar_target(
     name = forest_patches_final_gpkg,
