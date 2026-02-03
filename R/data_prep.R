@@ -261,6 +261,15 @@ get_wha <- function(studyArea, rasterToMatch) {
   )
 }
 
+get_wui <- function(studyArea, rasterToMatch) {
+  get_bcdata(
+    id = "5eff9b25-d43a-4b4d-8ee3-ffe11b43d693",
+    select_cols = c(""),
+    studyArea = studyArea,
+    rasterToMatch = rasterToMatch
+  )
+}
+
 ## High Value Moose Wetlands layer has been handled differently
 ## due to limits/issues querying and downloading the data using `bcdata`
 get_moose_wetlands <- function(studyArea, rasterToMatch) {

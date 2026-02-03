@@ -372,6 +372,15 @@ list(
     format = "file"
   ),
   tar_target(
+    name = WUI,
+    command = get_wui(Quesnel_TSA_buffered, LCC)
+  ),
+  tar_target(
+    name = WUI_gpkg,
+    command = save_gpkg(WUI, "WUI.gpkg"),
+    format = "file"
+  ),
+  tar_target(
     name = secondary,
     command = create_secondary(WHA, MDWR, moose_wetlands)
   ),
