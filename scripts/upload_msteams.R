@@ -36,7 +36,7 @@ shpt$upload_folder(
 # shpt$create_folder(path = upload_path_inputs)
 shpt$upload_folder(src = inputRasterPath, dest = upload_path_inputs, recursive = TRUE)
 
-omniscape_outputs <- fs::dir_ls(outputPath, type = "directory", regexp = "2026-01-13_.*") |>
+omniscape_outputs <- fs::dir_ls(outputPath, type = "directory", regexp = "2026-01-(13|23)_.*") |>
   fs::path_rel(outputPath)
 
 purrr::walk2(
