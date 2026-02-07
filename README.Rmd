@@ -32,12 +32,22 @@ After originally following a human disturbance-based connectivity modelling appr
 
 This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
-```
+```r
 ## Run the workflow:
-targets::tar_make()
+## NOTE: callr/sf interaction causes multithread deadlock
+targets::tar_make(callr_function = NULL)
 
 ## Visualize the target dependencies:
 targets::tar_visnetwork()
+```
+
+### Debugging
+
+See <https://books.ropensci.org/targets/debugging.html> for help.
+
+```r
+## Run the workflow verbosely
+tar_make(callr_function = NULL, reporter = "verbose")
 ```
 
 ```{r workflow-summary-diagram, echo = FALSE}
@@ -130,7 +140,7 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 **All interpatch distances (quantiles)**
 
 ```{r all_distances, echo = FALSE}
-targets::tar_read(interpatch_distances, branches = 1) |>
+targets::tar_read(all_interpatch_distances_combined) |>
   unlist() |>
   quantile(seq(0, 1, 0.05))
 ```
@@ -140,7 +150,7 @@ We selected the 20th percentile value of all interpatch distances as the maximum
 **Nearest neighbour interpatch distances (quantiles)**
 
 ```{r nn_distances, echo = FALSE}
-targets::tar_read(interpatch_distances, branches = 2) |>
+targets::tar_read(nn_interpatch_distances) |>
   unlist() |>
   quantile(seq(0, 1, 0.05))
 ```

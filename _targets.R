@@ -3,6 +3,9 @@
 # Then follow the manual to check and run the pipeline:
 #   https://books.ropensci.org/targets/walkthrough.html#inspect-the-pipeline
 
+## set environment variable before loading packages
+Sys.setenv(OMP_NUM_THREADS = 1)
+
 # Load packages required to define the pipeline:
 library(targets)
 library(tarchetypes)
@@ -25,6 +28,7 @@ tar_option_set(
     "dplyr",
     "ggplot2",
     "ggspatial",
+    "purrr",
     "sf",
     "terra",
     "tidyterra",
@@ -35,20 +39,24 @@ tar_option_set(
 
   ## Optional settings
   # format = "qs",
-  # memory = "transient",
+  memory = "transient",
   # garbage_collection = 100,
 
   ## Pipelines that take a long time to run may benefit from distributed computing.
   ## To use this capability in tar_make(), supply a {crew} controller
   ## as discussed at <https://books.ropensci.org/targets/crew.html>.
-  controller = crew::crew_controller_local(workers = 16L, seconds_idle = 600),
+  controller = crew::crew_controller_local(
+    workers = min(parallelly::availableCores(omit = 1), 256L), ## adjust max workers as needed
+    seconds_idle = 600,
+    crashes_max = 10L
+  ),
   storage = "worker",
   retrieval = "worker",
 
   ## Debugging options (see <https://books.ropensci.org/targets/debugging.html>)
   ## NOTE: to run in interactive session for use with browser(), run pipeline with:
   ## `tar_make(callr_function = NULL, use_crew = FALSE, as_job = FALSE)`
-  error = "trim" ## allows targets to keep running unless affected by the error
+  error = "trim", ## allows targets to keep running unless affected by the error
   # workspace_on_error = TRUE
 
   ## Set other options as needed.
@@ -470,21 +478,46 @@ list(
 
   ## interpatch assesments
   tar_target(
-    name = distance_type,
-    command = c("all", "nn")
+    name = nn_interpatch_distances,
+    command = calc_nn_dists(forest_patches_final)
   ),
   tar_target(
-    name = interpatch_distances,
-    command = calc_interpatch_distances(forest_patches_final, distance_type),
-    pattern = map(distance_type),
-    iteration = "list"
+    name = nn_interpatch_distances_png,
+    command = plot_hist_dists(nn_interpatch_distances, "nn"),
+    format = "file"
+  ),
+
+  ## 163 chunks yields ~1000 rows per chunk; <1GB RAM per chunk
+  tar_target(
+    name = n_chunks,
+    command = 64L
   ),
   tar_target(
-    name = interpatch_distances_png,
-    command = plot_hist_dists(interpatch_distances, distance_type),
-    format = "file",
-    pattern = map(interpatch_distances, distance_type),
-    iteration = "list"
+    name = forest_patches_final_chunks,
+    command = calc_all_dists_chunks(forest_patches_final, n_chunks),
+    deployment = "main" ## keep in main R session for optimal worker dispatch
+  ),
+  tar_target(
+    name = all_interpatch_distances_grid,
+    command = calc_all_dists_grid(length(forest_patches_final_chunks)),
+    deployment = "main" ## trivial to compute
+  ),
+  tar_target(
+    name = all_interpatch_distances_chunks,
+    command = calc_all_dists(forest_patches_final_chunks, all_interpatch_distances_grid),
+    pattern = map(all_interpatch_distances_grid),
+    deployment = "worker"
+  ),
+
+  tar_target(
+    name = all_interpatch_distances_combined,
+    command = calc_all_dists_combine(all_interpatch_distances_chunks),
+    deployment = "main"
+  ),
+  tar_target(
+    name = all_interpatch_distances_png,
+    command = plot_hist_dists(all_interpatch_distances_combined, "all"),
+    format = "file"
   ),
 
   ## create resistance and sourcewt rasters
@@ -743,20 +776,32 @@ list(
 
   ## Omniscape --------------------------------------------------------------------------------
   tar_target(
-    name = omniscape_config,
+    name = omniscape_config_alldist,
     command = write_omniscape_config(
       res = resistance_composite,
       srcwt = sourcewt_composite,
-      patch_distances = interpatch_distances,
-      q = ifelse(distance_type == "all", 20, 100), ## could reasonably use e.g., 95, 99, 100
+      patch_distances = all_interpatch_distances_combined,
+      q = 20, ## ~50 km
       run_name = "2026-01-23",
       ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
     format = "file",
-    pattern = cross(
-      map(resistance_composite, sourcewt_composite),
-      map(interpatch_distances, distance_type)
+    pattern = map(resistance_composite, sourcewt_composite),
+    iteration = "list"
+  ),
+
+  tar_target(
+    name = omniscape_config_nndist,
+    command = write_omniscape_config(
+      res = resistance_composite,
+      srcwt = sourcewt_composite,
+      patch_distances = nn_interpatch_distances,
+      q = 100, ## could reasonably use e.g., 95, 99, 100
+      run_name = "2026-01-23",
+      ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
+    format = "file",
+    pattern = map(resistance_composite, sourcewt_composite),
     iteration = "list"
   ),
 
