@@ -140,9 +140,7 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 **All interpatch distances (quantiles)**
 
 ```{r all_distances, echo = FALSE}
-targets::tar_read(all_interpatch_distances_combined) |>
-  unlist() |>
-  quantile(seq(0, 1, 0.05))
+targets::tar_read(quantiles_all_dists)
 ```
 
 We selected the 20th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(interpatch_distances, branches = 1) |> unlist() |> quantile(0.2) |> prod(0.001) |> round(1)` km).
@@ -150,9 +148,7 @@ We selected the 20th percentile value of all interpatch distances as the maximum
 **Nearest neighbour interpatch distances (quantiles)**
 
 ```{r nn_distances, echo = FALSE}
-targets::tar_read(nn_interpatch_distances) |>
-  unlist() |>
-  quantile(seq(0, 1, 0.05))
+targets::tar_read(quantiles_nn_dists)
 ```
 
 We selected the 100th percentile value of the nearest neighbour interpatch distances as the minimum search radius (`r targets::tar_read(interpatch_distances, branches = 2) |> unlist() |> quantile(1) |> prod(0.001) |> round(1)` km).

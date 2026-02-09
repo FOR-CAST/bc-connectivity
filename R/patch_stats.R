@@ -46,27 +46,31 @@ calc_all_dists_chunks <- function(for_dist, n_chunks = 64L) {
 
   stopifnot(length(n_chunks) == 1, n_chunks > 0)
 
+  ## combine mature and old geometries to reduce number of features (183k ==> 70k)
   matold <- for_dist |>
-    dplyr::filter(Seral %in% c("Mature", "Old"))
+    dplyr::filter(Seral %in% c("Mature", "Old")) |>
+    dplyr::mutate(Patch = "matold") |>
+    dplyr::group_by(Patch) |>
+    dplyr::summarise() |>
+    sf::st_cast("POLYGON", warn = FALSE)
 
   n <- nrow(matold)
 
-  chunk_id <- cut(
-    seq_len(n),
-    breaks = n_chunks,
-    labels = FALSE
-  )
+  chunk_id <- cut(seq_len(n), breaks = n_chunks, labels = FALSE)
 
   split(matold, chunk_id)
+
+  ## TODO: try writing to disk - on read, ensure files are copied to tempdir
+  # purrr::map(function(x) {
+  #   f <- file.path(get_path("inputs"), "for_dist_matold", sprintf("chunk_%02d", chunk_id))
+  #   qs2::qs_save(x, f)
+  # })
 }
 
 calc_all_dists_grid <- function(n_chunks) {
   ## only need to calculate distances for the upper triangle of the full matrix
-  idx <- expand.grid(
-    i = seq_len(n_chunks),
-    j = seq_len(n_chunks)
-  )
-  idx[idx$i <= idx$j, , drop = FALSE]
+  idx <- expand.grid(i = seq_len(n_chunks), j = seq_len(n_chunks))
+  idx <- idx[idx$i <= idx$j, , drop = FALSE]
 }
 
 calc_all_dists <- function(chunks, combo_row) {
@@ -74,17 +78,60 @@ calc_all_dists <- function(chunks, combo_row) {
   on.exit(Sys.setenv(OMP_NUM_THREADS = old_omp), add = TRUE)
   Sys.setenv(OMP_NUM_THREADS = 1)
 
-  dist_mat <- sf::st_distance(chunks[[combo_row$i]], chunks[[combo_row$j]])
+  chunk_i <- chunks[[combo_row$i]] ## TODO: try reading file from local disk
+  chunk_j <- chunks[[combo_row$j]] ## TODO: try reading file from local disk
+
+  dist_mat <- sf::st_distance(chunk_i, chunk_j)
 
   if (combo_row$i == combo_row$j) {
     dist_mat <- dist_mat[upper.tri(dist_mat)]
   }
 
-  return(dist_mat)
+  return(c(dist_mat)) ## convert from matrix to vector
 }
 
+## too large to combine everything in memory; write to arrow dataset
 calc_all_dists_combine <- function(dists_list) {
-  do.call(c, dists_list)
+  ds_dir <- file.path(get_path("inputs"), "all-distances") |> fs::dir_create()
+  arrow::write_parquet(
+    x = data.frame(distance = dists_list),
+    sink = file.path(ds_dir, paste0("chunk_", targets::tar_name(), ".parquet"))
+  )
+
+  targets::tar_name()
+}
+
+calc_all_dists_quantiles <- function(target_names) {
+  ds <- file.path(get_path("inputs"), "all-distances") |> arrow::open_dataset()
+
+  ## NOTE: adding more quantile calculations ramps up memory use;
+  ## computing q00, q25, 250, q75 and q100 uses ~250 GB RAM
+  ds |>
+    arrow::to_duckdb() |>
+    dplyr::summarise(
+      `0%` = quantile(distance, 0.00),
+      # `5%` = quantile(distance, 0.05),
+      # `10%` = quantile(distance, 0.10),
+      # `15%` = quantile(distance, 0.15),
+      # `20%` = quantile(distance, 0.20),
+      `25%` = quantile(distance, 0.25),
+      # `30%` = quantile(distance, 0.30),
+      # `35%` = quantile(distance, 0.35),
+      # `40%` = quantile(distance, 0.40),
+      # `45%` = quantile(distance, 0.45),
+      `50%` = quantile(distance, 0.50),
+      # `55%` = quantile(distance, 0.55),
+      # `60%` = quantile(distance, 0.60),
+      # `65%` = quantile(distance, 0.65),
+      # `70%` = quantile(distance, 0.70),
+      `75%` = quantile(distance, 0.75),
+      # `80%` = quantile(distance, 0.80),
+      # `85%` = quantile(distance, 0.85),
+      # `90%` = quantile(distance, 0.90),
+      # `95%` = quantile(distance, 0.95),
+      `100%` = quantile(distance, 1.0)
+    ) |>
+    dplyr::collect()
 }
 
 ## plotting ---------------------------------------------------------------------------------------

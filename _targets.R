@@ -48,7 +48,7 @@ tar_option_set(
   controller = crew::crew_controller_local(
     workers = min(parallelly::availableCores(omit = 1), 256L), ## adjust max workers as needed
     seconds_idle = 600,
-    crashes_max = 10L
+    crashes_max = 20L ## using higher value here because of race condition with so many threads
   ),
   storage = "worker",
   retrieval = "worker",
@@ -482,6 +482,10 @@ list(
     command = calc_nn_dists(forest_patches_final)
   ),
   tar_target(
+    name = quantiles_nn_dists,
+    command = quantile(nn_interpatch_distances, seq(0, 1, 0.01))
+  ),
+  tar_target(
     name = nn_interpatch_distances_png,
     command = plot_hist_dists(nn_interpatch_distances, "nn"),
     format = "file"
@@ -505,19 +509,17 @@ list(
   tar_target(
     name = all_interpatch_distances_chunks,
     command = calc_all_dists(forest_patches_final_chunks, all_interpatch_distances_grid),
-    pattern = map(all_interpatch_distances_grid),
-    deployment = "worker"
+    pattern = map(all_interpatch_distances_grid)
   ),
 
   tar_target(
     name = all_interpatch_distances_combined,
     command = calc_all_dists_combine(all_interpatch_distances_chunks),
-    deployment = "main"
+    pattern = map(all_interpatch_distances_chunks)
   ),
   tar_target(
-    name = all_interpatch_distances_png,
-    command = plot_hist_dists(all_interpatch_distances_combined, "all"),
-    format = "file"
+    name = quantiles_all_dists,
+    command = calc_all_dists_quantiles(all_interpatch_distances_combined)
   ),
 
   ## create resistance and sourcewt rasters
@@ -780,8 +782,8 @@ list(
     command = write_omniscape_config(
       res = resistance_composite,
       srcwt = sourcewt_composite,
-      patch_distances = all_interpatch_distances_combined,
-      q = 20, ## ~50 km
+      patch_distances = quantiles_all_dists,
+      q = 25, ## ~45 km
       run_name = "2026-01-23",
       ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
@@ -795,8 +797,8 @@ list(
     command = write_omniscape_config(
       res = resistance_composite,
       srcwt = sourcewt_composite,
-      patch_distances = nn_interpatch_distances,
-      q = 100, ## could reasonably use e.g., 95, 99, 100
+      patch_distances = quantiles_nn_dists,
+      q = 100, ## could reasonably use e.g., 90, 95, 99, 100
       run_name = "2026-01-23",
       ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
     ),
