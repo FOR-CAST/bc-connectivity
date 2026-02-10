@@ -28,44 +28,54 @@ save_patch_stats <- function(stats_df) {
 
 # Interpatch assessment (moving window size) --------------------------------------------------
 
-## calculate distances between nearest neighbours
-calc_nn_dists <- function(for_dist) {
-  matold <- for_dist |>
-    dplyr::filter(Seral %in% c("Mature", "Old"))
-
-  nn <- sf::st_nearest_feature(matold)
-  nn_dists <- sf::st_distance(matold, matold[nn, ], by_element = TRUE)
-
-  return(nn_dists)
+calc_matold <- function(for_dist) {
+  ## combine mature and old geometries to reduce number of features (163k ==> 70k)
+  matold <- sf::st_make_valid(for_dist) |>
+    dplyr::filter(Seral %in% c("Mature", "Old")) |>
+    dplyr::mutate(patch = "matold") |>
+    dplyr::group_by(patch) |>
+    dplyr::summarise() |>
+    dplyr::ungroup() |>
+    sf::st_cast("POLYGON", warn = FALSE) |>
+    dplyr::mutate(id = dplyr::row_number(), .before = "patch")
 }
 
-## calculate distances between all patches (in parallel) ------------------------------------------
+## calculate distances between nearest neighbours (in parallel) -----------------------------------
 
-calc_all_dists_chunks <- function(for_dist, n_chunks = 64L) {
+make_chunks <- function(x, n_chunks = 64L) {
   n_chunks <- as.integer(n_chunks)
 
   stopifnot(length(n_chunks) == 1, n_chunks > 0)
 
-  ## combine mature and old geometries to reduce number of features (183k ==> 70k)
-  matold <- for_dist |>
-    dplyr::filter(Seral %in% c("Mature", "Old")) |>
-    dplyr::mutate(Patch = "matold") |>
-    dplyr::group_by(Patch) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE)
-
-  n <- nrow(matold)
+  n <- nrow(x)
 
   chunk_id <- cut(seq_len(n), breaks = n_chunks, labels = FALSE)
 
-  split(matold, chunk_id)
-
-  ## TODO: try writing to disk - on read, ensure files are copied to tempdir
-  # purrr::map(function(x) {
-  #   f <- file.path(get_path("inputs"), "for_dist_matold", sprintf("chunk_%02d", chunk_id))
-  #   qs2::qs_save(x, f)
-  # })
+  split(x, chunk_id)
 }
+
+calc_nn_dists <- function(matold, chunk) {
+  ## chunk comes in as a length-1 list
+  chunk <- chunk[[1]] |> sf::st_make_valid()
+  purrr::map(
+    .x = seq_len(nrow(chunk)),
+    .f = function(chunk_row) {
+      poly <- chunk[chunk_row, ]
+      matold_exclude_self <- matold[-poly$id, ]
+      nn <- sf::st_nearest_feature(poly, matold_exclude_self)
+      nn_dists <- sf::st_distance(poly, matold_exclude_self[nn, ], by_element = TRUE)
+
+      return(nn_dists)
+    }
+  ) |>
+    do.call(c, args = _) ## do.call preserves units
+}
+
+calc_nn_dists_combine <- function(dists_list) {
+  do.call(c, dists_list) ## do.call preserves units
+}
+
+## calculate distances between all patches (in parallel) ------------------------------------------
 
 calc_all_dists_grid <- function(n_chunks) {
   ## only need to calculate distances for the upper triangle of the full matrix
@@ -74,12 +84,8 @@ calc_all_dists_grid <- function(n_chunks) {
 }
 
 calc_all_dists <- function(chunks, combo_row) {
-  old_omp <- Sys.getenv("OMP_NUM_THREADS", unset = "")
-  on.exit(Sys.setenv(OMP_NUM_THREADS = old_omp), add = TRUE)
-  Sys.setenv(OMP_NUM_THREADS = 1)
-
-  chunk_i <- chunks[[combo_row$i]] ## TODO: try reading file from local disk
-  chunk_j <- chunks[[combo_row$j]] ## TODO: try reading file from local disk
+  chunk_i <- chunks[[combo_row$i]]
+  chunk_j <- chunks[[combo_row$j]]
 
   dist_mat <- sf::st_distance(chunk_i, chunk_j)
 

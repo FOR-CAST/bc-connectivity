@@ -476,39 +476,52 @@ list(
     format = "file"
   ),
 
-  ## interpatch assesments
+  ## interpatch assesments ------------------------------------------------------------------------
   tar_target(
-    name = nn_interpatch_distances,
-    command = calc_nn_dists(forest_patches_final)
+    name = patches_matold,
+    command = calc_matold(forest_patches_final)
+  ),
+
+  ## use more chunks for nn dist calcs b/c need to loop over rows in each chunk
+  tar_target(
+    name = forest_patches_chunks_nn_dists,
+    command = make_chunks(patches_matold, n_chunks = 255L), ## 255 chunks: ~350 GB RAM total; @ ~15-20 mins each
+    deployment = "main" ## keep in main R session for optimal worker dispatch
+  ),
+  tar_target(
+    name = nn_interpatch_distances_chunks,
+    command = calc_nn_dists(patches_matold, forest_patches_chunks_nn_dists),
+    pattern = map(forest_patches_chunks_nn_dists),
+    iteration = "list"
+  ),
+  tar_target(
+    name = nn_interpatch_distances_combined,
+    command = calc_nn_dists_combine(nn_interpatch_distances_chunks)
   ),
   tar_target(
     name = quantiles_nn_dists,
-    command = quantile(nn_interpatch_distances, seq(0, 1, 0.01))
+    command = quantile(nn_interpatch_distances_combined, seq(0, 1, 0.01))
   ),
   tar_target(
     name = nn_interpatch_distances_png,
-    command = plot_hist_dists(nn_interpatch_distances, "nn"),
+    command = plot_hist_dists(nn_interpatch_distances_combined, "nn"),
     format = "file"
   ),
 
-  ## 163 chunks yields ~1000 rows per chunk; <1GB RAM per chunk
+  ## use fewer chunks for all dist calcs b/c need to loop over rows
   tar_target(
-    name = n_chunks,
-    command = 64L
-  ),
-  tar_target(
-    name = forest_patches_final_chunks,
-    command = calc_all_dists_chunks(forest_patches_final, n_chunks),
+    name = forest_patches_chunks_all_dists,
+    command = make_chunks(patches_matold, n_chunks = 64L),
     deployment = "main" ## keep in main R session for optimal worker dispatch
   ),
   tar_target(
     name = all_interpatch_distances_grid,
-    command = calc_all_dists_grid(length(forest_patches_final_chunks)),
+    command = calc_all_dists_grid(length(forest_patches_chunks_all_dists)),
     deployment = "main" ## trivial to compute
   ),
   tar_target(
     name = all_interpatch_distances_chunks,
-    command = calc_all_dists(forest_patches_final_chunks, all_interpatch_distances_grid),
+    command = calc_all_dists(forest_patches_chunks_all_dists, all_interpatch_distances_grid),
     pattern = map(all_interpatch_distances_grid)
   ),
 

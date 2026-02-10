@@ -41,7 +41,7 @@ studyArea <- tar_read(Quesnel_TSA) |>
   terra::vect()
 
 output_dirs <- "Outputs" |>
-  fs::dir_ls(type = "directory", regexp = "2026-01-13") |>
+  fs::dir_ls(type = "directory", regexp = "2026-01-(13|23)") |>
   grep("_t.+$", x = _, invert = TRUE, value = TRUE) |> ## exclude tiled dirs
   fs::dir_info() |> ## captures file info, therefore none for empty dirs
   dplyr::pull(path) |>
