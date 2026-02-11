@@ -75,7 +75,12 @@ write_omniscape_config <- function(
   ## NOTE: using larger radius increases computation time, even with increasing block_size
   use_radius <- function(patch_distances, pixel_size, q) {
     rad <- patch_distances[[paste0(q, "%")]] |> round(digits = 0)
-    ceiling(rad / pixel_size) |> units::drop_units() ## now in pixels, not m
+    rad_px <- ceiling(rad / pixel_size) ## now in pixels, not m
+    if (inherits(rad_px, "units")) {
+      rad_px <- units::drop_units(rad_px)
+    }
+
+    return(rad_px)
   }
   radius <- use_radius(patch_distances, pixel_size, q) ## (in pixels)
 
