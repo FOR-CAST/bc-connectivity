@@ -143,7 +143,7 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 targets::tar_read(quantiles_all_dists)
 ```
 
-We selected the 20th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(quantiles_all_dists)[["25%"]] |> units::drop_units() |> prod(0.001) |> round(1)` km).
+We selected the 20th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(quantiles_all_dists)[["25%"]] |> prod(0.001) |> round(1)` km).
 
 **Nearest neighbour interpatch distances (quantiles)**
 
@@ -244,7 +244,7 @@ General wetlands were assigned moderate resistance (250) and source weight (0.75
 
 Other biodiversity features were used for summarizing connectivity analyses, rather than informing landscape resistance and source weight values directly:
 
-- BC Parks, Protected Areas, and Ecological Reserves layers ;
+- BC Parks, Protected Areas, and Ecological Reserves layers;
 - Old Growth Management Areas (OGMA);
 - Wildlife Habitat Areas (WHA);
 - Mule Deer Winter Ranges (MDWR);

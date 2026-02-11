@@ -1,6 +1,6 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2026-01-12"
+date: "Last updated: 2026-02-10"
 output: 
   html_document: 
     keep_md: true
@@ -30,12 +30,22 @@ After originally following a human disturbance-based connectivity modelling appr
 
 This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
-```
+```r
 ## Run the workflow:
-targets::tar_make()
+## NOTE: callr/sf interaction causes multithread deadlock
+targets::tar_make(callr_function = NULL)
 
 ## Visualize the target dependencies:
 targets::tar_visnetwork()
+```
+
+### Debugging
+
+See <https://books.ropensci.org/targets/debugging.html> for help.
+
+```r
+## Run the workflow verbosely
+tar_make(callr_function = NULL, reporter = "verbose")
 ```
 
 
@@ -152,27 +162,56 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 
 
 ```
-##        0%        5%       10%       15%       20%       25%       30%       35% 
-##      0.00  38341.59  42784.41  47622.06  54053.44  59472.45  63708.02  67538.24 
-##       40%       45%       50%       55%       60%       65%       70%       75% 
-##  70926.67  75888.73  81568.67  87788.37  95432.09 102417.27 109717.98 127567.92 
-##       80%       85%       90%       95%      100% 
-## 145756.10 165820.97 184108.42 208407.14 326528.08
+## # A tibble: 1 × 5
+##    `0%`  `25%`  `50%`   `75%`  `100%`
+##   <dbl>  <dbl>  <dbl>   <dbl>   <dbl>
+## 1     0 45202. 77899. 120835. 364515.
 ```
+
+We selected the 20th percentile value of all interpatch distances as the maximum search radius (45.2 km).
 
 **Nearest neighbour interpatch distances (quantiles)**
 
 
 ```
-##          0%          5%         10%         15%         20%         25% 
-##    0.000000    0.000000    0.000000    0.000000    0.000000    1.063544 
-##         30%         35%         40%         45%         50%         55% 
-##    3.589605    5.753667    8.377813   11.134379   15.235237   19.763118 
-##         60%         65%         70%         75%         80%         85% 
-##   25.570065   31.178605   39.854422   51.823310   68.061192   92.414589 
-##         90%         95%        100% 
-##  138.403964  260.189777 5476.274753
+## Units: [m]
+##           0%           1%           2%           3%           4%           5% 
+##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+##           6%           7%           8%           9%          10%          11% 
+##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+##          12%          13%          14%          15%          16%          17% 
+##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+##          18%          19%          20%          21%          22%          23% 
+##    0.0000000    0.0000000    0.0000000    0.0000000    0.2447690    0.7166543 
+##          24%          25%          26%          27%          28%          29% 
+##    1.2136404    1.7128808    2.2378266    2.7680750    3.2888325    3.7943570 
+##          30%          31%          32%          33%          34%          35% 
+##    4.0282323    4.5178525    4.9839834    5.5237323    6.0519911    6.5718971 
+##          36%          37%          38%          39%          40%          41% 
+##    7.1301322    7.6616953    8.1505027    8.7062829    9.2834548    9.8327188 
+##          42%          43%          44%          45%          46%          47% 
+##   10.1926314   10.8383194   11.5457525   12.2288754   13.0337423   13.9521850 
+##          48%          49%          50%          51%          52%          53% 
+##   14.7468258   15.6458723   16.5616779   17.5184125   18.4921753   19.5292517 
+##          54%          55%          56%          57%          58%          59% 
+##   19.9854725   21.0217928   22.0554932   23.1681620   24.3003051   24.9826730 
+##          60%          61%          62%          63%          64%          65% 
+##   24.9873227   24.9894720   24.9906617   24.9913212   24.9914968   25.0000000 
+##          66%          67%          68%          69%          70%          71% 
+##   25.7372239   27.1045846   28.3382509   29.5251148   29.6941983   31.1253797 
+##          72%          73%          74%          75%          76%          77% 
+##   32.7951751   34.5638881   36.3916177   38.5554676   40.2530263   42.1161945 
+##          78%          79%          80%          81%          82%          83% 
+##   44.6037229   47.1674151   49.4931217   52.0742741   55.2165730   58.6406721 
+##          84%          85%          86%          87%          88%          89% 
+##   61.4297034   65.4196803   69.5917742   74.2841656   79.3788600   85.0407552 
+##          90%          91%          92%          93%          94%          95% 
+##   91.3718304   99.7198573  108.4038184  118.8804880  131.8032383  147.7071177 
+##          96%          97%          98%          99%         100% 
+##  167.6084838  198.3021129  238.4098262  325.2452551 1725.5407667
 ```
+
+We selected the 100th percentile value of the nearest neighbour interpatch distances as the minimum search radius (1.7 km).
 
 ## Connectivity modelling
 
@@ -209,6 +248,9 @@ Each polygon was assigned a seral stage using thresholds following the Biodivers
 ![Overview of patch size workflow](workflow_patches.png)
 
 Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
+
+<details>
+<summary>Click to expand</summary>
 
 1. `get_input_data` loads the seral stage polygons and dissolves by seral stage:
   a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`;
@@ -248,6 +290,8 @@ Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
   a. takes polygon layers `r1_matold_interior`, `r1_old_interior`, and `x1_dissolved_on_seral_stage`, repairs geometries, then performs union, saving to `r1_patch` polygon layer;
   b. takes polygon layers `r1_patch` and `seral_managed`, repairs geomtries, then unions, saving to `r1_final_resultant_union` polygon layer;
 
+</details>
+
 Corresponding resistance and source weight values were subsequently applied (*e.g.*, early forest = high resistance, old forest = low resistance; early forest = low source weight, old forest = high source weight).
 
 **Biodiversity Features:**
@@ -256,7 +300,7 @@ General wetlands were assigned moderate resistance (250) and source weight (0.75
 
 Other biodiversity features were used for summarizing connectivity analyses, rather than informing landscape resistance and source weight values directly:
 
-- BC Parks, Protected Areas, and Ecological Reserves layers 
+- BC Parks, Protected Areas, and Ecological Reserves layers;
 - Old Growth Management Areas (OGMA);
 - Wildlife Habitat Areas (WHA);
 - Mule Deer Winter Ranges (MDWR);
@@ -298,6 +342,44 @@ Used Omniscape to produce connectivity maps.
 
 **NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now.
   <https://github.com/Circuitscape/Omniscape.jl/issues/160>
+
+**NOTE:** Omniscape runs need to be run manually (i.e., outside of the `targets` data prep workflow) because of a problem preventing launch of `julia` from `R`.
+Consequently, post-processing and analyses of Omniscape outputs also needs to be run manually for the time being.
+
+The data preparation workflow generates several Omniscape configurations by adjusting the following:
+
+- _pixel size_ (`p`): either 30m or 90m (smaller pixel sizes increase computation time but may not produced qualitatively different results than larger pixel sizes);
+- _radius_ (`r`): the moving window size (in pixels), based on the results of the nearest neighbour / all nseighbour analyses (the smaller `r` value for a given pixel size corresponds to the nearest neighbour patch distances, whereas the larger `r` value for a given pixel size corresponds to the result of all patch distances);
+- _block size_ (`bs`): used to speed up computations, set to approximately 10% of `r` (in pixels), per [@Phillips:2021]).
+
+To allow for running Omniscape with large `r` values, the inputs resistance and source weight rasters are split into several tiles (`t`), and corresponding Omniscript configurations are produced.
+(The `2026-01-13_p30_r1802_bs181` configuration was run as tiles and the Omniscape outputs mosaicked together for subsequent analyses.)
+
+Omniscape configurations produced by the data preparation workflow:
+
+| **Omniscape configuration**  | **Description**                                       |
+| ---------------------------- | ----------------------------------------------------- |
+| `2026-01-13_p30_r1802_bs181` | 30m pixels; radius 1802 pixels; block size 181 pixels |
+| `2026-01-13_p30_r183_bs19`   | 30m pixels; radius 183 pixels; block size 19 pixels   |
+| `2026-01-13_p90_r601_bs61`   | 90m pixels; radius 601 pixels; block size 61 pixels   |
+| `2026-01-13_p90_r61_bs7`     | 90m pixels; radius 61 pixels; block size 7 pixels     |
+
+**NOTE:** 
+
+Additional (manual) configurations were produced manually as part of testing/benchmarking Omniscape runs, corresponding to $1/2$ and $1/4$ the search radius of the `2026-01-13_p30_r1802_bs181` configuration:
+
+| **Omniscape configuration**  | **Description**                                       |
+| ---------------------------- | ----------------------------------------------------- |
+| `2026-01-13_p30_r451_bs45`   | 30m pixels; radius 451 pixels; block size 45 pixels   |
+| `2026-01-13_p30_r901_bs91`   | 30m pixels; radius 901 pixels; block size 91 pixels   |
+
+
+Individual Omniscape runs can be launched from the terminal using e.g.,
+
+```bash
+## NOTE: adjust number of threads (`-t` argument) based on CPU and RAM availability
+julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
+```
 
 # Using this repository
 
