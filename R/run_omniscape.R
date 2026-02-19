@@ -185,9 +185,9 @@ write_omniscape_config <- function(
 
     ## Omniscape refuses to accidentally overwrite existing directory,
     ## so need to preemptively cleanup
-    if (dir.exists(output_dir)) {
-      unlink(output_dir, recursive = TRUE)
-    }
+    # if (dir.exists(output_dir)) {
+    #   unlink(output_dir, recursive = TRUE)
+    # }
 
     ## write ini file for Omniscape
     cat(
