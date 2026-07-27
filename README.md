@@ -452,7 +452,7 @@ git clone https://github.com/FOR-CAST/bc-connectivity
 
 ## Software environment
 
-### R 4.5.2
+### R 4.5.3
 
 Install `rig` to manage R installations:
 
@@ -471,10 +471,10 @@ brew install --cask rig
 `which sudo` apt install r-rig
 ```
 
-Install R 4.5.2:
+Install R 4.5.3:
 
 ```shell
-rig add 4.5.2
+rig add 4.5.3
 ```
 
 ### R packages
