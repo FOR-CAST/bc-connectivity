@@ -17,8 +17,17 @@ jobs:
     runs-on: ubuntu-24.04
     name: syntax and metadata
 
+    env:
+      ## The project .Rprofile activates renv and attaches dplyr/sf/targets.
+      ## This job deliberately does not restore the project library, so those
+      ## packages are absent and `shell: Rscript` steps would fail on startup.
+      ## Point R at an empty user profile so it starts bare. This overrides only
+      ## the *user* profile, so Rprofile.site (and the repos setup-r configures)
+      ## still applies.
+      R_PROFILE_USER: /dev/null
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: r-lib/actions/setup-r@v2
         with:
@@ -50,7 +59,7 @@ jobs:
         shell: Rscript {0}
 
       - name: Install jsonlite
-        run: install.packages("jsonlite")
+        run: install.packages("jsonlite", repos = "https://cloud.r-project.org")
         shell: Rscript {0}
 
       - name: Validate renv.lock
@@ -62,4 +71,4 @@ jobs:
         shell: Rscript {0}
 
       - name: Validate CITATION.cff
-        uses: dieghernan/cff-validator@v3
+        uses: dieghernan/cff-validator@v5
