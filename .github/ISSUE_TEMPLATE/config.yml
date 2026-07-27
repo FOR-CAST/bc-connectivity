@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Requesting restricted input data
-    url: https://github.com/FOR-CAST/bc-connectivity#data-access
+    url: https://github.com/Heckford/bc-connectivity#data-access
     about: >-
       The BC CEF Forest Disturbance layer is a custom product and is not distributed
       through this repository. See the Data access section of the README for how to

@@ -447,7 +447,7 @@ julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
 ## Getting the code
 
 ```bash
-git clone https://github.com/FOR-CAST/bc-connectivity
+git clone https://github.com/Heckford/bc-connectivity
 ```
 
 ## Software environment

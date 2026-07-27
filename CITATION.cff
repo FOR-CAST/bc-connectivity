@@ -19,7 +19,7 @@ authors:
   - given-names: Cole
     family-names: Wiltse
     affiliation: Government of British Columbia
-repository-code: 'https://github.com/FOR-CAST/bc-connectivity'
+repository-code: 'https://github.com/Heckford/bc-connectivity'
 abstract: >-
   Code to produce a connectivity map for the intactness of old
   forests to inform biodiversity management for the Quesnel

@@ -8,7 +8,7 @@ body:
         Thanks for reporting a problem. Please note that the BC CEF Forest Disturbance
         layer is not publicly distributed — if the workflow stops asking for it, that is
         expected. See
-        [Data access](https://github.com/FOR-CAST/bc-connectivity#data-access).
+        [Data access](https://github.com/Heckford/bc-connectivity#data-access).
 
   - type: textarea
     id: what-happened
