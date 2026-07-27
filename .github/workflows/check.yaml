@@ -11,7 +11,10 @@ permissions:
 
 jobs:
   syntax:
-    runs-on: ubuntu-latest
+    ## pinned to match the platform the project is developed and tested on;
+    ## ubuntu-26.04 ships a toolchain that several pinned packages cannot build
+    ## against (see 'Platform' in the README)
+    runs-on: ubuntu-24.04
     name: syntax and metadata
 
     steps:

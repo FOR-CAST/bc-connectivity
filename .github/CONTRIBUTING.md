@@ -23,7 +23,8 @@ steward named in the README.
 
 1. Fork the repository and create a branch for your change.
 2. Restore the project library with `renv::restore()` so you are working against the
-   pinned package versions.
+   pinned package versions. Use Ubuntu 24.04 -- see
+   [Platform](../README.md#platform) for why 26.04 does not currently work.
 3. Make your change. R code is formatted with [air](https://posit-dev.github.io/air/);
    the project's settings are in [`air.toml`](../air.toml). If you use VS Code or
    Positron, format-on-save is already configured in `.vscode/settings.json`.

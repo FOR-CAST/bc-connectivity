@@ -452,6 +452,30 @@ git clone https://github.com/FOR-CAST/bc-connectivity
 
 ## Software environment
 
+### Platform
+
+This project was developed and tested on **Ubuntu 24.04 LTS (noble)**, with R 4.5.3 and
+Julia 1.11.7. Prebuilt package binaries for this platform are available from
+[Posit Package Manager](https://packagemanager.posit.co), so `renv::restore()` completes
+without compiling packages from source.
+
+**Ubuntu 26.04 LTS (resolute) is not currently supported.** Its updated toolchain
+(glibc 2.43, GCC 15 / clang 21) introduces two problems:
+
+- glibc 2.43 defines the C23 `once_flag` type in `<stdlib.h>`. Packages that bundle their
+  own copy of `tinycthread` and are compiled with `-D_GNU_SOURCE` -- which sets
+  `__GLIBC_USE(ISOC23)` -- then fail to build with a `typedef redefinition` error. This
+  affects the version of `later` pinned in `renv.lock` (fixed upstream in `later` 1.4.7).
+
+- Most versions pinned in `renv.lock` predate the Posit Package Manager binaries built for
+  resolute. Because binary repositories carry only current package versions, those pins
+  fall back to building from source, where further incompatibilities with the newer
+  compilers are likely.
+
+Running on Ubuntu 26.04 therefore requires updating the pinned package versions (see
+[R packages](#r-packages)), which changes the recorded computational environment.
+Use Ubuntu 24.04 to reproduce the published results.
+
 ### R 4.5.3
 
 Install `rig` to manage R installations:
