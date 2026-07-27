@@ -59,8 +59,29 @@ source("scripts/workflow_summary.R")
 ### Directory structure
 
 ```{r dir-structure, echo = FALSE}
-fs::dir_tree(".", recurse = FALSE, regexp = "[^Teams]")
+## List only top-level entries tracked in git, i.e. exactly what a fresh clone contains.
+## This deliberately excludes locally-generated and gitignored paths (`Data/`, `Outputs/`,
+## `Teams/`, `_targets/`, `README_files/`, `_tmp.R`, ...) so the listing cannot go stale.
+tracked_top_level <- system2("git", c("ls-files"), stdout = TRUE) |>
+  fs::path_split() |>
+  vapply(`[[`, character(1), 1L) |>
+  unique() |>
+  sort()
+
+cat(
+  ".",
+  paste0(
+    c(rep("├──", length(tracked_top_level) - 1L), "└──"),
+    " ",
+    tracked_top_level
+  ),
+  sep = "\n"
+)
 ```
+
+Directories created locally when the workflow runs -- `Data/`, `Outputs/`, `Teams/`, and
+`_targets/` -- are not tracked in git and so are not listed above.
+See [Data access](#data-access) for how to populate `Data/`.
 
 ## Data sources
 

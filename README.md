@@ -57,31 +57,35 @@ tar_make(callr_function = NULL, reporter = "verbose")
 
 ```
 ## .
-## ├── Data
-## ├── INFO.md
-## ├── Omniscape
-## ├── Outputs
-## ├── R
-## ├── README.Rmd
-## ├── README.html
-## ├── README.md
-## ├── README_files
 ## ├── _dependencies.R
-## ├── _targets
 ## ├── _targets.R
-## ├── _tmp.R
+## ├── .github
+## ├── .gitignore
+## ├── .Rprofile
+## ├── .vscode
 ## ├── air.toml
 ## ├── bc-connectivity.Rproj
+## ├── CITATION.cff
 ## ├── citations
 ## ├── docker
+## ├── INFO.md
+## ├── LICENSE.md
+## ├── Omniscape
+## ├── R
+## ├── README.md
+## ├── README.Rmd
 ## ├── renv
 ## ├── renv.lock
 ## ├── scripts
-## ├── workflow.png
 ## ├── workflow_patches.png
 ## ├── workflow_seral.png
-## └── workflow_summary.png
+## ├── workflow_summary.png
+## └── workflow.png
 ```
+
+Directories created locally when the workflow runs -- `Data/`, `Outputs/`, `Teams/`, and
+`_targets/` -- are not tracked in git and so are not listed above.
+See [Data access](#data-access) for how to populate `Data/`.
 
 ## Data sources
 
