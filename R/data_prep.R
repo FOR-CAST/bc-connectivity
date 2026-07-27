@@ -535,13 +535,20 @@ get_human_disturbance <- function(studyArea, rasterToMatch) {
 
 # Forest Disturbance --------------------------------------------------------------------------
 
-## Forest disturbance data has been downloaded manually as it is not available
-## through the bcdata package (CEF Custom Product)
+## Forest disturbance data must be downloaded manually as it is not available
+## through the bcdata package (CEF Custom Product) and is not publicly distributed.
+## See the 'Data access' section of the README for how to request it.
 
 get_forest_disturbance <- function(studyArea, rasterToMatch) {
   for_dist_gdb <- file.path(get_path("download"), "BC_CEF_Forest_Disturbance_2024.gdb")
   if (!file.exists(for_dist_gdb)) {
-    stop(glue::glue("please manually download {basename(for_dist_gdb)} from Teams."))
+    stop(glue::glue(
+      "Required input `{basename(for_dist_gdb)}` not found at:\n  {for_dist_gdb}\n\n",
+      "This is a BC Cumulative Effects Framework Custom Product; it is not publicly ",
+      "distributed and cannot be downloaded automatically.\n",
+      "To request access, contact Travis Heckford <Travis.Heckford@gov.bc.ca>.\n",
+      "See the 'Data access' section of the README for details."
+    ))
   }
 
   studyArea_bbox <- create_bbox(studyArea)

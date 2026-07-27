@@ -105,8 +105,7 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 
 **Environmental Features:**
 
-<!-- TODO: add source for `BC_CEF_Forest_Disturbance_2024` -->
-- BC Cumulative Effects Framework Forest Disturbance (2024) (not publicly available);
+- BC Cumulative Effects Framework Forest Disturbance (2024) -- **not publicly distributed**; see [Data access](#data-access);
 
 - Biogeoclimatic Ecosystem Classification (BEC) Zone/Subzone/Variant/Phase map (version 12, September 2, 2021) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f358a53b-ffde-4830-a325-a5a03ff672c3);
 
@@ -146,6 +145,64 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 - Cariboo Consolidated Roads [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads);
 
 - Railway Track Lines [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/4ff93cda-9f58-4055-a372-98c22d04a9f8);
+
+## Data access
+
+No input data are distributed with this repository. The `Data/` directory is created
+locally when the workflow runs.
+
+**Publicly available layers.** Everything listed above except the Forest Disturbance layer
+downloads automatically as part of the `targets` workflow, via the
+[`bcdata`](https://github.com/bcgov/bcdata) and [`bcmaps`](https://github.com/bcgov/bcmaps)
+packages or by direct download from the BC Data Catalogue and Open Government Portal.
+No account, API key, or credential is required.
+
+**Restricted layer.** The **BC Cumulative Effects Framework Forest Disturbance (2024)**
+layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a CEF Custom Product. It is not available
+through the `bcdata` package or the BC Data Catalogue, and it is not redistributed here.
+The workflow will stop with an error if it is missing.
+
+To request access, contact the project data steward:
+
+- **Travis Heckford**, Government of British Columbia -- <Travis.Heckford@gov.bc.ca>
+
+Please describe your intended use when requesting the data. Once obtained, place the
+geodatabase in the workflow's download directory so that the following path resolves:
+
+```
+Data/download/BC_CEF_Forest_Disturbance_2024.gdb
+```
+
+The workflow will then proceed normally. Note that the Forest Disturbance layer drives the
+Simple Inferred Forest Age (SIFA) and seral stage calculations, so the connectivity results
+cannot be reproduced without it.
+
+## Data licence and attribution
+
+The **code** in this repository and the **input data** it consumes are licensed separately.
+See [Licence](#licence) for the code.
+
+Most input layers are published by the Government of British Columbia through the
+[BC Data Catalogue](https://catalogue.data.gov.bc.ca) under the
+[Open Government Licence -- British Columbia](https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc),
+which requires attribution:
+
+> Contains information licensed under the Open Government Licence -- British Columbia.
+
+The Land Cover of Canada (2020) layer is published by Natural Resources Canada through the
+[Open Government Portal](https://open.canada.ca) under the
+[Open Government Licence -- Canada](https://open.canada.ca/en/open-government-licence-canada),
+which requires attribution:
+
+> Contains information licensed under the Open Government Licence -- Canada.
+
+The BC Cumulative Effects Framework Forest Disturbance layer is **not** an open-licensed
+product. Its terms of use are set by the data steward at the time of release; check them
+before redistributing that layer or any derived product from which it can be reconstructed.
+
+Individual datasets may carry their own terms, currency, and accuracy statements. Consult
+the linked catalogue record for each layer before relying on it, and verify licensing
+before redistributing any derived data products.
 
 ## Moving window size
 
