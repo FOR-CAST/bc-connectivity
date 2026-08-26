@@ -1,0 +1,74 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    ## pinned to match the platform the project is developed and tested on;
+    ## ubuntu-26.04 ships a toolchain that several pinned packages cannot build
+    ## against (see 'Platform' in the README)
+    runs-on: ubuntu-24.04
+    name: syntax and metadata
+
+    env:
+      ## The project .Rprofile activates renv and attaches dplyr/sf/targets.
+      ## This job deliberately does not restore the project library, so those
+      ## packages are absent and `shell: Rscript` steps would fail on startup.
+      ## Point R at an empty user profile so it starts bare. This overrides only
+      ## the *user* profile, so Rprofile.site (and the repos setup-r configures)
+      ## still applies.
+      R_PROFILE_USER: /dev/null
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.5.3'
+          use-public-rspm: true
+
+      # Deliberately lightweight: parses sources and validates metadata only.
+      # A full `renv::restore()` is not run here because the spatial stack
+      # (GDAL/GEOS/PROJ) makes CI slow and brittle relative to its value.
+      - name: Parse all R sources
+        run: |
+          ## use git ls-files so only tracked sources are checked, and vendored
+          ## renv infrastructure is skipped.
+          ## NOTE: the pathspec must be quoted -- system2() goes through a shell,
+          ## which would otherwise glob-expand it to top-level matches only.
+          files <- system2("git", c("ls-files", shQuote("*.R")), stdout = TRUE)
+          files <- files[!startsWith(files, "renv/")]
+          cat("Parsing", length(files), "R files\n")
+          failed <- character()
+          for (f in files) {
+            ok <- tryCatch({ parse(f); TRUE }, error = function(e) {
+              cat("FAIL:", f, "\n  ", conditionMessage(e), "\n")
+              FALSE
+            })
+            if (!ok) failed <- c(failed, f)
+          }
+          if (length(failed)) stop(length(failed), " file(s) failed to parse")
+          cat("All R sources parse cleanly\n")
+        shell: Rscript {0}
+
+      - name: Install jsonlite
+        run: install.packages("jsonlite", repos = "https://cloud.r-project.org")
+        shell: Rscript {0}
+
+      - name: Validate renv.lock
+        run: |
+          lock <- jsonlite::fromJSON("renv.lock")
+          stopifnot(!is.null(lock$R$Version), !is.null(lock$Packages))
+          cat("renv.lock is valid JSON:", length(lock$Packages), "packages,",
+              "R", lock$R$Version, "\n")
+        shell: Rscript {0}
+
+      - name: Validate CITATION.cff
+        uses: dieghernan/cff-validator@v5

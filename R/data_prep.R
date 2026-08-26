@@ -535,13 +535,20 @@ get_human_disturbance <- function(studyArea, rasterToMatch) {
 
 # Forest Disturbance --------------------------------------------------------------------------
 
-## Forest disturbance data has been downloaded manually as it is not available
-## through the bcdata package (CEF Custom Product)
+## Forest disturbance data must be downloaded manually as it is not available
+## through the bcdata package (CEF Custom Product) and is not publicly distributed.
+## See the 'Data access' section of the README for how to request it.
 
 get_forest_disturbance <- function(studyArea, rasterToMatch) {
   for_dist_gdb <- file.path(get_path("download"), "BC_CEF_Forest_Disturbance_2024.gdb")
   if (!file.exists(for_dist_gdb)) {
-    stop(glue::glue("please manually download {basename(for_dist_gdb)} from Teams."))
+    stop(glue::glue(
+      "Required input `{basename(for_dist_gdb)}` not found at:\n  {for_dist_gdb}\n\n",
+      "This is a BC Cumulative Effects Framework Custom Product; it is not publicly ",
+      "distributed and cannot be downloaded automatically.\n",
+      "To request access, contact Travis Heckford <Travis.Heckford@gov.bc.ca>.\n",
+      "See the 'Data access' section of the README for details."
+    ))
   }
 
   studyArea_bbox <- create_bbox(studyArea)
@@ -695,6 +702,18 @@ st_erase <- function(x, y) {
     sf::st_make_valid()
 }
 
+## Which edge-influence buffers get erased depends on WHICH patch is being measured.
+##
+## The 25 m buffer is the edge influence of *Mature* stands. For the old-only target a mature stand
+## is an adjacent younger neighbour, so it is erased; for the mature+old target mature stands are
+## part of the patch itself, so erasing it removes every mature stand plus a 25 m margin and leaves
+## exactly the old-only interior forest behind. Erasing all four from both targets therefore makes
+## `patches_interior_forest_mature_old` numerically identical to `patches_interior_forest_old` --
+## which is what this function did until 2026-08-25 (verified on a 120 m seral raster for a separate
+## study area: both came back as exactly 16483 ha).
+##
+## This matches the arcpy scripts, which erase 200/100/50/25 m from OLD (steps 4a-d) but only
+## 200/100/50 m from MATURE_OLD (steps 4e-h); see the README appendix.
 patches_create_interior_forest <- function(
   patches_mature_old,
   patches_buffer_200,
@@ -703,10 +722,19 @@ patches_create_interior_forest <- function(
   patches_buffer_25,
   age_class
 ) {
-  st_erase(patches_mature_old, patches_buffer_200) |>
+  age_class <- match.arg(age_class, c("Old", "Mature"))
+
+  interior <- st_erase(patches_mature_old, patches_buffer_200) |>
     st_erase(patches_buffer_100) |>
-    st_erase(patches_buffer_50) |>
-    st_erase(patches_buffer_25) |>
+    st_erase(patches_buffer_50)
+
+  ## "Mature" here labels the mature+old target, whose patches already contain the mature stands
+  ## that the 25 m buffer represents.
+  if (identical(age_class, "Old")) {
+    interior <- st_erase(interior, patches_buffer_25)
+  }
+
+  interior |>
     dplyr::mutate(
       INTERIOR_CATEGORY = NULL,
       # patch_type = paste(!!age_class, "interior", sep = "_"),

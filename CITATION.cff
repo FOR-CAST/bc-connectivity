@@ -1,0 +1,41 @@
+cff-version: 1.2.0
+title: >-
+  Functional Ecological Networks for Landscape and Wildlife
+  Objectives and Outcomes
+message: >-
+  If you use this software or the analyses it produces, please
+  cite it using the metadata from this file.
+type: software
+authors:
+  # TODO: add `orcid:` entries for remaining authors where available
+  - given-names: Alex
+    family-names: Chubaty
+    email: achubaty@for-cast.ca
+    affiliation: FOR-CAST Research & Analytics
+    orcid: 'https://orcid.org/0000-0001-7146-8135'
+  - given-names: Travis
+    family-names: Heckford
+    affiliation: Government of British Columbia
+  - given-names: Cole
+    family-names: Wiltse
+    affiliation: Government of British Columbia
+repository-code: 'https://github.com/Heckford/bc-connectivity'
+abstract: >-
+  Code to produce a connectivity map for the intactness of old
+  forests to inform biodiversity management for the Quesnel
+  Natural Resource District, British Columbia. Part of Phase 3
+  of an Ecological Corridors project developing analytical
+  tools for practitioners to implement Connectivity, Corridors,
+  and Functional Ecological Networks (C-C-FEN). Uses a targets
+  workflow in R for spatial data preparation, and Omniscape.jl
+  for circuit theory-based connectivity modelling.
+keywords:
+  - landscape connectivity
+  - ecological corridors
+  - circuit theory
+  - Omniscape
+  - old growth forest
+  - biodiversity
+  - British Columbia
+  - targets
+license: Apache-2.0

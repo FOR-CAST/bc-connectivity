@@ -57,31 +57,35 @@ tar_make(callr_function = NULL, reporter = "verbose")
 
 ```
 ## .
-## ├── Data
-## ├── INFO.md
-## ├── Omniscape
-## ├── Outputs
-## ├── R
-## ├── README.Rmd
-## ├── README.html
-## ├── README.md
-## ├── README_files
 ## ├── _dependencies.R
-## ├── _targets
 ## ├── _targets.R
-## ├── _tmp.R
+## ├── .github
+## ├── .gitignore
+## ├── .Rprofile
+## ├── .vscode
 ## ├── air.toml
 ## ├── bc-connectivity.Rproj
+## ├── CITATION.cff
 ## ├── citations
 ## ├── docker
+## ├── INFO.md
+## ├── LICENSE.md
+## ├── Omniscape
+## ├── R
+## ├── README.md
+## ├── README.Rmd
 ## ├── renv
 ## ├── renv.lock
 ## ├── scripts
-## ├── workflow.png
 ## ├── workflow_patches.png
 ## ├── workflow_seral.png
-## └── workflow_summary.png
+## ├── workflow_summary.png
+## └── workflow.png
 ```
+
+Directories created locally when the workflow runs -- `Data/`, `Outputs/`, `Teams/`, and
+`_targets/` -- are not tracked in git and so are not listed above.
+See [Data access](#data-access) for how to populate `Data/`.
 
 ## Data sources
 
@@ -105,8 +109,7 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 
 **Environmental Features:**
 
-<!-- TODO: add source for `BC_CEF_Forest_Disturbance_2024` -->
-- BC Cumulative Effects Framework Forest Disturbance (2024) (not publicly available);
+- BC Cumulative Effects Framework Forest Disturbance (2024) -- **not publicly distributed**; see [Data access](#data-access);
 
 - Biogeoclimatic Ecosystem Classification (BEC) Zone/Subzone/Variant/Phase map (version 12, September 2, 2021) [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/f358a53b-ffde-4830-a325-a5a03ff672c3);
 
@@ -146,6 +149,64 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 - Cariboo Consolidated Roads [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads);
 
 - Railway Track Lines [&#x1F517;](https://catalogue.data.gov.bc.ca/dataset/4ff93cda-9f58-4055-a372-98c22d04a9f8);
+
+## Data access
+
+No input data are distributed with this repository. The `Data/` directory is created
+locally when the workflow runs.
+
+**Publicly available layers.** Everything listed above except the Forest Disturbance layer
+downloads automatically as part of the `targets` workflow, via the
+[`bcdata`](https://github.com/bcgov/bcdata) and [`bcmaps`](https://github.com/bcgov/bcmaps)
+packages or by direct download from the BC Data Catalogue and Open Government Portal.
+No account, API key, or credential is required.
+
+**Restricted layer.** The **BC Cumulative Effects Framework Forest Disturbance (2024)**
+layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a CEF Custom Product. It is not available
+through the `bcdata` package or the BC Data Catalogue, and it is not redistributed here.
+The workflow will stop with an error if it is missing.
+
+To request access, contact the project data steward:
+
+- **Travis Heckford**, Government of British Columbia -- <Travis.Heckford@gov.bc.ca>
+
+Please describe your intended use when requesting the data. Once obtained, place the
+geodatabase in the workflow's download directory so that the following path resolves:
+
+```
+Data/download/BC_CEF_Forest_Disturbance_2024.gdb
+```
+
+The workflow will then proceed normally. Note that the Forest Disturbance layer drives the
+Simple Inferred Forest Age (SIFA) and seral stage calculations, so the connectivity results
+cannot be reproduced without it.
+
+## Data licence and attribution
+
+The **code** in this repository and the **input data** it consumes are licensed separately.
+See [Licence](#licence) for the code.
+
+Most input layers are published by the Government of British Columbia through the
+[BC Data Catalogue](https://catalogue.data.gov.bc.ca) under the
+[Open Government Licence -- British Columbia](https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc),
+which requires attribution:
+
+> Contains information licensed under the Open Government Licence -- British Columbia.
+
+The Land Cover of Canada (2020) layer is published by Natural Resources Canada through the
+[Open Government Portal](https://open.canada.ca) under the
+[Open Government Licence -- Canada](https://open.canada.ca/en/open-government-licence-canada),
+which requires attribution:
+
+> Contains information licensed under the Open Government Licence -- Canada.
+
+The BC Cumulative Effects Framework Forest Disturbance layer is **not** an open-licensed
+product. Its terms of use are set by the data steward at the time of release; check them
+before redistributing that layer or any derived product from which it can be reconstructed.
+
+Individual datasets may carry their own terms, currency, and accuracy statements. Consult
+the linked catalogue record for each layer before relying on it, and verify licensing
+before redistributing any derived data products.
 
 ## Moving window size
 
@@ -386,12 +447,36 @@ julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
 ## Getting the code
 
 ```bash
-git clone https://github.com/FOR-CAST/bc-connectivity
+git clone https://github.com/Heckford/bc-connectivity
 ```
 
 ## Software environment
 
-### R 4.5.2
+### Platform
+
+This project was developed and tested on **Ubuntu 24.04 LTS (noble)**, with R 4.5.3 and
+Julia 1.11.7. Prebuilt package binaries for this platform are available from
+[Posit Package Manager](https://packagemanager.posit.co), so `renv::restore()` completes
+without compiling packages from source.
+
+**Ubuntu 26.04 LTS (resolute) is not currently supported.** Its updated toolchain
+(glibc 2.43, GCC 15 / clang 21) introduces two problems:
+
+- glibc 2.43 defines the C23 `once_flag` type in `<stdlib.h>`. Packages that bundle their
+  own copy of `tinycthread` and are compiled with `-D_GNU_SOURCE` -- which sets
+  `__GLIBC_USE(ISOC23)` -- then fail to build with a `typedef redefinition` error. This
+  affects the version of `later` pinned in `renv.lock` (fixed upstream in `later` 1.4.7).
+
+- Most versions pinned in `renv.lock` predate the Posit Package Manager binaries built for
+  resolute. Because binary repositories carry only current package versions, those pins
+  fall back to building from source, where further incompatibilities with the newer
+  compilers are likely.
+
+Running on Ubuntu 26.04 therefore requires updating the pinned package versions (see
+[R packages](#r-packages)), which changes the recorded computational environment.
+Use Ubuntu 24.04 to reproduce the published results.
+
+### R 4.5.3
 
 Install `rig` to manage R installations:
 
@@ -410,10 +495,10 @@ brew install --cask rig
 `which sudo` apt install r-rig
 ```
 
-Install R 4.5.2:
+Install R 4.5.3:
 
 ```shell
-rig add 4.5.2
+rig add 4.5.3
 ```
 
 ### R packages
@@ -456,6 +541,34 @@ Install Omniscape:
 ```julia
 import Pkg; Pkg.add("Omniscape")
 ```
+
+# Contributing
+
+Contributions, bug reports, and questions are welcome.
+See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+
+# Licence
+
+Copyright 2025-2026 Province of British Columbia
+Copyright 2025-2026 FOR-CAST Research & Analytics
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+project except in compliance with the License. You may obtain a copy of the License at
+
+<http://www.apache.org/licenses/LICENSE-2.0>
+
+Unless required by applicable law or agreed to in writing, software distributed under the
+License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+either express or implied. See the [License](LICENSE.md) for the specific language
+governing permissions and limitations under the License.
+
+This licence applies to the **code** in this repository. Input data are covered by their
+own licences -- see [Data licence and attribution](#data-licence-and-attribution).
+
+# Citation
+
+If you use this software or the analyses it produces, please cite it using the metadata in
+[`CITATION.cff`](CITATION.cff).
 
 # References
 

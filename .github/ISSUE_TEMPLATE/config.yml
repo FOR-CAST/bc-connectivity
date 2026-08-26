@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Requesting restricted input data
+    url: https://github.com/Heckford/bc-connectivity#data-access
+    about: >-
+      The BC CEF Forest Disturbance layer is a custom product and is not distributed
+      through this repository. See the Data access section of the README for how to
+      request it — please do not open an issue.
+  - name: BC Data Catalogue
+    url: https://catalogue.data.gov.bc.ca
+    about: >-
+      Questions about the publicly available source datasets themselves are best directed
+      to their data stewards in the BC Data Catalogue.
