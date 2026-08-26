@@ -81,3 +81,53 @@ test_that("VRI outside the BEC coverage is dropped", {
 
   expect_equal(area_ha(out), 50 * 100 / 1e4, tolerance = 1e-6)
 })
+
+test_that("tiling gives the same answer as not tiling", {
+  fx <- vri_fixture()
+
+  whole <- create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC)
+
+  ## two tiles cutting the VRI in half vertically, at x = 60 -- deliberately NOT on the
+  ## leading-group boundary at x = 50, so a real polygon is split at the seam
+  tiles <- list(
+    sf::st_sf(tile = 1L, geom = sf::st_sfc(box(-10, 60, -10, 110), crs = CRS_FIXTURE)),
+    sf::st_sf(tile = 2L, geom = sf::st_sfc(box(60, 210, -10, 110), crs = CRS_FIXTURE))
+  )
+  tiled <- lapply(tiles, function(t) create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC, t)) |>
+    combine_spatvectors()
+
+  expect_equal(area_ha(tiled), area_ha(whole), tolerance = 1e-6)
+
+  summarise_by_grp <- function(v) {
+    d <- as.data.frame(v)
+    d$ha <- terra::expanse(v, unit = "ha", transform = FALSE)
+    d |>
+      dplyr::mutate(LEADING_GRP = dplyr::coalesce(LEADING_GRP, "none")) |>
+      dplyr::group_by(NDT_BEC, LEADING_GRP) |>
+      dplyr::summarise(ha = round(sum(ha), 6), .groups = "drop") |>
+      dplyr::arrange(NDT_BEC, LEADING_GRP)
+  }
+
+  expect_equal(summarise_by_grp(tiled), summarise_by_grp(whole))
+})
+
+test_that("a tile that misses the leading-group layer still works", {
+  fx <- vri_fixture()
+  ## the right half of the VRI, where the leading group does not reach
+  tile <- sf::st_sf(tile = 1L, geom = sf::st_sfc(box(60, 90, 0, 100), crs = CRS_FIXTURE))
+
+  out <- create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC, tile)
+
+  expect_equal(area_ha(out), 30 * 100 / 1e4, tolerance = 1e-6)
+  expect_true(all(is.na(terra::values(out)$LEADING_GRP)))
+})
+
+test_that("a tile outside every input returns an empty layer", {
+  fx <- vri_fixture()
+  far <- sf::st_sf(
+    tile = 1L,
+    geom = sf::st_sfc(box(1e6, 1e6 + 100, 1e6, 1e6 + 100), crs = CRS_FIXTURE)
+  )
+
+  expect_equal(nrow(create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC, far)), 0L)
+})

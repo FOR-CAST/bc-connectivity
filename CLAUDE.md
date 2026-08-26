@@ -82,6 +82,9 @@ Prefer the stated option unless there is a specific reason not to.
 - **Prefer `tidyterra` verbs over raw terra accessors** for attribute work on a `SpatVector`: `filter()`, `mutate()`, `select()`, `group_by()`, `summarise()`, `pull()` all have methods, so the code reads the same as the `sf` + `dplyr` it replaced.
   Note `v[[name]]` returns a one-column
   *data.frame* (unlike `v$name`), which is an easy way to introduce a subtle bug.
+- **`geotargets::tar_terra_vect()` has no `iteration` argument.**
+  It swallows one via `...` and then fails at *store* time with `unused argument (iteration = "list")`, once per branch, after the work is done.
+  Branched `tar_terra_vect()` targets already read back as a list, so just omit it.
 - **Serialise vectors as GeoPackage.**
   `geotargets`' vector driver is pinned to `GPKG` in `_targets.R`.
   FlatGeobuf round-trips the same features in a *different order*, which would desynchronise the row-index chunking the distance calculations depend on.

@@ -210,9 +210,20 @@ list(
     command = save_gpkg(VRI, "VRI.gpkg"),
     format = "file"
   ),
+  ## The VRI x NDT-BEC overlay is tiled for the same reason the seral overlay is: measured at
+  ## ~0.005 s per VRI polygon, and superlinear at full scale -- a single untiled call ran for 50
+  ## minutes without finishing, against ~28 minutes of CPU when split across the study area.
+  ## Tiles come from the same grid as the seral step, so their seams line up.
+  tar_terra_vect(
+    name = VRI_BECNDT_tiles,
+    command = create_vri_becndt(VRI, BECNDT, leading_group_cariboo, study_area_tiles),
+    ## NOTE: no `iteration =` -- `tar_terra_vect()` has no such argument, and swallows it via `...`
+    ## only to fail at store time with "unused argument". Its branches already read back as a list.
+    pattern = map(study_area_tiles)
+  ),
   tar_terra_vect(
     name = VRI_BECNDT,
-    command = create_vri_becndt(VRI, BECNDT, leading_group_cariboo)
+    command = combine_spatvectors(VRI_BECNDT_tiles)
   ),
   tar_target(
     name = VRI_BECNDT_gpkg,
@@ -250,8 +261,7 @@ list(
       study_area_tiles,
       sifa_max
     ),
-    pattern = map(study_area_tiles),
-    iteration = "list"
+    pattern = map(study_area_tiles) ## no `iteration =`; see VRI_BECNDT_tiles above
   ),
   tar_terra_vect(
     name = forest_disturbance_seral,

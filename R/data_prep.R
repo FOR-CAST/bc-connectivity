@@ -507,13 +507,39 @@ get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
 ## exactly one NDT-BEC (and therefore one set of seral-stage age thresholds). The leading-group
 ## layer does not cover the whole study area, so it is unioned rather than intersected -- the
 ## overlay equivalent of a left join.
-create_vri_becndt <- function(VRI, BECNDT, LGC) {
-  vri <- tidyterra::as_spatvector(VRI)
-  bec <- tidyterra::as_spatvector(BECNDT) |> dplyr::select(NDT_BEC, BEC_ZONE)
-  lgc <- tidyterra::as_spatvector(LGC) |> dplyr::select(LEADING_GRP)
+create_vri_becndt <- function(VRI, BECNDT, LGC, tile = NULL) {
+  ## Clip to the tile, guarding the empty case: `terra::crop()` drops attribute columns when the
+  ## result is empty, whereas `[` keeps them.
+  clip <- function(x) {
+    v <- tidyterra::as_spatvector(x)
+
+    if (is.null(tile)) {
+      return(v)
+    }
+
+    aoi <- tidyterra::as_spatvector(tile)
+
+    if (!any(terra::is.related(v, aoi, "intersects"))) {
+      return(v[integer(0), ])
+    }
+
+    terra::crop(v, aoi) |> spatialutils::repair_geoms()
+  }
+
+  vri <- clip(VRI)
+  bec <- clip(BECNDT) |> dplyr::select(NDT_BEC, BEC_ZONE)
+  lgc <- clip(LGC) |> dplyr::select(LEADING_GRP)
 
   ## inner: drop VRI outside the BEC coverage, as the previous `left = FALSE` join did
+  if (nrow(vri) == 0L || nrow(bec) == 0L) {
+    return(spatialutils::drop_values(vri[integer(0), ]))
+  }
+
   v <- spatialutils::intersect_relate(vri, bec) |> spatialutils::repair_geoms()
+
+  if (nrow(v) == 0L) {
+    return(v)
+  }
 
   ## left: keep everything from `v`, tagging leading group where it is available.
   ##
@@ -524,12 +550,15 @@ create_vri_becndt <- function(VRI, BECNDT, LGC) {
   ##
   ## An `is.related(v, vri, "intersects")` filter is NOT equivalent: touching counts as
   ## intersecting, so it keeps any leading-group-only polygon that merely shares a boundary with the
-  ## VRI coverage. Those are harmless here (they are disjoint from the real VRI parts, and get
-  ## dropped later by the `!is.na(Seral)` filters) but they are wrong, and how much they cost
-  ## depends on how the leading-group layer happens to line up with the study area.
-  v <- terra::union(v, lgc) |>
-    spatialutils::repair_geoms() |>
-    dplyr::filter(!is.na(NDT_BEC))
+  ## VRI coverage. Those polygons then pick up a fabricated `NDT_BEC` from the `case_when()` below
+  ## (via `LEADING_GRP`), which makes them look like real, classified forest.
+  if (nrow(lgc) > 0L) {
+    v <- terra::union(v, lgc) |>
+      spatialutils::repair_geoms() |>
+      dplyr::filter(!is.na(NDT_BEC))
+  } else {
+    v$LEADING_GRP <- NA_character_
+  }
 
   v |>
     dplyr::mutate(
