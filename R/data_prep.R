@@ -695,10 +695,19 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
 create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_age) {
   aoi <- tidyterra::as_spatvector(tile)
 
-  ## push the spatial filter down to the GDAL read: only the features overlapping this tile are
-  ## ever materialised, so a worker never holds the whole 4 M-polygon layer
+  ## Push the spatial filter down to the GDAL read: only the features overlapping this tile are
+  ## ever materialised, so a worker never holds the whole 4 M-polygon layer.
+  ##
+  ## `NDT_BEC` is the only VRI attribute the seral classification needs; the rest are carried
+  ## because `forest_disturbance_seral.gpkg` is a deliverable in its own right and they are what
+  ## make it interpretable. The source-system artifacts (`id`, `FEATURE_ID`, `OBJECTID`) are
+  ## deliberately not carried, and `NATURAL_DISTURBANCE`/`ZONE` are recoverable from `NDT_BEC`.
   fd <- spatialutils::read_vector_aoi(for_dist_gpkg, aoi, fields = "SIFA")
-  vri <- spatialutils::read_vector_aoi(vri_gpkg, aoi, fields = "NDT_BEC")
+  vri <- spatialutils::read_vector_aoi(
+    vri_gpkg,
+    aoi,
+    fields = c("NDT_BEC", "BEC_ZONE", "SPECIES_CD_1", "PROJ_AGE_1", "LEADING_GRP")
+  )
 
   if (nrow(fd) == 0L || nrow(vri) == 0L) {
     return(fd[integer(0)])
