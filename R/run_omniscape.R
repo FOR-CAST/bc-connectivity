@@ -83,6 +83,18 @@ write_omniscape_config <- function(
 
   pixel_size <- terra::res(res_r) |> unique()
 
+  ## UNITS: Omniscape's `radius`, `block_size`, and `buffer` are all in PIXELS, not map units.
+  ## From its docs: "A positive integer specifying the radius *in pixels* of the moving window",
+  ## and its source uses `radius` directly in raster index arithmetic
+  ## (`target.x_coord - radius - 1`, `ncols - (target.x_coord + radius)`).
+  ##
+  ## So an interpatch distance in metres has to be divided by the pixel size here. Everything
+  ## downstream of `use_radius()` is therefore in pixels -- including the tile overlap, which is why
+  ## dividing by `pixel_size` a second time there was wrong (see `use_buffer` below).
+  ##
+  ## Cross-check against the run names: 45,202 m / 30 m = 1507 px, / 90 m = 503 px; 1,726 m / 30 m
+  ## = 58 px.
+  ##
   ## NOTE: using larger radius increases computation time, even with increasing block_size
   use_radius <- function(patch_distances, pixel_size, q) {
     rad <- patch_distances[[paste0(q, "%")]] |> round(digits = 0)
@@ -95,7 +107,8 @@ write_omniscape_config <- function(
   }
   radius <- use_radius(patch_distances, pixel_size, q) ## (in pixels)
 
-  ## use block_size ~1/10 of radius (in pixels) per Phillips et. al (2021) Landscape Ecol. 36:1647–1661
+  ## use block_size ~1/10 of radius per Phillips et. al (2021) Landscape Ecol. 36:1647-1661.
+  ## Both are in pixels and the guidance is a ratio, so no unit conversion is involved.
   use_block_size <- function(radius, frac = 0.1) {
     x <- round(radius * frac, digits = 0)
     ifelse(x %% 2 == 0, x + 1, x) ## must be odd
