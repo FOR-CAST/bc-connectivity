@@ -9,9 +9,21 @@ source("renv/activate.R")
 ## spatial steps deadlock
 Sys.setenv(OMP_NUM_THREADS = 1)
 
-## perform raster operations on disk rather than in memory
+## perform raster operations on disk rather than in memory.
+##
+## `memfrac` is a fraction of TOTAL system RAM, not of what is free, so terra does not back off when
+## something else on the machine takes memory -- and on a large shared host 0.1 is a very large
+## absolute ceiling *per worker* (~100 GB each on a 1 TB box). Set `BC_CONN_MEMFRAC` to cap it when
+## sharing the machine with another memory-hungry job.
 if (requireNamespace("terra", quietly = TRUE)) {
-  terra::terraOptions(memfrac = 0.1, progress = 0)
+  memfrac <- suppressWarnings(as.numeric(Sys.getenv("BC_CONN_MEMFRAC", "0.1")))
+
+  if (is.na(memfrac) || memfrac <= 0 || memfrac >= 1) {
+    warning("BC_CONN_MEMFRAC must be between 0 and 1; using 0.1.", call. = FALSE)
+    memfrac <- 0.1
+  }
+
+  terra::terraOptions(memfrac = memfrac, progress = 0)
 }
 
 ## NOTE: this file deliberately attaches NOTHING.
