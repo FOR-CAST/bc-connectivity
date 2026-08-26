@@ -120,7 +120,18 @@ When working on a package:
   renv::install("FOR-CAST/spatialutils", lock = TRUE)
   ```
   `lock = TRUE` records the exact remote SHA in `renv.lock`, so a fresh clone of this project can
-  actually install what it was tested against.
+  actually install what it was tested against. Run it from **this** project's directory -- renv
+  writes the lockfile of whatever project is active, so running it from the package's own clone
+  drops a stray `renv.lock` there and installs into the wrong library.
+- **`renv.lock` is deliberately kept in renv's v1 format** (compact records). renv 1.x writes v2 by
+  default, which embeds each package's full DESCRIPTION and turns a one-package bump into a
+  ~1,000-line diff. Preserve it when installing:
+  ```r
+  withr::with_options(list(renv.lockfile.version = 1), renv::install("FOR-CAST/spatialutils", lock = TRUE))
+  ```
+  (The `options(renv.lockfile.version = 1)` that used to sit in `.Rprofile` was there for
+  `workflowtools` issue #1; that is obsolete -- `workflowtools::packages_from_snapshot()` reads both
+  formats identically -- so the pin is now a readability choice, not a requirement.)
 - Run `devtools::test()` and `devtools::check()` locally before pushing, and watch the package's
   GitHub Actions afterwards.
 - Every user-facing change gets a `NEWS.md` bullet, and every fix gets a test that fails without it.

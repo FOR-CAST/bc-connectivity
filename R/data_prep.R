@@ -741,39 +741,23 @@ max_stand_age <- function(for_dist_gpkg) {
 ## replaces (`st_union_analysis()`) instead kept only `x`'s attributes on every intersection and
 ## then dissolved on `Seral`, which silently relabelled interior old forest as `Mature`.
 
-## Planar area in the layer's own projection -- what `sf::st_area()` returns, and what ArcGIS
-## `Shape_Area` (and therefore the arcpy scripts this ports) uses.
+## Area, sliver elimination, and dissolving on attributes that contain `NA` are all places where
+## the obvious `terra` call does something subtly different from what the arcpy scripts do; they
+## live in `spatialutils` so the reasoning is documented and tested in one place:
 ##
-## `terra::expanse()` defaults to `transform = TRUE`, which reprojects to lon/lat and returns
-## *geodesic* area. In this study area's Lambert projection that is 2.69% larger (3,010,405 ha vs
-## 2,931,558 ha for the seral layer), which would silently move every 1 ha threshold and inflate
-## every reported area.
-##
-## TODO: replace with `spatialutils::expanse_planar()` once that release is pinned in `renv.lock`.
-expanse_planar <- function(v, unit = "ha") {
-  terra::expanse(v, unit = unit, transform = FALSE)
-}
+## * `expanse_planar()` -- planar area in the layer's own projection, as `sf::st_area()` and ArcGIS
+##   `Shape_Area` report it. `terra::expanse()` defaults to geodesic area, 2.69% larger in this
+##   study area's Lambert projection (3,010,405 ha vs 2,931,558 ha for the seral layer), which would
+##   silently move every 1 ha threshold and inflate every reported total.
+## * `dissolve_by()` -- `terra::aggregate(by = )` cannot dissolve on several columns when any of
+##   them contains `NA`; it returns a SpatVector whose attribute table has fewer rows than it has
+##   geometries. Both `Seral` and `early_less_20yrs` have `NA` values.
+## * `drop_values()` -- there is no `v[, character(0)]` for SpatVectors.
+## * `nn_distance()` -- indexed nearest-neighbour search; see `calc_nn_dists()`.
 
-## drop every attribute, keeping the geometries (there is no `v[, character(0)]` for SpatVectors)
-##
-## TODO: replace with `spatialutils::drop_values()` once that release is pinned in `renv.lock`.
-drop_values <- function(v) {
-  terra::values(v) <- data.frame(matrix(nrow = nrow(v), ncol = 0))
-
-  v
-}
-
-## Dissolve on one or more attributes, then explode back to single-part polygons.
-##
-## `terra::aggregate(by = )` cannot do this when several grouping columns contain `NA` -- it returns
-## a SpatVector whose attribute table has fewer rows than it has geometries, which then errors on
-## the next access. `tidyterra`'s `group_by()`/`summarise()` handle `NA` groups correctly, and read
-## the same as the `sf` code this replaced.
+## dissolve on one or more attributes, then explode back to single-part polygons
 dissolve_by <- function(v, by) {
-  tidyterra::as_spatvector(v) |>
-    dplyr::group_by(dplyr::across(dplyr::all_of(by))) |>
-    dplyr::summarise(.groups = "drop") |>
-    terra::disagg()
+  spatialutils::dissolve_by(tidyterra::as_spatvector(v), by, explode = TRUE)
 }
 
 ## step 1: dissolve the seral layer on seral stage + the <20 yr early split
@@ -823,7 +807,7 @@ patches_create_buffers_to_delete <- function(seral, buffer_size) {
 
   ## dissolve, then keep only patches larger than 1 ha before buffering (arcpy step 3c)
   dissolved <- dissolve_by(dplyr::select(subset, Seral), "Seral")
-  dissolved <- dissolved[expanse_planar(dissolved, "ha") > 1, ]
+  dissolved <- dissolved[spatialutils::expanse_planar(dissolved, "ha") > 1, ]
 
   terra::buffer(dissolved, width = spec$dist) |> spatialutils::repair_geoms()
 }
@@ -861,7 +845,7 @@ patches_create_erase_mask <- function(
   }
 
   ## geometry only; attributes are irrelevant to an erase
-  buffers <- lapply(buffers, function(b) drop_values(tidyterra::as_spatvector(b)))
+  buffers <- lapply(buffers, function(b) spatialutils::drop_values(tidyterra::as_spatvector(b)))
 
   do.call(rbind, buffers) |>
     terra::aggregate() |>
@@ -933,7 +917,7 @@ patches_create_interior_forest <- function(patches, erase_mask, age_class) {
   ) |>
     spatialutils::repair_geoms() |>
     terra::disagg() |>
-    drop_values()
+    spatialutils::drop_values()
 
   interior[[flag]] <- flag
 

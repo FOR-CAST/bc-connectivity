@@ -13,7 +13,7 @@ calc_patch_stats <- function(patch_size) {
 
   data.frame(
     Seral = tidyterra::pull(v, Seral),
-    Area = expanse_planar(v, "m")
+    Area = spatialutils::expanse_planar(v, "m")
   ) |>
     dplyr::group_by(Seral) |>
     dplyr::summarise(
@@ -82,73 +82,25 @@ chunk_rows <- function(n, n_chunks, chunk) {
   seq.int(breaks[[chunk]] + 1L, breaks[[chunk + 1L]])
 }
 
-## Search radii (m) used to find candidate nearest neighbours, smallest first.
-##
-## Round 1 (`0`) is the intersects test: patches that touch or overlap are at distance 0 and need no
-## geometry work at all -- that resolves ~22% of this landscape outright. Each later round buffers
-## only the patches still unresolved, so the expensive exact-distance step sees a handful of nearby
-## candidates instead of every patch within a fixed, generous radius.
-nn_search_radii <- function() {
-  c(0, 250, 1000, 4000, 16000, 64000, 256000, 1024000)
-}
-
 ## Distance from each patch in `chunk` to the nearest *other* patch in `matold`.
 ##
+## `spatialutils::nn_distance()` runs one indexed candidate query per round over an escalating
+## search radius, then computes exact distances for the candidates only. `exclude = idx` tells it
+## which row of `matold` each patch in this chunk *is*, so a patch does not find itself at distance
+## 0 -- that is what lets a chunk be measured against the whole layer, and therefore what lets the
+## chunks run in parallel.
+##
 ## The previous implementation called `sf::st_nearest_feature()` once per patch against `matold`
-## minus that patch, rebuilding the GEOS index over ~70,000 polygons ~70,000 times: 1.7-3.3 s per
-## patch and 227,672 s of CPU for the layer. Here a single indexed `terra::relate()` call per round
-## finds the candidates for a whole chunk at once, and exact polygon-to-polygon distances are
-## computed for just those candidate pairs, in one vectorised call.
+## minus that patch, rebuilding the GEOS index over ~70,000 polygons ~70,000 times: 1.72 s per
+## patch, and 227,672 s of CPU for the layer.
 calc_nn_dists <- function(matold, chunk, n_chunks) {
   v <- tidyterra::as_spatvector(matold)
   idx <- chunk_rows(nrow(v), n_chunks, chunk$chunk[[1]])
 
-  d <- rep(NA_real_, length(idx))
-  todo <- seq_along(idx)
-
-  for (r in nn_search_radii()) {
-    if (length(todo) == 0L) {
-      break
-    }
-
-    q <- if (r > 0) terra::buffer(v[idx[todo], ], width = r) else v[idx[todo], ]
-    cand <- terra::relate(q, v, "intersects", pairs = TRUE)
-
-    if (nrow(cand) > 0L) {
-      cand <- cand[idx[todo][cand[, 1]] != cand[, 2], , drop = FALSE] ## not its own neighbour
-    }
-
-    if (nrow(cand) > 0L) {
-      if (r == 0) {
-        d[todo[unique(cand[, 1])]] <- 0
-      } else {
-        dists <- terra::distance(
-          v[idx[todo][cand[, 1]], ],
-          v[cand[, 2], ],
-          pairwise = TRUE
-        )
-        nearest <- tapply(dists, cand[, 1], min)
-        pos <- as.integer(names(nearest))
-
-        ## `terra::buffer()` approximates a circle with straight segments, so the buffered polygon
-        ## sits just inside the true circle of radius `r`. Only accept a distance comfortably within
-        ## the radius; anything out near the rim might have a nearer neighbour in the sliver the
-        ## approximation cut off, so it goes to the next (larger) round.
-        ok <- nearest <= r * 0.99
-        d[todo[pos[ok]]] <- nearest[ok]
-      }
-    }
-
-    todo <- todo[is.na(d[todo])]
-  }
+  d <- spatialutils::nn_distance(v[idx, ], v, exclude = idx)
 
   if (anyNA(d)) {
-    stop(
-      sum(is.na(d)),
-      " patches have no neighbour within ",
-      max(nn_search_radii()),
-      " m; widen `nn_search_radii()`"
-    )
+    stop(sum(is.na(d)), " patches have no neighbour anywhere in the layer")
   }
 
   units::set_units(d, "m")
