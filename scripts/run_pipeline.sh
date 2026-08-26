@@ -22,8 +22,54 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="${PROJECT}/Outputs/pipeline-$(date +%Y%m%d-%H%M%S).log"
 mkdir -p "$(dirname "$LOG")"
 
+# Resolve the R that `renv.lock` pins, NOT whatever `R` happens to be on PATH. `renv/library/` is
+# per R minor version, so the wrong one looks like a completely empty library and the run dies with
+# "there is no package called 'targets'" -- several minutes in, and only in the log. Set
+# BC_CONN_RSCRIPT to override.
+R_VERSION="$(sed -n '1,10s/.*"Version"[[:space:]]*:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' "${PROJECT}/renv.lock" | head -1)"
+
+if [[ -z "${R_VERSION}" ]]; then
+  echo "Could not read the R version from ${PROJECT}/renv.lock." >&2
+  exit 1
+fi
+
+RSCRIPT="${BC_CONN_RSCRIPT:-}"
+if [[ -z "${RSCRIPT}" ]]; then
+  # rig puts a versioned binary on PATH for every R it manages.
+  if command -v "Rscript-${R_VERSION}" >/dev/null 2>&1; then
+    RSCRIPT="Rscript-${R_VERSION}"
+  else
+    RSCRIPT="$(command -v Rscript || true)"
+  fi
+fi
+
+if [[ -z "${RSCRIPT}" ]]; then
+  echo "No Rscript found. Install R ${R_VERSION} (rig install ${R_VERSION}), or set BC_CONN_RSCRIPT." >&2
+  exit 1
+fi
+
+# Check before detaching, so a version mismatch is a message here rather than a dead tmux session.
+CHECK="$(cd "${PROJECT}" && "${RSCRIPT}" -e \
+  'cat(as.character(getRversion()), requireNamespace("targets", quietly = TRUE))' 2>/dev/null | tail -1)"
+FOUND_VERSION="${CHECK%% *}"
+HAS_TARGETS="${CHECK##* }"
+
+if [[ "${HAS_TARGETS}" != "TRUE" ]]; then
+  echo "${RSCRIPT} is R ${FOUND_VERSION:-unknown}, and cannot load 'targets'." >&2
+  echo "renv.lock pins R ${R_VERSION}; renv's library is per R minor version." >&2
+  echo "Use Rscript-${R_VERSION} (rig puts it on PATH), or set BC_CONN_RSCRIPT." >&2
+  echo "If it is the right R, the library may just be empty: run renv::restore()." >&2
+  exit 1
+fi
+
+if [[ "${FOUND_VERSION%.*}" != "${R_VERSION%.*}" ]]; then
+  echo "Warning: using R ${FOUND_VERSION}, but renv.lock pins ${R_VERSION}." >&2
+fi
+
+echo "R:       ${RSCRIPT} (${FOUND_VERSION})"
+
 # `--vanilla` is deliberately NOT used: the project .Rprofile activates renv.
-CMD="cd '${PROJECT}' && Rscript -e 'targets::tar_make(reporter = \"verbose\")' 2>&1 | tee '${LOG}'"
+CMD="cd '${PROJECT}' && '${RSCRIPT}' -e 'targets::tar_make(reporter = \"verbose\")' 2>&1 | tee '${LOG}'"
 
 if [[ "${1:-}" == "--attach" ]]; then
   echo "Running in the foreground; log: ${LOG}"
@@ -54,4 +100,4 @@ else
 fi
 
 echo "  log:     ${LOG}"
-echo "  status:  Rscript -e 'targets::tar_progress_summary()'"
+echo "  status:  ${RSCRIPT} -e 'targets::tar_progress_summary()'"
