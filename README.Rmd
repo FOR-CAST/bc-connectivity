@@ -301,28 +301,20 @@ To allow for running Omniscape with large `r` values, the inputs resistance and 
 
 Omniscape configurations produced by the data preparation workflow:
 
-| **Omniscape configuration**  | **Description**                                       |
-| ---------------------------- | ----------------------------------------------------- |
-| `2026-01-13_p30_r1802_bs181` | 30m pixels; radius 1802 pixels; block size 181 pixels |
-| `2026-01-13_p30_r183_bs19`   | 30m pixels; radius 183 pixels; block size 19 pixels   |
-| `2026-01-13_p90_r601_bs61`   | 90m pixels; radius 601 pixels; block size 61 pixels   |
-| `2026-01-13_p90_r61_bs7`     | 90m pixels; radius 61 pixels; block size 7 pixels     |
+| **Omniscape configuration**  | **Description**                                       | **Approximate computate** |
+| ---------------------------- | ----------------------------------------------------- | ------------------------- |
+| `2026-01-23_p30_r1507_bs151` | 30m pixels; radius 1507 pixels; block size 151 pixels | 3-4h; 100GB RAM           |
+| `2026-01-23_p30_r58_bs7`     | 30m pixels; radius 58 pixels; block size 7 pixels     | 1.5h; 100GB RAM           |
+| `2026-01-23_p90_r503_bs51`   | 90m pixels; radius 503 pixels; block size 51 pixels   | 3d; 300GB RAM             |
+| `2026-01-23_p90_r20_bs3`     | 90m pixels; radius 20 pixels; block size 3 pixels     | 10d; 650GB RAM            |
 
-**NOTE:** 
-
-Additional (manual) configurations were produced manually as part of testing/benchmarking Omniscape runs, corresponding to $1/2$ and $1/4$ the search radius of the `2026-01-13_p30_r1802_bs181` configuration:
-
-| **Omniscape configuration**  | **Description**                                       |
-| ---------------------------- | ----------------------------------------------------- |
-| `2026-01-13_p30_r451_bs45`   | 30m pixels; radius 451 pixels; block size 45 pixels   |
-| `2026-01-13_p30_r901_bs91`   | 30m pixels; radius 901 pixels; block size 91 pixels   |
-
+All configurations were run on a single AMD EPYC CPU using 64 threads (per below).
 
 Individual Omniscape runs can be launched from the terminal using e.g.,
 
 ```bash
 ## NOTE: adjust number of threads (`-t` argument) based on CPU and RAM availability
-julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
+julia -t 64 Omniscape/2026-01-23_p30_r1507_bs151/script.jl
 ```
 
 # Using this repository
