@@ -85,6 +85,11 @@ Prefer the stated option unless there is a specific reason not to.
 - **Serialise vectors as GeoPackage.**
   `geotargets`' vector driver is pinned to `GPKG` in `_targets.R`.
   FlatGeobuf round-trips the same features in a *different order*, which would desynchronise the row-index chunking the distance calculations depend on.
+- **An empty `SpatVector` from `terra::crop()` loses its attribute columns.**
+  A no-overlap crop returns `nrow == 0` *and* zero columns, so a later `select()` fails with "column doesn't exist" rather than anything pointing at the crop.
+  This is specific to `crop()`: `v[integer(0), ]`, `intersect()`, `erase()`, and `sf::st_crop()` all keep the columns when the result is empty.
+  Nothing in terra's NEWS through dev 1.9-47 addresses it (checked against 1.8.86), so assume it is still present.
+  Guard on `nrow() == 0` before touching attributes, and filter empty branches out before `rbind()`.
 - **Erasing several layers in sequence** is the same as erasing their union (`A \ B1 \ B2 = A \ (B1 ∪ B2)`), and much cheaper when the union is computed once.
 
 ## Package development

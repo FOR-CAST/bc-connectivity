@@ -52,6 +52,51 @@ read_omniscape_option <- function(config_file, option) {
   sub(paste0("^\\s*", option, "\\s*=\\s*"), "", hit) |> trimws()
 }
 
+## Peak memory and wall-clock time for an Omniscape run.
+##
+## `targets` records neither: its metadata has `seconds` (wall clock) and `bytes` (the size of the
+## *stored object*), but nothing about memory. `crew`'s `crew_options_metrics()` instruments the R
+## worker process, whereas Omniscape runs in a Julia subprocess, so the worker's RSS is not
+## Omniscape's. Hence this wrapper.
+##
+## GNU `time -v` reports the child's peak RSS ("high water mark") after it exits, which polling
+## /proc can miss entirely if the peak falls between samples.
+gnu_time <- function() {
+  candidates <- c("/usr/bin/time", "/bin/time")
+  hit <- candidates[file.exists(candidates)]
+
+  if (length(hit) == 0L) NULL else hit[[1]]
+}
+
+## parse the fields we want out of `time -v` output
+parse_gnu_time <- function(path) {
+  if (!file.exists(path)) {
+    return(list(peak_rss_gb = NA_real_, wall_seconds = NA_real_, cpu_pct = NA_real_))
+  }
+
+  lines <- readLines(path, warn = FALSE)
+
+  grab <- function(pattern) {
+    hit <- grep(pattern, lines, value = TRUE)
+    if (length(hit) == 0L) NA_character_ else sub("^[^:]*:\\s*", "", hit[[1]]) |> trimws()
+  }
+
+  ## "Elapsed (wall clock) time" is h:mm:ss or m:ss
+  elapsed <- grab("Elapsed \\(wall clock\\) time")
+  seconds <- if (is.na(elapsed)) {
+    NA_real_
+  } else {
+    parts <- as.numeric(strsplit(elapsed, ":", fixed = TRUE)[[1]])
+    sum(parts * 60^rev(seq_along(parts) - 1))
+  }
+
+  list(
+    peak_rss_gb = suppressWarnings(as.numeric(grab("Maximum resident set size"))) / 1024^2,
+    wall_seconds = seconds,
+    cpu_pct = suppressWarnings(as.numeric(sub("%$", "", grab("Percent of CPU this job got"))))
+  )
+}
+
 #' Write Omniscape configuration file
 #'
 #' @param res,srcwt character specific the file path to the resistance and source weight rasters
@@ -370,16 +415,33 @@ run_omniscape <- function(
     add = TRUE
   )
 
+  ## processx does NOT go through a shell, so each argument must be its own element; passing these
+  ## space-joined (as this did until 2026-08-25) hands julia one nonsense argument.
+  julia_args <- c(
+    glue::glue("+{julia_version}"),
+    "-t",
+    as.character(julia_threads),
+    fs::path_rel(julia_script, project_dir)
+  )
+
+  ## measure peak RSS and wall clock by running under GNU `time -v`, writing to its own file so the
+  ## measurements do not get tangled up in Omniscape's log
+  timer <- gnu_time()
+  tmp_metrics <- tempfile(pattern = glue::glue("metrics_{run_name}_"), fileext = ".txt")
+
+  if (is.null(timer)) {
+    command <- julia_bin()
+    args <- julia_args
+  } else {
+    command <- timer
+    args <- c("-v", "-o", tmp_metrics, julia_bin(), julia_args)
+  }
+
+  started <- Sys.time()
+
   processx::run(
-    command = julia_bin(),
-    ## processx does NOT go through a shell, so each argument must be its own element; passing
-    ## these space-joined (as this did until 2026-08-25) hands julia one nonsense argument.
-    args = c(
-      glue::glue("+{julia_version}"),
-      "-t",
-      as.character(julia_threads),
-      fs::path_rel(julia_script, project_dir)
-    ),
+    command = command,
+    args = args,
     env = julia_env(),
     wd = project_dir,
     error_on_status = TRUE,
@@ -387,9 +449,32 @@ run_omniscape <- function(
     stderr = "2>&1"
   )
 
+  metrics <- parse_gnu_time(tmp_metrics)
+  config <- function(opt) read_omniscape_option(config_file, opt)
+
+  metrics_row <- data.frame(
+    run_name = run_name,
+    tiled = grepl("_t[0-9]+$", run_name),
+    pixel_size = as.numeric(sub(".*_p([0-9]+)_.*", "\\1", run_name)),
+    radius_px = as.integer(config("radius")),
+    block_size_px = as.integer(config("block_size")),
+    julia_threads = as.integer(julia_threads),
+    wall_seconds = if (is.na(metrics$wall_seconds)) {
+      as.numeric(difftime(Sys.time(), started, units = "secs"))
+    } else {
+      metrics$wall_seconds
+    },
+    peak_rss_gb = metrics$peak_rss_gb,
+    cpu_pct = metrics$cpu_pct
+  )
+
+  metrics_file <- file.path(output_dir, "omniscape_metrics.csv")
+  utils::write.csv(metrics_row, metrics_file, row.names = FALSE)
+
   output_files <- c(
     file.path(output_dir, c("cum_currmap.tif", "flow_potential.tif", "normalized_cum_currmap.tif")),
-    log_file
+    log_file,
+    metrics_file
   )
 
   missing <- output_files[!file.exists(output_files)]
@@ -414,6 +499,61 @@ omniscape_scripts <- function(omniscape_files, tiled = FALSE) {
   is_tile <- grepl("_t[0-9]+[.]jl$", basename(scripts))
 
   if (isTRUE(tiled)) scripts[is_tile] else scripts[!is_tile]
+}
+
+#' Tiling for the Omniscape configurations
+#'
+#' Tiled variants exist to benchmark resource use against the untiled run, not because the analysis
+#' needs them -- one set of results is used for reporting. They are therefore opt-in: set
+#' `BC_CONN_OMNISCAPE_BENCH` to a `rows x cols` grid (e.g. `"2x3"`) to have them written alongside
+#' the untiled configuration.
+#'
+#' @returns integer vector of length 2, `c(1, 1)` meaning "do not tile"
+#'
+#' @export
+omniscape_tiles <- function(spec = Sys.getenv("BC_CONN_OMNISCAPE_BENCH", "")) {
+  if (!nzchar(spec) || identical(tolower(spec), "false")) {
+    return(c(1L, 1L))
+  }
+
+  parts <- suppressWarnings(as.integer(strsplit(tolower(spec), "x", fixed = TRUE)[[1]]))
+
+  if (length(parts) != 2L || anyNA(parts) || any(parts < 1L)) {
+    stop("`BC_CONN_OMNISCAPE_BENCH` must look like \"2x3\" (rows x cols); got \"", spec, "\"")
+  }
+
+  parts
+}
+
+#' Collect the measured resource use of every Omniscape run
+#'
+#' Reads the `omniscape_metrics.csv` each run writes and combines them into the table the README
+#' reports, so those figures are measured rather than transcribed by hand.
+#'
+#' @param omniscape_outputs character vector of files returned by [run_omniscape_all()]
+#'
+#' @returns path to the combined CSV, or `character(0)` when no runs have been made
+#'
+#' @export
+omniscape_benchmark_table <- function(omniscape_outputs) {
+  metrics <- grep("omniscape_metrics[.]csv$", omniscape_outputs, value = TRUE)
+
+  if (length(metrics) == 0L) {
+    return(character(0))
+  }
+
+  combined <- lapply(metrics, utils::read.csv) |>
+    dplyr::bind_rows() |>
+    dplyr::arrange(.data$pixel_size, .data$radius_px, .data$tiled) |>
+    dplyr::mutate(
+      wall_hours = round(.data$wall_seconds / 3600, 2),
+      peak_rss_gb = round(.data$peak_rss_gb, 1)
+    )
+
+  dst <- file.path(get_path("outputs"), "omniscape_benchmarks.csv")
+  utils::write.csv(combined, dst, row.names = FALSE)
+
+  return(dst)
 }
 
 #' Choose which Omniscape configurations to run

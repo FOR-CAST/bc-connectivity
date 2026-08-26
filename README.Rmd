@@ -33,6 +33,16 @@ targets::tar_make()
 targets::tar_visnetwork()
 ```
 
+Long runs should be started detached, so they survive an SSH or IDE disconnect from the compute node:
+
+```bash
+scripts/run_pipeline.sh              # detached; reattach with `tmux attach -t bc-conn`
+scripts/run_pipeline.sh --attach     # foreground instead
+```
+
+This wraps the whole pipeline rather than just the Omniscape runs.
+`processx` kills its children when the R session exits, so detaching only the Julia subprocess would not help: if the session dies, `targets` loses the run regardless.
+
 - If you use VS Code or Positron, the [`tarborist`](https://github.com/tylermorganwall/tarborist) extension shows the target graph and each target's status in the editor, which is handy for a pipeline this size.
 
 The spatial steps are dispatched to `crew` workers.
@@ -45,6 +55,7 @@ Environment variables control how much of the machine the run takes:
 | `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
 | `BC_CONN_JULIA_THREADS` | `64` | Julia threads per Omniscape run |
 | `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
+| `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
 
 By default a full `tar_make()` prepares every Omniscape input and stops short of launching the runs themselves, which take hours to days each.
 
@@ -364,12 +375,21 @@ Note also that at a correct overlap the buffered tiles are nearly as large as th
 
 Omniscape configurations produced by the data preparation workflow:
 
-| **Omniscape configuration**  | **Description**                                       | **Approximate computate** |
-| ---------------------------- | ----------------------------------------------------- | ------------------------- |
-| `2026-01-23_p30_r1507_bs151` | 30m pixels; radius 1507 pixels; block size 151 pixels | 3-4h; 100GB RAM           |
-| `2026-01-23_p30_r58_bs7`     | 30m pixels; radius 58 pixels; block size 7 pixels     | 1.5h; 100GB RAM           |
-| `2026-01-23_p90_r503_bs51`   | 90m pixels; radius 503 pixels; block size 51 pixels   | 3d; 300GB RAM             |
-| `2026-01-23_p90_r20_bs3`     | 90m pixels; radius 20 pixels; block size 3 pixels     | 10d; 650GB RAM            |
+```{r omniscape-benchmarks, echo = FALSE, message = FALSE}
+## Measured resource use, written by `omniscape_benchmark_table()` from the `time -v` figures each
+## run records. Falls back to a note when no runs have been made in this store.
+bench <- file.path("Outputs", "omniscape_benchmarks.csv")
+if (file.exists(bench)) {
+  knitr::kable(read.csv(bench))
+} else {
+  cat("_No Omniscape runs recorded in this store; set `BC_CONN_OMNISCAPE` and rerun._\n")
+}
+```
+
+Resource use is measured, not estimated: each run is executed under `time -v`, and its peak resident set size and wall-clock time are written to `omniscape_metrics.csv` in the run's output directory.
+`targets` records neither -- its metadata has `seconds` and the size of the *stored object*, but nothing about memory -- and `crew`'s worker metrics would instrument the R worker rather than the Julia subprocess Omniscape actually runs in.
+
+Tiled variants exist to benchmark resource use against the untiled run rather than because the analysis needs them, so they are opt-in via `BC_CONN_OMNISCAPE_BENCH`.
 
 All configurations were run on a single AMD EPYC CPU using 64 threads (per below).
 

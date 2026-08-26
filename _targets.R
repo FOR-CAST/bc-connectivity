@@ -861,7 +861,9 @@ list(
       patch_distances = quantiles_all_dists,
       q = 25, ## ~45 km
       run_name = "2026-01-23",
-      ntiles = c(1, 1) ## untiled; see write_omniscape_config() on tile overlap
+      ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
+      ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
+      ntiles = omniscape_tiles()
     ),
     format = "file",
     pattern = map(resistance_composite, sourcewt_composite),
@@ -876,7 +878,7 @@ list(
       patch_distances = quantiles_nn_dists,
       q = 100, ## could reasonably use e.g., 90, 95, 99, 100
       run_name = "2026-01-23",
-      ntiles = c(1, 1)
+      ntiles = omniscape_tiles()
     ),
     format = "file",
     pattern = map(resistance_composite, sourcewt_composite),
@@ -908,6 +910,13 @@ list(
     ),
     format = "file",
     deployment = "main" ## long-running; keep it off the crew workers
+  ),
+
+  ## Measured resource use for every run made, for the README table
+  tar_target(
+    name = omniscape_benchmarks_csv,
+    command = omniscape_benchmark_table(omniscape_run),
+    format = "file"
   ),
 
   tar_target(
