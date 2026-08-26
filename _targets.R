@@ -88,7 +88,19 @@ n_chunks_all <- 64L
 ## Run the R scripts in the R/ folder with your custom functions:
 tar_source()
 
+## The vintage stamped onto every Omniscape run directory, e.g. "2026-08-26_p30_r1507_bs151".
+##
+## Deliberately a fixed string rather than `Sys.Date()`: a date evaluated at build time would change
+## the target's value every day, invalidating it and every downstream summary for no reason. Bump it
+## by hand whenever the inputs change enough that the previous runs should not be overwritten.
+##
+## It also matters because `run_omniscape(overwrite = TRUE)` *deletes* an existing output directory
+## before running. Reusing a vintage whose runs are still wanted -- the 17 GB of results under
+## `Outputs/2026-01-*/`, including the one the report used -- would destroy them.
+OMNISCAPE_VINTAGE <- "2026-08-26"
+
 ## Define project targets here:
+
 list(
   ## studyArea
   tar_target(
@@ -878,7 +890,7 @@ list(
       srcwt = sourcewt_composite,
       patch_distances = quantiles_all_dists,
       q = 25, ## ~45 km
-      run_name = "2026-01-23",
+      run_name = OMNISCAPE_VINTAGE,
       ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
       ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
       ntiles = omniscape_tiles()
@@ -895,7 +907,7 @@ list(
       srcwt = sourcewt_composite,
       patch_distances = quantiles_nn_dists,
       q = 100, ## could reasonably use e.g., 90, 95, 99, 100
-      run_name = "2026-01-23",
+      run_name = OMNISCAPE_VINTAGE,
       ntiles = omniscape_tiles()
     ),
     format = "file",
