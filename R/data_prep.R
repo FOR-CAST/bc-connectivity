@@ -515,9 +515,21 @@ create_vri_becndt <- function(VRI, BECNDT, LGC) {
   ## inner: drop VRI outside the BEC coverage, as the previous `left = FALSE` join did
   v <- spatialutils::intersect_relate(vri, bec) |> spatialutils::repair_geoms()
 
-  ## left: keep everything, tagging leading group where it is available
-  v <- terra::union(v, lgc) |> spatialutils::repair_geoms()
-  v <- v[terra::is.related(v, vri, "intersects"), ] ## union() also brings in LGC-only area
+  ## left: keep everything from `v`, tagging leading group where it is available.
+  ##
+  ## `terra::union()` also brings in the parts of `lgc` that `v` does not cover; those come back
+  ## with every `v` attribute `NA`. Filtering on `NDT_BEC` drops exactly those and nothing else --
+  ## `create_bec_ndt()` builds it with `paste0()`, so it is never genuinely missing in the
+  ## BEC-derived parts.
+  ##
+  ## An `is.related(v, vri, "intersects")` filter is NOT equivalent: touching counts as
+  ## intersecting, so it keeps any leading-group-only polygon that merely shares a boundary with the
+  ## VRI coverage. Those are harmless here (they are disjoint from the real VRI parts, and get
+  ## dropped later by the `!is.na(Seral)` filters) but they are wrong, and how much they cost
+  ## depends on how the leading-group layer happens to line up with the study area.
+  v <- terra::union(v, lgc) |>
+    spatialutils::repair_geoms() |>
+    dplyr::filter(!is.na(NDT_BEC))
 
   v |>
     dplyr::mutate(
@@ -718,11 +730,21 @@ create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_a
     )
 }
 
-## largest projected stand age in the layer; sets the upper bound of the oldest seral class
+## Largest projected stand age in the layer; sets the upper bound of the oldest seral class.
+##
+## Asks GDAL for the aggregate rather than reading the layer: `SELECT MAX(SIFA)` returns one row and
+## no geometry, so this is constant-memory over a 4 M-polygon layer. A `terra` proxy would be the
+## obvious route but cannot open a layer whose geometry type is "Unknown (any)" -- which is what
+## `sf::st_write()` produces for mixed POLYGON/MULTIPOLYGON, i.e. every GeoPackage this pipeline
+## writes.
 max_stand_age <- function(for_dist_gpkg) {
-  v <- terra::vect(for_dist_gpkg, proxy = TRUE)
+  layer <- sf::st_layers(for_dist_gpkg)$name[[1]]
 
-  max(terra::values(terra::query(v, vars = "SIFA"))$SIFA, na.rm = TRUE)
+  sf::st_read(
+    for_dist_gpkg,
+    query = glue::glue('SELECT MAX(SIFA) AS max_sifa FROM "{layer}"'),
+    quiet = TRUE
+  )$max_sifa
 }
 
 ## per the CEF Biodiversity Protocol (§3.2.2):
