@@ -1031,17 +1031,63 @@ define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
     )
 }
 
-plot_forest_disturbance_seral <- function(for_dist_seral, studyArea, dst) {
-  dst <- file.path(get_path("figures"), dst)
+## Sentinel for unclassified stands while they pass through the raster, which has no way to
+## represent "covered by a polygon, but with no seral class". Not a value `Seral` ever takes.
+SERAL_UNCLASSIFIED <- "<unclassified>"
 
-  if (inherits(for_dist_seral, "SpatVector")) {
-    for_dist_seral <- sf::st_as_sf(for_dist_seral)
-  }
+## Rasterise the seral layer for display.
+##
+## The layer is millions of polygons, and `geom_sf()` strokes every one of them individually:
+## measured at 1h 18m for a figure whose pixels cannot resolve them anyway. At 16 in and 300 dpi
+## across two facet columns, one pixel of the PNG is ~85 m on the ground, so a 100 m grid is already
+## at the limit of what the image can show. `res` is in map units (metres, in this project's
+## Lambert CRS).
+seral_display_raster <- function(for_dist_seral, res = 100) {
+  v <- tidyterra::as_spatvector(for_dist_seral)
+  template <- terra::rast(terra::ext(v), resolution = res, crs = terra::crs(v))
 
-  gg_for_dist_seral <- ggplot2::ggplot(for_dist_seral) +
-    ggplot2::geom_sf(ggplot2::aes(fill = Seral, color = Seral)) +
-    ggplot2::facet_wrap(ggplot2::vars(Seral), ncol = 2) +
-    ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
+  ## `Seral` is NA for unclassified stands, and a rasterised NA is indistinguishable from a cell no
+  ## polygon covers at all -- which drops the unclassified panel the `geom_sf()` version drew (a
+  ## quarter of a million hectares of it). Carry them through as an explicit level and turn it back
+  ## into a real NA once the cells are in a data frame.
+  v$.display <- dplyr::coalesce(as.character(v$Seral), SERAL_UNCLASSIFIED)
+
+  terra::rasterize(v, template, field = ".display")
+}
+
+plot_forest_disturbance_seral <- function(
+  for_dist_seral,
+  studyArea,
+  dst,
+  res = 100,
+  outdir = get_path("figures")
+) {
+  dst <- file.path(outdir, dst)
+
+  r <- seral_display_raster(for_dist_seral, res = res)
+
+  ## `geom_tile()` takes bare numbers, so -- unlike the `geom_sf()` layer below -- `coord_sf()`
+  ## cannot reproject them: it just reads them in whatever CRS the panel ends up in. The study area
+  ## is in BC Albers and the seral layer in Canada Atlas Lambert, so leaving it to `coord_sf()`
+  ## silently plots the raster thousands of km from the outline. Project the outline to the
+  ## raster's CRS instead, so the panel CRS and the tile coordinates are the same thing.
+  sa <- tidyterra::as_spatvector(studyArea) |>
+    terra::project(terra::crs(r)) |>
+    sf::st_as_sf()
+
+  d <- terra::as.data.frame(r, xy = TRUE, na.rm = TRUE)
+  names(d)[3] <- "Seral"
+  d$Seral <- as.character(d$Seral)
+  d$Seral[d$Seral == SERAL_UNCLASSIFIED] <- NA_character_
+  ## `rasterize()` returns the classes as a factor in its own level order; sort them so the facets
+  ## and the legend come out in the same order as the character column they were plotted from.
+  ## Unclassified stands stay NA, so they get their own facet and the grey NA fill, as before.
+  d$Seral <- factor(d$Seral, levels = sort(unique(stats::na.omit(d$Seral))))
+
+  gg_for_dist_seral <- ggplot2::ggplot(d) +
+    ggplot2::geom_tile(ggplot2::aes(x = .data$x, y = .data$y, fill = .data$Seral)) +
+    ggplot2::facet_wrap(ggplot2::vars(.data$Seral), ncol = 2) +
+    ggplot2::geom_sf(data = sa, color = "black", fill = NA, inherit.aes = FALSE) +
     ggplot2::theme_bw() +
     ggspatial::annotation_north_arrow(
       location = "bl",
