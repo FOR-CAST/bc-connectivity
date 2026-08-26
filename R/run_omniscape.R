@@ -1,44 +1,55 @@
-## JuliaCall doesn't work with "non-standard" installation locations (i.e. used by rig)
-## see <https://github.com/JuliaInterop/JuliaCall/issues/272>
+# Launching Julia from R ----------------------------------------------------------------------
 
-# library(JuliaCall)
-#
-# julia_threads <- 64L
-# julia_version <- "1.11.7"
-#
-# ## TODO: diagnose + fix failures
-# julia <- julia_setup(
-#   # installJulia = TRUE,
-#   rebuild = TRUE,
-#   version = julia_version
-# )
-#
-# julia_install_package_if_needed("Omniscape")
+## R exports `LD_LIBRARY_PATH` pointing at its own bundled shared libraries (e.g.
+## /opt/R/4.5.3/lib/R/lib, as installed by rig). Any child process inherits it, so Julia resolves
+## libraries such as libcurl/libz/libgomp against R's copies instead of the ones it ships with, and
+## dies with SIGSEGV as soon as a package that touches them is loaded:
+##
+##   processx::run(julia, c("+1.11.7", "-t", "4", "-e", "using Omniscape"))  # status -11
+##   ... the same call with LD_LIBRARY_PATH removed from the child env       # status 0
+##
+## Dropping that one variable is what makes running Omniscape from R work; `JuliaCall` was never
+## the problem. `R_HOME` and `LD_PRELOAD` are dropped for the same reason (nothing in Julia should
+## be resolving against the calling R installation).
 
-## NOTE: can't run julia from R (some env vars clash); segfaults
-if (FALSE) {
-  julia_threads <- 4L
-  julia_version <- "1.11.7"
+## environment for a Julia child process: the current environment minus the variables that make
+## Julia load R's shared libraries
+julia_env <- function(drop = c("LD_LIBRARY_PATH", "LD_PRELOAD", "R_HOME")) {
+  e <- Sys.getenv()
+  e <- e[!names(e) %in% drop]
 
-  err <- tempfile("error_", fileext = ".log")
-  out <- tempfile("output_", fileext = ".log")
+  stats::setNames(as.character(e), names(e))
+}
 
-  ## ensure Omniscape is installed
-  system2(
-    # fs::path_expand("~/.juliaup/bin/julia"),
-    Sys.which("julia"),
-    c(
-      sprintf("+%s", julia_version),
-      sprintf("-t %s", julia_threads),
-      "Omniscape/install.jl"
-    ),
-    wait = TRUE,
-    stderr = err,
-    stdout = out
-  )
+## locate the julia launcher; prefer whatever is on PATH, fall back to the juliaup shim
+julia_bin <- function() {
+  jl <- Sys.which("julia")
 
-  file.edit(err) ## Segmentation fault (core dumped)
-  file.edit(out)
+  if (!nzchar(jl)) {
+    jl <- fs::path_expand("~/.juliaup/bin/julia")
+  }
+
+  if (!file.exists(jl)) {
+    stop(
+      "Could not find the `julia` launcher on PATH or at ~/.juliaup/bin/julia.\n",
+      "Install Julia via juliaup (<https://github.com/JuliaLang/juliaup>) and ensure the ",
+      "required version is available (`juliaup add 1.11.7`)."
+    )
+  }
+
+  return(unname(jl))
+}
+
+## read a single option out of an Omniscape config.ini
+read_omniscape_option <- function(config_file, option) {
+  lines <- readLines(config_file, warn = FALSE)
+  hit <- grep(paste0("^\\s*", option, "\\s*="), lines, value = TRUE)
+
+  if (length(hit) != 1) {
+    stop("expected exactly one `", option, "` entry in ", config_file, "; found ", length(hit))
+  }
+
+  sub(paste0("^\\s*", option, "\\s*=\\s*"), "", hit) |> trimws()
 }
 
 #' Write Omniscape configuration file
@@ -97,35 +108,65 @@ write_omniscape_config <- function(
   ## - block_size;
   run_name <- glue::glue("{run_name}_p{pixel_size}_r{radius}_bs{block_size}")
 
-  ## create tiles
+  ## create tiles (or not: `ntiles = c(1, 1)` means run the whole raster in one go)
+  ##
+  ## Tiles must overlap by at least `2 * radius` so that every moving window is fully populated
+  ## right up to the tile edge; the mosaicked result is then artifact-free
+  ## (<https://github.com/Circuitscape/Omniscape.jl/issues/75>).
+  ##
+  ## `radius` is already in PIXELS, and `terra::makeTiles(buffer =)` is also in cells, so the
+  ## overlap is simply `2 * radius`. Dividing by `pixel_size` here (as this did until 2026-08-25)
+  ## made the buffer 30x too small at 30 m: r = 1507 px got 101 px of overlap instead of 3014, so
+  ## current within ~1400 px of every seam was wrong and the mosaics were artifact-ridden.
+  tiled <- prod(ntiles) > 1
+
   tile_dir <- file.path(get_path("rasters"), run_name) |> fs::dir_create()
   tile_c <- ceiling(terra::ncol(res_r) / ntiles[2])
   tile_r <- ceiling(terra::nrow(res_r) / ntiles[1])
-  use_buffer <- ceiling(2 * radius / pixel_size)
+  use_buffer <- 2 * radius
 
-  stopifnot(tile_c > use_buffer, tile_r > use_buffer)
+  ## A correctly-buffered tile is `tile + 2 * use_buffer` on a side, so for large radii the tiles
+  ## quickly grow back to (or past) the size of the untiled raster and tiling buys nothing. Refuse
+  ## to emit tiles that cannot be mosaicked correctly rather than emitting bad ones.
+  if (tiled && (tile_c <= use_buffer || tile_r <= use_buffer)) {
+    stop(
+      glue::glue(
+        "cannot tile {run_name}: a radius of {radius} px needs {use_buffer} px of tile overlap, ",
+        "but the requested {ntiles[1]}x{ntiles[2]} grid gives tiles of only {tile_r}x{tile_c} px.\n",
+        "Use fewer tiles (or `ntiles = c(1, 1)`, i.e. run untiled) for this radius."
+      )
+    )
+  }
 
-  res_tiles <- terra::makeTiles(
-    x = res_r,
-    y = c(tile_r, tile_c),
-    filename = file.path(tile_dir, paste0(tools::file_path_sans_ext(basename(res)), "_tile_.tif")),
-    buffer = use_buffer
-  )
-  srcwt_tiles <- terra::makeTiles(
-    x = srcwt_r,
-    y = c(tile_r, tile_c),
-    filename = file.path(
-      tile_dir,
-      paste0(tools::file_path_sans_ext(basename(srcwt)), "_tile_.tif")
-    ),
-    buffer = use_buffer
-  )
+  if (tiled) {
+    res_tiles <- terra::makeTiles(
+      x = res_r,
+      y = c(tile_r, tile_c),
+      filename = file.path(
+        tile_dir,
+        paste0(tools::file_path_sans_ext(basename(res)), "_tile_.tif")
+      ),
+      buffer = use_buffer
+    )
+    srcwt_tiles <- terra::makeTiles(
+      x = srcwt_r,
+      y = c(tile_r, tile_c),
+      filename = file.path(
+        tile_dir,
+        paste0(tools::file_path_sans_ext(basename(srcwt)), "_tile_.tif")
+      ),
+      buffer = use_buffer
+    )
+  } else {
+    res_tiles <- character(0)
+    srcwt_tiles <- character(0)
+  }
 
-  ## also add non-tiled versions
+  ## the untiled run is always written, and is always last
   res_tiles <- c(res_tiles, res)
   srcwt_tiles <- c(srcwt_tiles, srcwt)
 
-  tile_ids <- seq_len(prod(ntiles) + 1) ## add extra index at end for non-tiled version
+  tile_ids <- seq_along(res_tiles)
 
   stopifnot(length(tile_ids) == length(res_tiles), length(tile_ids) == length(srcwt_tiles))
 
@@ -241,50 +282,173 @@ write_omniscape_config <- function(
   return(c(config_files, script_files, res_tiles, srcwt_tiles))
 }
 
-run_omniscape <- function(omniscape_files, julia_threads) {
-  stopifnot(all(file.exists(omniscape_files)))
+#' Run Omniscape
+#'
+#' Launches a single Omniscape configuration in a Julia subprocess. See `julia_env()` for why the
+#' child environment has to be scrubbed; without that this segfaults, which is why Omniscape runs
+#' used to be launched by hand from a shell.
+#'
+#' @param julia_script path to one `script.jl` written by [write_omniscape_config()]
+#' @param julia_threads integer, number of Julia threads (`-t`)
+#' @param julia_version character, juliaup channel to run (Omniscape does not work on Julia 1.12;
+#'   see <https://github.com/Circuitscape/Omniscape.jl/issues/160>)
+#' @param overwrite if `TRUE`, remove a pre-existing Omniscape output directory before running.
+#'   Omniscape refuses to write into a directory that already exists, so a rerun of this target
+#'   cannot otherwise proceed. Only directories that look like Omniscape output are removed.
+#'
+#' @returns character vector of the output files produced by the run
+#'
+#' @export
+run_omniscape <- function(
+  julia_script,
+  julia_threads = 64L,
+  julia_version = "1.11.7",
+  overwrite = TRUE
+) {
+  stopifnot(length(julia_script) == 1L, file.exists(julia_script))
 
-  config_files <- grep("config", omniscape_files, value = TRUE)
-  julia_scripts <- grep("script", omniscape_files, value = TRUE)
-
-  run_name <- basename(dirname(config_files[1])) ## TODO: deal with tile ids
-
-  output_dir <- file.path(get_path("outputs"), run_name) ## don't create the dir, Omniscape neds to do it!
-  log_file <- file.path(output_dir, "omniscape_run.log")
-
-  output_files <- file.path(
-    output_dir,
-    c(
-      "cum_currmap.tif",
-      "flow_potential.tif",
-      "normalized_cum_currmap.tif",
-      log_file
-    )
+  ## `script.jl` <-> `config.ini`, `script_t3.jl` <-> `config_t3.ini`
+  config_file <- file.path(
+    dirname(julia_script),
+    sub("^script(_t[0-9]+)?[.]jl$", "config\\1.ini", basename(julia_script))
   )
+  stopifnot(file.exists(config_file))
 
-  julia_version <- "1.11.7"
+  ## the output directory is whatever `project_name` says; paths in the config are relative to the
+  ## project root, which is also the working directory the run is launched from
+  project_dir <- get_path("project")
+  output_dir <- file.path(project_dir, read_omniscape_option(config_file, "project_name"))
+  run_name <- basename(output_dir)
 
-  ## use tmpfile for logging since omniscape output dir won't exist yet
-  ## (and omniscape won't write to the directory if it exists)
+  ## Omniscape errors out rather than overwrite an existing output directory. Deleting it
+  ## pre-emptively and unconditionally is what b8949de rightly backed out, so only clear a
+  ## directory that actually holds output from a previous Omniscape run of this configuration.
+  if (dir.exists(output_dir)) {
+    looks_like_output <- length(fs::dir_ls(output_dir, glob = "*.tif")) > 0 ||
+      file.exists(file.path(output_dir, "omniscape_run.log"))
+
+    if (!isTRUE(overwrite)) {
+      stop(
+        glue::glue(
+          "Omniscape output directory already exists and `overwrite = FALSE`:\n  {output_dir}"
+        )
+      )
+    }
+    if (!looks_like_output) {
+      stop(
+        glue::glue(
+          "refusing to remove {output_dir}: it exists but does not look like Omniscape output.\n",
+          "Move it aside by hand, then rerun."
+        )
+      )
+    }
+
+    unlink(output_dir, recursive = TRUE)
+  }
+
+  ## Omniscape creates the output directory itself, so it cannot exist yet -- log to a temp file
+  ## and move the log into place once the run is done.
   tmp_log <- tempfile(pattern = glue::glue("omniscape_{run_name}_"), fileext = ".log")
-  on.exit(file.copy(tmp_log, log_file))
-
-  ## launch Julia
-  ps2 <- processx::run(
-    command = Sys.which("julia"), ## TODO: doesn't always work?
-    # command = fs::path_expand("~/.juliaup/bin/julia"),
-    args = paste(
-      glue::glue("+{julia_version}"),
-      glue::glue("-t {julia_threads}"),
-      glue::glue("{julia_script}")
-    ),
-    error_on_status = TRUE,
-    wd = get_path("project"),
-    stdout = tmp_log,
-    stderr = tmp_log,
+  log_file <- file.path(output_dir, "omniscape_run.log")
+  on.exit(
+    if (file.exists(tmp_log) && dir.exists(output_dir)) {
+      file.copy(tmp_log, log_file, overwrite = TRUE)
+    },
+    add = TRUE
   )
+
+  processx::run(
+    command = julia_bin(),
+    ## processx does NOT go through a shell, so each argument must be its own element; passing
+    ## these space-joined (as this did until 2026-08-25) hands julia one nonsense argument.
+    args = c(
+      glue::glue("+{julia_version}"),
+      "-t",
+      as.character(julia_threads),
+      fs::path_rel(julia_script, project_dir)
+    ),
+    env = julia_env(),
+    wd = project_dir,
+    error_on_status = TRUE,
+    stdout = tmp_log,
+    stderr = "2>&1"
+  )
+
+  output_files <- c(
+    file.path(output_dir, c("cum_currmap.tif", "flow_potential.tif", "normalized_cum_currmap.tif")),
+    log_file
+  )
+
+  missing <- output_files[!file.exists(output_files)]
+  if (length(missing) > 0) {
+    stop(
+      glue::glue(
+        "Omniscape run {run_name} finished but did not produce:\n  ",
+        paste(missing, collapse = "\n  "),
+        "\nSee {log_file}"
+      )
+    )
+  }
 
   return(output_files)
+}
+
+## the launch scripts written by write_omniscape_config(), in the order they should be run
+omniscape_scripts <- function(omniscape_files, tiled = FALSE) {
+  scripts <- grep("[.]jl$", unlist(omniscape_files), value = TRUE)
+
+  ## `script.jl` is the untiled run; `script_t<N>.jl` are the tiles
+  is_tile <- grepl("_t[0-9]+[.]jl$", basename(scripts))
+
+  if (isTRUE(tiled)) scripts[is_tile] else scripts[!is_tile]
+}
+
+#' Choose which Omniscape configurations to run
+#'
+#' A full `tar_make()` should be able to prepare every input without also committing the machine to
+#' a multi-day Omniscape run, so which runs execute is opt-in.
+#'
+#' @param nn_files,alldist_files the file vectors returned by [write_omniscape_config()]
+#' @param which one of `"none"` (default), `"nn"`, `"alldist"`, or `"all"`
+#'
+#' @returns character vector of launch scripts to run (possibly empty)
+#'
+#' @export
+select_omniscape_runs <- function(nn_files, alldist_files, which = "none") {
+  which <- match.arg(tolower(which), c("none", "nn", "alldist", "all"))
+
+  files <- switch(
+    which,
+    none = character(0),
+    nn = unlist(nn_files),
+    alldist = unlist(alldist_files),
+    all = c(unlist(nn_files), unlist(alldist_files))
+  )
+
+  omniscape_scripts(files, tiled = FALSE)
+}
+
+#' Run several Omniscape configurations, one after another
+#'
+#' @inheritParams run_omniscape
+#' @param julia_scripts character vector of launch scripts (may be empty)
+#'
+#' @returns character vector of every output file produced
+#'
+#' @export
+run_omniscape_all <- function(julia_scripts, julia_threads = 64L, ...) {
+  if (length(julia_scripts) == 0L) {
+    message(
+      "No Omniscape runs selected. Set BC_CONN_OMNISCAPE to 'nn', 'alldist', or 'all' to run them."
+    )
+    return(character(0))
+  }
+
+  purrr::map(
+    julia_scripts,
+    function(x) run_omniscape(x, julia_threads = julia_threads, ...)
+  ) |>
+    unlist()
 }
 
 #' Create raster tiles for Omniscape runs

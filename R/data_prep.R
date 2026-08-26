@@ -20,7 +20,11 @@ get_path <- function(type) {
 save_gpkg <- function(obj, dst) {
   dst <- file.path(get_path("inputs"), dst)
 
-  sf::st_write(obj, dst, quiet = TRUE, append = FALSE)
+  if (inherits(obj, "SpatVector")) {
+    terra::writeVector(obj, dst, filetype = "GPKG", overwrite = TRUE)
+  } else {
+    sf::st_write(obj, dst, quiet = TRUE, append = FALSE)
+  }
 
   return(dst)
 }
@@ -28,6 +32,56 @@ save_gpkg <- function(obj, dst) {
 ## Create a bounding box of the study area to reduce processing time of large vector datasets
 create_bbox <- function(studyArea) {
   sf::st_bbox(studyArea)
+}
+
+# Overlay helpers -----------------------------------------------------------------------------
+
+## Polygon work in this project is done with `terra`, driven through `tidyterra`'s dplyr verbs.
+##
+## terra's overlay operators are GEOS-backed and vectorised in C++, and they implement arcpy's
+## overlay semantics directly: `terra::union()`/`terra::intersect()` split geometries at the overlay
+## boundaries and carry *both* attribute sets through, which is what the arcpy scripts this project
+## ports rely on. `tidyterra` then lets the attribute manipulation read the same as the `sf` +
+## `dplyr` code it replaces.
+##
+## Note in particular that `sf::st_join()` is NOT an overlay: it keeps whole geometries from `x`,
+## duplicating a row for every `y` they touch. A stand spanning two NDT-BEC zones comes back twice
+## at full extent and is then assigned two different seral stages. See
+## `create_forest_disturbance_seral()`.
+
+## combine the SpatVectors produced by a branched target back into one layer
+combine_spatvectors <- function(x) {
+  if (inherits(x, "SpatVector")) {
+    return(x)
+  }
+
+  x <- Filter(function(e) !is.null(e) && nrow(e) > 0L, x)
+
+  if (length(x) == 0L) {
+    stop("no non-empty branches to combine")
+  }
+
+  ## `unname()` matters: `rbind` matches named list elements to its own formals
+  do.call(rbind, unname(x))
+}
+
+## Regular grid of tiles covering the study area, ready for `pattern = map()`.
+##
+## Overlays are embarrassingly parallel over space, so tiling lets the crew workers do the work
+## instead of a single main-session process. Each tile clips its inputs to the tile boundary, so the
+## tiles partition the study area and nothing is double counted; polygons split at a tile seam are
+## healed by the dissolve in `patches_get_input_data()`.
+make_study_area_tiles <- function(studyArea, n = c(8, 8)) {
+  sa <- sf::st_as_sf(tidyterra::as_spatvector(studyArea)) |> sf::st_set_agr("constant")
+
+  grid <- sf::st_make_grid(sa, n = n) |> sf::st_as_sf()
+  names(grid)[names(grid) == attr(grid, "sf_column")] <- "geom"
+  grid <- sf::st_set_geometry(grid, "geom")
+
+  grid[lengths(sf::st_intersects(grid, sa)) > 0, , drop = FALSE] |>
+    dplyr::mutate(tile = dplyr::row_number()) |>
+    dplyr::group_by(tile) |>
+    targets::tar_group()
 }
 
 ## write session and other info for reproducibility
@@ -50,15 +104,15 @@ write_reproducibility_receipt <- function(dst = "INFO.md") {
 
 get_quesnel_NRD_boundary <- function(file, buffer = FALSE) {
   if (file.exists(file)) {
-    Quesnel_TSA <- sf::st_read(file) |>
-      filter(DSTRCT_NM == "Quesnel Natural Resource District") |>
-      select(DSTRCT_NM) |>
-      rename(DIST_NAME = DSTRCT_NM)
+    Quesnel_TSA <- sf::st_read(file, quiet = TRUE) |>
+      dplyr::filter(DSTRCT_NM == "Quesnel Natural Resource District") |>
+      dplyr::select(DSTRCT_NM) |>
+      dplyr::rename(DIST_NAME = DSTRCT_NM)
   } else {
     Quesnel_TSA <- bcmaps::nr_districts() |>
-      filter(DISTRICT_NAME == "Quesnel Natural Resource District") |>
-      select(DISTRICT_NAME) |>
-      rename(DIST_NAME = DISTRICT_NAME)
+      dplyr::filter(DISTRICT_NAME == "Quesnel Natural Resource District") |>
+      dplyr::select(DISTRICT_NAME) |>
+      dplyr::rename(DIST_NAME = DISTRICT_NAME)
   }
 
   if (isTRUE(buffer)) {
@@ -155,11 +209,47 @@ seral_stages_long <- function(max_age) {
 
 # bcdata layers -------------------------------------------------------------------------------
 
+## The BC data catalogue's WFS endpoint is unreliable for large paginated queries -- VRI alone needs
+## 34 requests, and one failure ("There was an issue sending this WFS request") aborts the whole
+## download and, with `error = "abridge"`, the pipeline with it. Retry with a linear backoff.
+##
+## `f` is a function rather than an expression because a promise is forced only once: passing
+## `expr` directly would return the same cached error on every retry.
+with_retries <- function(f, tries = 5L, wait = 30) {
+  for (i in seq_len(tries)) {
+    result <- tryCatch(f(), error = function(e) e)
+
+    if (!inherits(result, "error")) {
+      return(result)
+    }
+
+    if (i < tries) {
+      message(
+        "attempt ",
+        i,
+        "/",
+        tries,
+        " failed (",
+        conditionMessage(result),
+        "); ",
+        "retrying in ",
+        wait * i,
+        "s"
+      )
+      Sys.sleep(wait * i)
+    } else {
+      stop(result)
+    }
+  }
+}
+
 get_bcdata <- function(id, select_cols, studyArea, rasterToMatch) {
-  bcdata::bcdc_query_geodata(id) |>
-    dplyr::filter(INTERSECTS(studyArea)) |>
-    dplyr::select(any_of(select_cols)) |>
-    dplyr::collect() |>
+  with_retries(function() {
+    bcdata::bcdc_query_geodata(id) |>
+      dplyr::filter(INTERSECTS(studyArea)) |>
+      dplyr::select(dplyr::any_of(select_cols)) |>
+      dplyr::collect()
+  }) |>
     sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
@@ -197,15 +287,15 @@ plot_bec_ndt <- function(BECNDT, studyArea) {
   dst <- file.path(get_path("figures"), "Quesnel_TSA_NDT-BEC.png")
 
   gg_bec_ndt <- ggplot2::ggplot(BECNDT) +
-    ggplot2::geom_sf(aes(fill = NDT_BEC)) +
+    ggplot2::geom_sf(ggplot2::aes(fill = NDT_BEC)) +
     ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
     ggplot2::theme_bw() +
     ggspatial::annotation_north_arrow(
       location = "bl",
       which_north = "true",
-      pad_x = unit(0.25, "in"),
-      pad_y = unit(0.25, "in"),
-      style = north_arrow_fancy_orienteering
+      pad_x = ggplot2::unit(0.25, "in"),
+      pad_y = ggplot2::unit(0.25, "in"),
+      style = ggspatial::north_arrow_fancy_orienteering
     ) +
     ggplot2::xlab("Longitude") +
     ggplot2::ylab("Latitude") +
@@ -273,14 +363,16 @@ get_wui <- function(studyArea, rasterToMatch) {
 ## High Value Moose Wetlands layer has been handled differently
 ## due to limits/issues querying and downloading the data using `bcdata`
 get_moose_wetlands <- function(studyArea, rasterToMatch) {
-  bcdata::bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") |>
-    dplyr::filter(
-      STRGC_LAND_RSRCE_PLAN_NAME == "Cariboo Chilcotin Land Use Plan",
-      LEGAL_FEAT_OBJECTIVE == "High Value Wetlands for Moose"
-    ) |>
-    dplyr::select(STRGC_LAND_RSRCE_PLAN_NAME, LEGAL_FEAT_OBJECTIVE) |>
-    dplyr::filter(INTERSECTS(studyArea)) |>
-    dplyr::collect() |>
+  with_retries(function() {
+    bcdata::bcdc_query_geodata("2c02040c-d7c5-4960-8d04-dea01d6d3e9f") |>
+      dplyr::filter(
+        STRGC_LAND_RSRCE_PLAN_NAME == "Cariboo Chilcotin Land Use Plan",
+        LEGAL_FEAT_OBJECTIVE == "High Value Wetlands for Moose"
+      ) |>
+      dplyr::select(STRGC_LAND_RSRCE_PLAN_NAME, LEGAL_FEAT_OBJECTIVE) |>
+      dplyr::filter(INTERSECTS(studyArea)) |>
+      dplyr::collect()
+  }) |>
     sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
@@ -369,10 +461,12 @@ get_streams <- function(studyArea, rasterToMatch) {
 ## (has 320917 records and requires 33 paginated requests to complete);
 ## !! use 2024 VRI to match that of the CEF Forest Disturbance Layer
 get_vri <- function(studyArea, rasterToMatch) {
-  bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
-    dplyr::filter(INTERSECTS(studyArea)) |>
-    dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
-    dplyr::collect() |>
+  with_retries(function() {
+    bcdata::bcdc_query_geodata("2ebb35d8-c82f-4a17-9c96-612ac3532d55") |>
+      dplyr::filter(INTERSECTS(studyArea)) |>
+      dplyr::select(PROJ_AGE_1, SPECIES_CD_1) |>
+      dplyr::collect()
+  }) |>
     sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
@@ -400,28 +494,40 @@ get_vri <- function(studyArea, rasterToMatch) {
 ## IDF-Pl Group: includes all forest polygons in NDT 4 (IDF and BG biogeoclimatic zones)
 ## that do not meet the above definition for IDF-Fir Group.
 get_leading_group_cariboo <- function(studyArea, rasterToMatch) {
-  bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f") |>
+  with_retries(function() bcdata::bcdc_get_data("0ec65e81-cbd5-4b10-90b8-3ec779fc9c0f")) |>
     dplyr::select(LEADING_GRP) |>
     sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
-## VRI spatial join with NDT-BEC; this join is slow!
+## VRI overlaid with NDT-BEC and the Cariboo leading group.
+##
+## An overlay, not a join: VRI polygons are split at the NDT-BEC boundaries so each piece carries
+## exactly one NDT-BEC (and therefore one set of seral-stage age thresholds). The leading-group
+## layer does not cover the whole study area, so it is unioned rather than intersected -- the
+## overlay equivalent of a left join.
 create_vri_becndt <- function(VRI, BECNDT, LGC) {
-  sf::st_join(VRI, BECNDT, left = FALSE) |> ## inner join; keeps obs from VRI with matching key in BECNDT
-    sf::st_make_valid() |>
-    sf::st_join(LGC) |> ## left join; keeps all obs from the prev joined BECNDT/VRI
-    sf::st_make_valid() |>
+  vri <- tidyterra::as_spatvector(VRI)
+  bec <- tidyterra::as_spatvector(BECNDT) |> dplyr::select(NDT_BEC, BEC_ZONE)
+  lgc <- tidyterra::as_spatvector(LGC) |> dplyr::select(LEADING_GRP)
+
+  ## inner: drop VRI outside the BEC coverage, as the previous `left = FALSE` join did
+  v <- spatialutils::intersect_relate(vri, bec) |> spatialutils::repair_geoms()
+
+  ## left: keep everything, tagging leading group where it is available
+  v <- terra::union(v, lgc) |> spatialutils::repair_geoms()
+  v <- v[terra::is.related(v, vri, "intersects"), ] ## union() also brings in LGC-only area
+
+  v |>
     dplyr::mutate(
       NDT_BEC = dplyr::case_when(
         LEADING_GRP == "FirGroup" ~ "NDT4-IDF-FD",
         LEADING_GRP == "PineGroup" ~ "NDT4-IDF-PL",
         grepl("^NDT4", NDT_BEC) ~ "NDT4-IDF-FD",
-        TRUE ~ NDT_BEC
+        .default = NDT_BEC
       )
-    ) |>
-    sf::st_set_geometry("geom")
+    )
 }
 
 ## anthropogenic disturbance features
@@ -438,7 +544,7 @@ get_railways <- function(studyArea, rasterToMatch) {
 ## (No Web Feature Service resource available for this data set; different CRS);
 ## <https://catalogue.data.gov.bc.ca/dataset/cariboo-consolidated-roads>
 get_roads <- function(studyAreaLCC, rasterToMatch) {
-  bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281") |>
+  with_retries(function() bcdata::bcdc_get_data("ef431656-44d2-4a16-9e0e-a14d934bb281")) |>
     dplyr::select(TRANSPORT_LINE_TYPE_CODE, TRANSPORT_LINE_TENURE_TYPE_CODE) |>
     sf::st_set_agr("constant") |>
     sf::st_transform(terra::crs(rasterToMatch)) |>
@@ -565,26 +671,58 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
     sf::st_transform(terra::crs(rasterToMatch))
 }
 
-## Forest Disturbance spatial join with VRI-NDT-BEC and
-## assign seral stage classifications based on seral stage table
-create_forest_disturbance_seral <- function(for_dist, vri_joined) {
-  for_dist |>
-    sf::st_set_geometry("geom") |>
-    dplyr::select(SIFA) |>
-    sf::st_join(vri_joined, left = FALSE) |> ## inner join; keeps obs from for_dist with matching key in vri_joined
-    sf::st_make_valid() |>
+## Forest disturbance overlaid with VRI-NDT-BEC, then classified into seral stages.
+##
+## This is an overlay (arcpy `Intersect`), not a spatial join. `sf::st_join()` -- used here until
+## 2026-08-25 -- keeps the *whole* forest-disturbance geometry and emits one copy per VRI polygon it
+## touches, so a stand spanning several NDT-BEC zones came back several times at full extent, each
+## copy assigned a different set of seral-stage age thresholds. Measured on this study area, that
+## inflated the layer from 4.02 M polygons / 4.09 Mha to 7.78 M polygons / 39.5 Mha, and left
+## ~165,000 ha (6% of the landscape) belonging to two or more seral stages at once, resolved
+## arbitrarily by whichever union happened to run first downstream.
+create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_age) {
+  aoi <- tidyterra::as_spatvector(tile)
+
+  ## push the spatial filter down to the GDAL read: only the features overlapping this tile are
+  ## ever materialised, so a worker never holds the whole 4 M-polygon layer
+  fd <- spatialutils::read_vector_aoi(for_dist_gpkg, aoi, fields = "SIFA")
+  vri <- spatialutils::read_vector_aoi(vri_gpkg, aoi, fields = "NDT_BEC")
+
+  if (nrow(fd) == 0L || nrow(vri) == 0L) {
+    return(fd[integer(0)])
+  }
+
+  ## clip to the tile so tiles partition the study area rather than overlapping at their edges
+  fd <- terra::crop(fd, aoi) |> spatialutils::repair_geoms()
+
+  v <- spatialutils::intersect_relate(fd, vri) |> spatialutils::repair_geoms()
+
+  if (nrow(v) == 0L) {
+    return(v)
+  }
+
+  ## seral stage is a lookup on (NDT_BEC, SIFA); the age classes partition [0, max_age] within each
+  ## NDT-BEC, so exactly one row can match -- `relationship` makes that an error rather than a
+  ## silent row duplication if the table ever gains overlapping ranges.
+  seral <- as.data.frame(v) |>
     dplyr::left_join(
-      seral_stages_long(max(for_dist$SIFA, na.rm = TRUE)),
-      by = dplyr::join_by(NDT_BEC, dplyr::between(SIFA, Age_Min, Age_Max, bounds = "[)"))
-    ) |>
-    sf::st_make_valid() |>
+      seral_stages_long(max_age),
+      by = dplyr::join_by(NDT_BEC, dplyr::between(SIFA, Age_Min, Age_Max, bounds = "[)")),
+      relationship = "many-to-one"
+    )
+
+  v |>
     dplyr::mutate(
-      Age_Min = NULL,
-      Age_Max = NULL,
+      Seral = !!seral$Seral,
       early_less_20yrs = dplyr::if_else(SIFA < 20, "under_20", NA_character_)
-    ) |>
-    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
-    sf::st_cast("POLYGON", warn = FALSE)
+    )
+}
+
+## largest projected stand age in the layer; sets the upper bound of the oldest seral class
+max_stand_age <- function(for_dist_gpkg) {
+  v <- terra::vect(for_dist_gpkg, proxy = TRUE)
+
+  max(terra::values(terra::query(v, vars = "SIFA"))$SIFA, na.rm = TRUE)
 }
 
 ## per the CEF Biodiversity Protocol (§3.2.2):
@@ -593,129 +731,119 @@ create_forest_disturbance_seral <- function(for_dist, vri_joined) {
 ##   (e.g. riparian corridors) of different aged forest <100m wide within a larger
 ##   similarly aged forest patch are included as part of that singular patch.
 
-## NOTE: naming conventions for patch creation functions resemble those of the BC arcpy scripts.
+## NOTE: naming conventions for patch creation functions resemble those of the BC arcpy scripts;
+## see the README appendix for the step-by-step description they are ported from.
+##
+## The patch chain works on `terra` SpatVectors rather than `sf`. terra's overlay operators are
+## GEOS-backed and vectorised in C++, and -- crucially -- `terra::union()` implements arcpy's
+## `Union_analysis` semantics exactly: geometries are split at the overlay boundaries and *both*
+## attribute sets are carried through, `NA` where a layer does not cover. The `sf` port this
+## replaces (`st_union_analysis()`) instead kept only `x`'s attributes on every intersection and
+## then dissolved on `Seral`, which silently relabelled interior old forest as `Mature`.
 
+## Planar area in the layer's own projection -- what `sf::st_area()` returns, and what ArcGIS
+## `Shape_Area` (and therefore the arcpy scripts this ports) uses.
+##
+## `terra::expanse()` defaults to `transform = TRUE`, which reprojects to lon/lat and returns
+## *geodesic* area. In this study area's Lambert projection that is 2.69% larger (3,010,405 ha vs
+## 2,931,558 ha for the seral layer), which would silently move every 1 ha threshold and inflate
+## every reported area.
+##
+## TODO: replace with `spatialutils::expanse_planar()` once that release is pinned in `renv.lock`.
+expanse_planar <- function(v, unit = "ha") {
+  terra::expanse(v, unit = unit, transform = FALSE)
+}
+
+## drop every attribute, keeping the geometries (there is no `v[, character(0)]` for SpatVectors)
+##
+## TODO: replace with `spatialutils::drop_values()` once that release is pinned in `renv.lock`.
+drop_values <- function(v) {
+  terra::values(v) <- data.frame(matrix(nrow = nrow(v), ncol = 0))
+
+  v
+}
+
+## Dissolve on one or more attributes, then explode back to single-part polygons.
+##
+## `terra::aggregate(by = )` cannot do this when several grouping columns contain `NA` -- it returns
+## a SpatVector whose attribute table has fewer rows than it has geometries, which then errors on
+## the next access. `tidyterra`'s `group_by()`/`summarise()` handle `NA` groups correctly, and read
+## the same as the `sf` code this replaced.
+dissolve_by <- function(v, by) {
+  tidyterra::as_spatvector(v) |>
+    dplyr::group_by(dplyr::across(dplyr::all_of(by))) |>
+    dplyr::summarise(.groups = "drop") |>
+    terra::disagg()
+}
+
+## step 1: dissolve the seral layer on seral stage + the <20 yr early split
 patches_get_input_data <- function(for_dist_seral) {
-  for_dist_seral |>
-    dplyr::group_by(Seral, early_less_20yrs) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE)
+  tidyterra::as_spatvector(for_dist_seral) |>
+    spatialutils::repair_geoms() |>
+    dissolve_by(c("Seral", "early_less_20yrs"))
+}
+
+## step 3: edge-influence buffers, one per neighbouring seral stage.
+##
+## Each buffer distance belongs to a *specific* stand type -- it is the distance that stand type's
+## edge influence reaches into an adjacent patch -- which is why which buffers get erased depends on
+## which patch is being measured (see patches_create_erase_mask()).
+patches_buffer_sizes <- function() {
+  ## nominal size -> (buffer actually applied, seral stage whose edge influence it represents)
+  list(
+    `200` = list(dist = 200, seral = "Early", under_20 = TRUE),
+    `100` = list(dist = 101, seral = "Early", under_20 = FALSE),
+    `50` = list(dist = 52, seral = "Mid", under_20 = NA),
+    `25` = list(dist = 25, seral = "Mature", under_20 = NA)
+  )
 }
 
 patches_create_buffers_to_delete <- function(seral, buffer_size) {
-  use_buffer <- switch(
-    as.character(buffer_size),
-    "200" = 200,
-    "100" = 101,
-    "50" = 52,
-    "25" = 25,
-    stop("buffer_size must be one of 200, 100, 50, or 25")
-  )
+  spec <- patches_buffer_sizes()[[as.character(buffer_size)]]
 
-  seral_subset <- switch(
-    as.character(buffer_size),
-    "200" = dplyr::filter(seral, early_less_20yrs == "under_20" & Seral == "Early"),
-    "100" = dplyr::filter(
-      seral,
-      (early_less_20yrs != "under_20" | is.na(early_less_20yrs)) & Seral == "Early"
-    ),
-    "50" = dplyr::filter(seral, Seral == "Mid"),
-    "25" = dplyr::filter(seral, Seral == "Mature")
-  )
-
-  seral_subset |>
-    dplyr::group_by(Seral) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE) |>
-    dplyr::filter(sf::st_area(geom) > units::set_units(1, ha)) |>
-    sf::st_buffer(use_buffer)
-}
-
-patches_create_old_mature <- function(seral, age_class) {
-  use_class <- switch(
-    paste0(age_class, collapse = "_"),
-    Mature_Old = "MO",
-    Old = "O",
-    stop("age_class must be one of `c('Mature', 'Old')` or `'Old'`")
-  )
-
-  p <- seral |>
-    dplyr::mutate(
-      INTERIOR_CATEGORY = dplyr::if_else(Seral %in% age_class, use_class, "other")
-    ) |>
-    dplyr::group_by(INTERIOR_CATEGORY) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE)
-
-  p_slivers <- p |>
-    dplyr::filter(
-      INTERIOR_CATEGORY != !!use_class & sf::st_area(geom) <= units::set_units(1, ha)
-    )
-  p_not_slivers <- p |>
-    dplyr::filter(
-      INTERIOR_CATEGORY == !!use_class | sf::st_area(geom) > units::set_units(1, ha)
-    )
-
-  if (nrow(p_not_slivers) < 1) {
-    stop("Threshold exceeds the area of every polygon. Please select a smaller number.")
+  if (is.null(spec)) {
+    stop("`buffer_size` must be one of 200, 100, 50, or 25")
   }
 
-  ## emulate `arcpy.Eliminate_management` using LENGTH, via `terra::combineGeom`
-  v_slivers <- terra::vect(p_slivers)
-  v_not_slivers <- terra::vect(p_not_slivers)
+  ## `Seral == spec$seral` also drops the unclassified (NA) stands, as intended
+  subset <- tidyterra::as_spatvector(seral) |>
+    dplyr::filter(Seral == !!spec$seral)
 
-  v_merged <- terra::combineGeoms(
-    v_not_slivers,
-    v_slivers,
-    overlap = TRUE,
-    boundary = TRUE,
-    distance = TRUE,
-    append = TRUE,
-    minover = 0.05,
-    maxdist = 1, ## need some small distance to deal with possible topology errors
-    dissolve = TRUE,
-    erase = TRUE
-  )
+  if (!is.na(spec$under_20)) {
+    subset <- if (isTRUE(spec$under_20)) {
+      dplyr::filter(subset, !is.na(early_less_20yrs) & early_less_20yrs == "under_20")
+    } else {
+      dplyr::filter(subset, is.na(early_less_20yrs) | early_less_20yrs != "under_20")
+    }
+  }
 
-  p_merged <- sf::st_as_sf(v_merged) |>
-    sf::st_set_geometry("geom")
+  if (nrow(subset) == 0L) {
+    return(subset)
+  }
 
-  ## NOTE: it's unnecessary here to further classify patches by area
+  ## dissolve, then keep only patches larger than 1 ha before buffering (arcpy step 3c)
+  dissolved <- dissolve_by(dplyr::select(subset, Seral), "Seral")
+  dissolved <- dissolved[expanse_planar(dissolved, "ha") > 1, ]
 
-  return(p_merged)
+  terra::buffer(dissolved, width = spec$dist) |> spatialutils::repair_geoms()
 }
 
-patches_create_patch_size_data <- function(seral) {
-  ## NOTE: it's unecessary here to further classify patches based on size
-  seral |>
-    dplyr::group_by(Seral) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE)
-}
-
-## st_erase modified from <https://github.com/r-spatial/sf/issues/346>
-st_erase <- function(x, y) {
-  x <- sf::st_set_agr(x, "constant")
-  y <- sf::st_set_agr(y, "constant")
-
-  sf::st_difference(x, sf::st_union(y)) |>
-    sf::st_make_valid()
-}
-
-## Which edge-influence buffers get erased depends on WHICH patch is being measured.
+## step 4: the area to erase from a given interior-forest target.
 ##
-## The 25 m buffer is the edge influence of *Mature* stands. For the old-only target a mature stand
-## is an adjacent younger neighbour, so it is erased; for the mature+old target mature stands are
-## part of the patch itself, so erasing it removes every mature stand plus a 25 m margin and leaves
-## exactly the old-only interior forest behind. Erasing all four from both targets therefore makes
-## `patches_interior_forest_mature_old` numerically identical to `patches_interior_forest_old` --
-## which is what this function did until 2026-08-25 (verified on a 120 m seral raster for a separate
-## study area: both came back as exactly 16483 ha).
+## Erasing four buffers one after another is the same as erasing their union (A \ B1 \ B2 = A \
+## (B1 u B2)), so they are combined once here instead of being differenced four times.
 ##
-## This matches the arcpy scripts, which erase 200/100/50/25 m from OLD (steps 4a-d) but only
-## 200/100/50 m from MATURE_OLD (steps 4e-h); see the README appendix.
-patches_create_interior_forest <- function(
-  patches_mature_old,
+## WHICH buffers apply depends on the target. The 25 m buffer is the edge influence of *Mature*
+## stands: for the old-only target a mature stand is an adjacent younger neighbour, so it is erased;
+## for the mature+old target mature stands are part of the patch itself, so erasing it would remove
+## every mature stand plus a 25 m margin and leave exactly the old-only interior forest behind.
+## Erasing all four from both targets is what this pipeline did until 2026-08-25, which made
+## `patches_interior_forest_mature_old` numerically identical to `patches_interior_forest_old`
+## (measured: both 326,081.5 ha over 13,783 polygons).
+##
+## This matches the arcpy scripts, which erase 200/100/50/25 m from OLD (README steps 4a-d) but
+## only 200/100/50 m from MATURE_OLD (steps 4e-h).
+patches_create_erase_mask <- function(
   patches_buffer_200,
   patches_buffer_100,
   patches_buffer_50,
@@ -724,150 +852,121 @@ patches_create_interior_forest <- function(
 ) {
   age_class <- match.arg(age_class, c("Old", "Mature"))
 
-  interior <- st_erase(patches_mature_old, patches_buffer_200) |>
-    st_erase(patches_buffer_100) |>
-    st_erase(patches_buffer_50)
+  buffers <- list(patches_buffer_200, patches_buffer_100, patches_buffer_50)
 
   ## "Mature" here labels the mature+old target, whose patches already contain the mature stands
   ## that the 25 m buffer represents.
   if (identical(age_class, "Old")) {
-    interior <- st_erase(interior, patches_buffer_25)
+    buffers <- c(buffers, list(patches_buffer_25))
   }
 
-  interior |>
-    dplyr::mutate(
-      INTERIOR_CATEGORY = NULL,
-      # patch_type = paste(!!age_class, "interior", sep = "_"),
-      Seral = !!age_class
-    ) |>
-    dplyr::group_by(Seral) |>
-    dplyr::summarise() |>
-    sf::st_cast("POLYGON", warn = FALSE)
+  ## geometry only; attributes are irrelevant to an erase
+  buffers <- lapply(buffers, function(b) drop_values(tidyterra::as_spatvector(b)))
+
+  do.call(rbind, buffers) |>
+    terra::aggregate() |>
+    spatialutils::repair_geoms()
 }
 
-## copied from FOR-CAST/spatialutils for testing with these large sf objects
-st_union_analysis <- function(x, y, union_by = NULL) {
-  x <- x |> sf::st_set_geometry("geometry") |> sf::st_set_agr("constant")
-  y <- y |> sf::st_set_geometry("geometry") |> sf::st_set_agr("constant")
+## step 2: the OLD / MATURE_OLD feature classes.
+##
+## Slivers smaller than 1 ha that are *not* part of the target class are merged into the
+## neighbouring polygon they share the longest border with (arcpy `Eliminate`, LENGTH option), then
+## everything outside the target class is dropped (arcpy steps 2d and 2h).
+##
+## Dropping the non-target class is what this pipeline omitted until 2026-08-25. The leftover
+## "other" polygons -- 2.47 Mha of dissolved Early/Mid/unclassified land for the old-only target --
+## were carried into the erase, and since none of the four edge-influence buffers cover
+## unclassified (NA seral) land, that land survived and was relabelled as interior forest:
+## 165,527 ha of the 326,036 ha `patches_interior_forest_old` layer (50.8%) was not old forest.
+patches_create_old_mature <- function(seral, age_class) {
+  use_class <- switch(
+    paste0(age_class, collapse = "_"),
+    Mature_Old = "MO",
+    Old = "O",
+    stop("age_class must be one of `c('Mature', 'Old')` or `'Old'`")
+  )
 
-  if (!is.null(union_by)) {
-    stopifnot(is.character(union_by), length(union_by) == 1)
+  ## `%in%` yields FALSE (never NA) for unclassified stands, so they fall into "other"
+  p <- tidyterra::as_spatvector(seral) |>
+    dplyr::mutate(INTERIOR_CATEGORY = dplyr::if_else(Seral %in% age_class, use_class, "other")) |>
+    dplyr::select(INTERIOR_CATEGORY) |>
+    dissolve_by("INTERIOR_CATEGORY")
+
+  if (!any(p$INTERIOR_CATEGORY == use_class)) {
+    stop("no polygons of class `", use_class, "` found; check the seral stage classification")
   }
 
-  ## pre-filter the intersecting geometries to speed up calcs
-  intersects_idx <- sf::st_intersects(x, y)
-  intersects_idy <- unique(unlist(intersects_idx))
+  ## `keep` protects the target class from being treated as a sliver, so only "other" polygons
+  ## below 1 ha are eliminated -- as in arcpy steps 2c/2g.
+  merged <- spatialutils::eliminate_slivers(
+    p,
+    threshold = units::set_units(1, "ha"),
+    keep = INTERIOR_CATEGORY == !!use_class,
+    explode = FALSE ## `p` is already single-part
+  )
 
-  ## calculate intersections for intersecting polygons
-  intersect_list <- list()
-  k <- 1
-  for (i in seq_len(nrow(x))) {
-    which_y_intersects <- intersects_idx[[i]]
-
-    if (length(which_y_intersects) > 0) {
-      for (j in which_y_intersects) {
-        intersect_list[[k]] <- sf::st_intersection(x[i, ], y[j, ])
-        k <- k + 1
-      }
-    }
-  }
-
-  ## keep attribute values from x (not y)
-  intersected <- dplyr::bind_rows(intersect_list) |>
-    sf::st_make_valid() |>
-    dplyr::select(-dplyr::ends_with(".1"))
-
-  ## calculate differences for intersecting polygons
-  x_intersects <- lengths(intersects_idx) > 0
-  subset_x <- x[x_intersects, ]
-  subset_y <- y[intersects_idy, ]
-
-  dx <- st_erase(subset_x, subset_y)
-  dy <- st_erase(subset_y, subset_x)
-
-  ## deal with non-intersecting polygons
-  nonintersected_x <- x[!x_intersects, ]
-  nonintersected_y <- y[!(seq_len(nrow(y)) %in% intersects_idy), ]
-
-  names_diff_x <- setdiff(names(x), names(y))
-  names_diff_y <- setdiff(names(y), names(x))
-
-  if (length(names_diff_y) > 0) {
-    for (col_name in seq_along(names_diff_y)) {
-      dx <- dx |> dplyr::mutate({{ col_name }} := NA_character_, .before = "geometry")
-      nonintersected_x <- nonintersected_x |>
-        dplyr::mutate({{ col_name }} := NA_character_, .before = "geometry")
-    }
-  }
-
-  if (length(names_diff_x) > 0) {
-    for (col_name in seq_along(names_diff_x)) {
-      dy <- dy |> dplyr::mutate({{ col_name }} := NA_character_, .before = "geometry")
-      nonintersected_y <- nonintersected_y |>
-        dplyr::mutate({{ col_name }} := NA_character_, .before = "geometry")
-    }
-  }
-
-  u <- rbind(intersected, dx, dy, nonintersected_x, nonintersected_y)
-
-  if (is.null(union_by)) {
-    u <- u |> dplyr::summarise()
-  } else {
-    u <- u |> dplyr::group_by(.data[[union_by]]) |> dplyr::summarise()
-  }
-
-  return(u)
+  dplyr::filter(merged, INTERIOR_CATEGORY == !!use_class)
 }
 
-patches_union_into_final_resultant_1 <- function(interior_forest_mature_old, interior_forest_old) {
-  interior_forest_mature_old <- interior_forest_mature_old |>
-    sf::st_set_agr("constant")
-  interior_forest_old <- interior_forest_old |>
-    sf::st_set_agr("constant")
-
-  ## relatively quick
-  step1 <- interior_forest_mature_old |>
-    st_union_analysis(interior_forest_old, union_by = "Seral") |>
-    # sf::st_collection_extract("POLYGON", warn = FALSE) |> ## already POLYGON
-    sf::st_cast("POLYGON", warn = FALSE)
-
-  return(step1)
+## step 5: patch sizes (dissolve on seral stage alone)
+patches_create_patch_size_data <- function(seral) {
+  ## NOTE: it's unnecessary here to further classify patches based on size
+  tidyterra::as_spatvector(seral) |>
+    dplyr::select(Seral) |>
+    dissolve_by("Seral")
 }
 
-patches_union_into_final_resultant_2 <- function(step1, patch_size) {
-  patch_size <- patch_size |>
-    dplyr::filter(!is.na(Seral)) |>
-    sf::st_set_agr("constant")
+## step 4 (cont.): interior forest = the target patches with the edge-influence mask erased.
+##
+## Interior-forest membership is recorded as its own column rather than by overwriting `Seral`.
+## Overwriting it is what made old cores come out labelled `Mature` in the final resultant, and
+## therefore modelled at Resistance 250 / SourceWt 0.75 instead of 1 / 1.0.
+patches_create_interior_forest <- function(patches, erase_mask, age_class) {
+  age_class <- match.arg(age_class, c("Old", "Mature"))
 
-  ## slow
-  step2 <- step1 |>
-    st_union_analysis(patch_size, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON") |>
-    sf::st_cast("POLYGON", warn = FALSE)
+  flag <- switch(age_class, Old = "old_interior", Mature = "matold_interior")
 
-  return(step2)
+  interior <- terra::erase(
+    tidyterra::as_spatvector(patches),
+    tidyterra::as_spatvector(erase_mask)
+  ) |>
+    spatialutils::repair_geoms() |>
+    terra::disagg() |>
+    drop_values()
+
+  interior[[flag]] <- flag
+
+  dissolve_by(interior, flag)
 }
 
-patches_union_into_final_resultant_3 <- function(step2, for_dist_seral) {
-  for_dist_seral <- sf::st_make_valid(for_dist_seral) |>
-    dplyr::filter(!is.na(Seral)) |>
-    dplyr::group_by(Seral) |>
-    dplyr::summarise() |> ## this union is very slow b/c 7.8 million polygons
-    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
-    sf::st_cast("POLYGON", warn = FALSE)
+## step 6: the final resultant.
+##
+## arcpy `Union` of the seral layer with both interior-forest layers: geometries are split at every
+## boundary and all three attribute sets travel through, so a polygon knows its seral stage *and*
+## whether it is old interior and/or mature+old interior.
+##
+## The former three-step `st_union_analysis()` chain is gone. Besides clobbering attributes, its
+## third step (`patches_union_final_3`) unioned the resultant with the seral layer dissolved on
+## `Seral` -- the same layer step 2 had already unioned in -- and cost 33.5 h to change 12 polygons
+## out of 162,905 and zero area.
+patches_union_into_final_resultant <- function(
+  patch_size,
+  interior_forest_old,
+  interior_forest_mature_old
+) {
+  base <- tidyterra::as_spatvector(patch_size) |>
+    dplyr::filter(!is.na(Seral))
 
-  ## very slow (the longest step)
-  step3 <- step2 |>
-    st_union_analysis(for_dist_seral, union_by = "Seral") |>
-    sf::st_collection_extract("POLYGON") |>
-    sf::st_cast("POLYGON", warn = FALSE)
-
-  return(step3)
+  terra::union(base, tidyterra::as_spatvector(interior_forest_mature_old)) |>
+    spatialutils::repair_geoms() |>
+    terra::union(tidyterra::as_spatvector(interior_forest_old)) |>
+    spatialutils::repair_geoms()
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
   ## add resistance and sourcewt based on aggregated patches
-  for_dist_seral_agg |>
+  tidyterra::as_spatvector(for_dist_seral_agg) |>
     dplyr::mutate(
       Resistance = dplyr::case_when(
         is.na(Seral) ~ 1000,
@@ -891,17 +990,21 @@ define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
 plot_forest_disturbance_seral <- function(for_dist_seral, studyArea, dst) {
   dst <- file.path(get_path("figures"), dst)
 
+  if (inherits(for_dist_seral, "SpatVector")) {
+    for_dist_seral <- sf::st_as_sf(for_dist_seral)
+  }
+
   gg_for_dist_seral <- ggplot2::ggplot(for_dist_seral) +
-    ggplot2::geom_sf(aes(fill = Seral, color = Seral)) +
-    ggplot2::facet_wrap(vars(Seral), ncol = 2) +
+    ggplot2::geom_sf(ggplot2::aes(fill = Seral, color = Seral)) +
+    ggplot2::facet_wrap(ggplot2::vars(Seral), ncol = 2) +
     ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
     ggplot2::theme_bw() +
     ggspatial::annotation_north_arrow(
       location = "bl",
       which_north = "true",
-      pad_x = unit(0.25, "in"),
-      pad_y = unit(0.25, "in"),
-      style = north_arrow_fancy_orienteering
+      pad_x = ggplot2::unit(0.25, "in"),
+      pad_y = ggplot2::unit(0.25, "in"),
+      style = ggspatial::north_arrow_fancy_orienteering
     ) +
     ggplot2::xlab("Longitude") +
     ggplot2::ylab("Latitude") +

@@ -34,12 +34,24 @@ This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
 ```r
 ## Run the workflow:
-## NOTE: callr/sf interaction causes multithread deadlock
-targets::tar_make(callr_function = NULL)
+targets::tar_make()
 
 ## Visualize the target dependencies:
 targets::tar_visnetwork()
 ```
+
+The spatial steps are dispatched to `crew` workers.
+Thread-pool settings (`OMP_NUM_THREADS`) and `terra` options live in `.Rprofile` rather than `_targets.R`, because workers start their own R sessions that load `.Rprofile` but never source `_targets.R`.
+
+Environment variables control how much of the machine the run takes:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
+| `BC_CONN_JULIA_THREADS` | `64` | Julia threads per Omniscape run |
+| `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
+
+By default a full `tar_make()` prepares every Omniscape input and stops short of launching the runs themselves, which take hours to days each.
 
 ### Debugging
 
@@ -47,7 +59,20 @@ See <https://books.ropensci.org/targets/debugging.html> for help.
 
 ```r
 ## Run the workflow verbosely
-tar_make(callr_function = NULL, reporter = "verbose")
+tar_make(reporter = "verbose")
+
+## Run in the current session, for use with browser()
+tar_make(callr_function = NULL, use_crew = FALSE, as_job = FALSE)
+```
+
+### Tests
+
+Patch construction is covered by a small standalone `testthat` suite that checks the interior-forest
+areas against a synthetic concentric case with closed-form answers:
+
+```r
+targets::tar_source()
+testthat::test_dir("tests/testthat")
 ```
 
 ```{r workflow-summary-diagram, echo = FALSE}
@@ -221,7 +246,7 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 targets::tar_read(quantiles_all_dists)
 ```
 
-We selected the 20th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(quantiles_all_dists)[["25%"]] |> prod(0.001) |> round(1)` km).
+We selected the 25th percentile value of all interpatch distances as the maximum search radius (`r targets::tar_read(quantiles_all_dists)[["25%"]] |> prod(0.001) |> round(1)` km).
 
 **Nearest neighbour interpatch distances (quantiles)**
 
@@ -365,8 +390,12 @@ Used Omniscape to produce connectivity maps.
 **NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now.
   <https://github.com/Circuitscape/Omniscape.jl/issues/160>
 
-**NOTE:** Omniscape runs need to be run manually (i.e., outside of the `targets` data prep workflow) because of a problem preventing launch of `julia` from `R`.
-Consequently, post-processing and analyses of Omniscape outputs also needs to be run manually for the time being.
+Omniscape runs are launched from the `targets` workflow, so the whole analysis is a single `tar_make()`.
+(This previously had to be done by hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled shared libraries, which any Julia subprocess inherits, so Julia resolved libraries such as `libcurl` against R's copies and segfaulted on `using Omniscape`.
+Dropping that variable from the child environment -- see `julia_env()` in `R/run_omniscape.R` -- is all that was needed.)
+
+Because a single run takes hours to days and can need hundreds of GB of RAM, they are opt-in: set `BC_CONN_OMNISCAPE` to `nn`, `alldist`, or `all` before running the pipeline.
+Runs execute sequentially, since each one already saturates the machine.
 
 The data preparation workflow generates several Omniscape configurations by adjusting the following:
 
@@ -374,8 +403,11 @@ The data preparation workflow generates several Omniscape configurations by adju
 - _radius_ (`r`): the moving window size (in pixels), based on the results of the nearest neighbour / all nseighbour analyses (the smaller `r` value for a given pixel size corresponds to the nearest neighbour patch distances, whereas the larger `r` value for a given pixel size corresponds to the result of all patch distances);
 - _block size_ (`bs`): used to speed up computations, set to approximately 10% of `r` (in pixels), per [@Phillips:2021]).
 
-To allow for running Omniscape with large `r` values, the inputs resistance and source weight rasters are split into several tiles (`t`), and corresponding Omniscript configurations are produced.
-(The `2026-01-13_p30_r1802_bs181` configuration was run as tiles and the Omniscape outputs mosaicked together for subsequent analyses.)
+Resistance and source weight rasters can optionally be split into tiles (`t`) so that runs with large `r` values fit in memory, with corresponding Omniscape configurations produced for each tile.
+
+**NOTE:** tiles must overlap by at least `2 * radius` for the mosaicked result to be free of edge artifacts ([Omniscape.jl#75](https://github.com/Circuitscape/Omniscape.jl/issues/75)).
+`write_omniscape_config()` computed that overlap in the wrong units until 2026-08-25, giving 101 pixels of overlap where a radius of 1507 px needs 3014 -- so any previously mosaicked tiled output (including `2026-01-13_p30_r1802_bs181`) is artifact-ridden and should not be used.
+Note also that at a correct overlap the buffered tiles are nearly as large as the untiled raster for large `r`, so tiling buys very little there; `ntiles = c(1, 1)` (the current default) runs untiled.
 
 Omniscape configurations produced by the data preparation workflow:
 
@@ -388,12 +420,54 @@ Omniscape configurations produced by the data preparation workflow:
 
 All configurations were run on a single AMD EPYC CPU using 64 threads (per below).
 
-Individual Omniscape runs can be launched from the terminal using e.g.,
+Individual runs can still be launched by hand from a terminal if needed, e.g.,
 
 ```bash
 ## NOTE: adjust number of threads (`-t` argument) based on CPU and RAM availability
 julia -t 64 Omniscape/2026-01-23_p30_r1507_bs151/script.jl
 ```
+
+## Corrections (2026-08-25)
+
+Several defects were found in the patch-construction chain. Together they mean that **any result
+produced by this pipeline before 2026-08-25 is invalid and must be regenerated** -- the patch
+statistics, both interpatch-distance distributions, the Omniscape radii derived from them, the
+resistance and source-weight rasters, and every Omniscape run.
+
+Measured on the Quesnel NRD, on a final layer covering 2,733,136 ha:
+
+| Defect | Effect on the modelled landscape |
+| --- | --- |
+| `patches_create_interior_forest()` erased the 25 m (Mature) edge-influence buffer from the mature+old target as well as the old-only target. Mature stands are part of the mature+old patch, so erasing their own edge influence removed every mature stand plus a 25 m margin. | `patches_interior_forest_mature_old` was numerically identical to `patches_interior_forest_old` (both 326,081.5 ha over 13,783 polygons). Anything reported as "mature+old interior forest" was really old-only interior forest. |
+| `patches_create_old_mature()` never dropped the non-target `INTERIOR_CATEGORY` class before the erase (arcpy steps 2d/2h). None of the four buffers cover unclassified (`NA` seral) land, so that land survived the erase. | 165,527 ha of the 326,036 ha "old interior forest" layer -- **50.8%** -- was not old forest. It entered the final layer as `Mature`, at Resistance 250 / SourceWt 0.75 instead of 1000 / 0. |
+| `patches_create_interior_forest()` overwrote `Seral` with the interior-forest age class, and `st_union_analysis()` then propagated `x`'s attributes onto every intersection. | 160,417 ha of old forest core -- 45% of all old forest -- was relabelled `Mature` and modelled at Resistance 250 / SourceWt 0.75 instead of 1 / 1.0. `patches_union_final_1` came out 100% `Mature`, with `Old` reduced to 179 slivers totalling 2.4e-11 ha. |
+| `create_forest_disturbance_seral()` used `sf::st_join()`, which duplicates whole geometries rather than splitting them at the overlay boundaries. | The seral layer was inflated from 4.02 M polygons / 4.09 Mha to 7.78 M / 39.5 Mha, and ~165,000 ha (6% of the landscape) belonged to two or more seral stages at once, resolved arbitrarily by union order. |
+| `write_omniscape_config()` divided the tile overlap by the pixel size, but `radius` is already in pixels. | Tiles overlapped by 101 px where a radius of 1507 px needs 3014. Mosaicked tiled output (e.g. `2026-01-13_p30_r1802_bs181`) has seam artifacts across essentially the whole tile. |
+| `calc_patch_stats()` measured patches on the final resultant, whose polygons are overlay fragments rather than patches. | Reported patch sizes described the overlay: the smallest `Old` "patch" was 4.6e-6 m^2 and the median 1,936 m^2 (0.19 ha). Statistics are now computed on the dissolved seral layer (arcpy step 5a). |
+| Sliver elimination passed `overlap = TRUE` to `terra::combineGeoms()`, which assigns a sliver by overlap area rather than by shared-border length. | The arcpy `Eliminate` step this ports uses the *LENGTH* rule -- "the neighbouring polygon with the longest shared border" (steps 2c/2g). Now delegated to `spatialutils::eliminate_slivers()`, which implements that rule. |
+| Areas were about to be measured with `terra::expanse()`, whose `transform = TRUE` default returns *geodesic* area. | 2.69% larger than planar area in this study area's Lambert projection (3,010,405 ha vs 2,931,558 ha for the seral layer) -- enough to move stands across the 1 ha buffer threshold and inflate every reported total. All areas are now planar, matching `sf::st_area()` and ArcGIS `Shape_Area`. |
+
+Reconciling the corrected areas against the published ones closes exactly:
+`Old` 355,530 - 160,417 = 195,113 ha (reported: 195,083);
+`Mature` 714,243 + 160,417 + 165,527 = 1,040,187 ha (reported: 1,040,306).
+
+Interior forest is now carried as `old_interior` / `matold_interior` attribute columns alongside
+`Seral`, as the arcpy `Union` it ports does, rather than by overwriting the seral stage.
+
+Two defects prevented the pipeline from running at all on its pinned dependencies, and were
+presumably why it had to be driven by hand:
+
+- `error = "trim"` no longer validates -- it was renamed `"abridge"` in `targets` 1.5.0.
+- `.Rprofile` attached `dplyr`, `sf`, and `targets`. `.Rprofile` runs *before* R attaches the
+  default packages, so those landed **below** `stats` on the search path, and `library()` on an
+  already-attached package cannot lift them back up. A bare `filter()` therefore resolved to
+  `stats::filter()`, failing with an unrelated-looking error. Nothing is attached there now, and
+  every call in `R/` is qualified.
+
+Two further changes affect run time rather than results:
+`patches_union_final_3` was removed (it re-unioned a layer step 2 had already unioned in, costing
+33.5 h to change 12 polygons out of 162,905 and zero area), and the nearest-neighbour distance
+calculation no longer rebuilds a GEOS index once per polygon.
 
 # Using this repository
 

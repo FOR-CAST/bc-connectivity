@@ -6,7 +6,7 @@ create_resistance_raster <- function(polys, rasterToMatch, dst) {
   dst <- file.path(get_path("rasters"), dst)
 
   terra::rasterize(
-    polys,
+    tidyterra::as_spatvector(polys),
     rasterToMatch,
     field = "Resistance",
     fun = mean,
@@ -24,7 +24,7 @@ create_sourcewt_raster <- function(polys, rasterToMatch, dst) {
   dst <- file.path(get_path("rasters"), dst)
 
   terra::rasterize(
-    polys,
+    tidyterra::as_spatvector(polys),
     rasterToMatch,
     field = "SourceWt",
     fun = mean,

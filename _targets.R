@@ -17,9 +17,24 @@ if (dir.exists("/mnt/shared_cache/bcmaps")) {
   options(bcmaps.data_dir = "/mnt/shared_cache/bcmaps")
 }
 
-terra::terraOptions(memfrac = 0.0) ## perform raster operations on disk
+## NOTE: terra options are set in `.Rprofile` so that crew workers get them too --
+## setting them here would only affect the session that *defines* the pipeline.
+
+## Pin the format `tar_terra_vect()` serialises to. GeoPackage preserves both `NA` character values
+## (the interior-forest flags are NA for most polygons) and feature order; FlatGeobuf round-trips
+## the same features in a different order, which would silently desynchronise the row-index chunking
+## the distance calculations rely on.
+geotargets::geotargets_option_set(gdal_vector_driver = "GPKG")
 
 ## Set target options:
+##
+## Worker count is capped rather than "all cores": the heavy steps are now branched and short, and
+## this machine is usually shared with other analyses. Override with `BC_CONN_WORKERS`.
+n_workers <- as.integer(Sys.getenv(
+  "BC_CONN_WORKERS",
+  min(parallelly::availableCores(omit = 2), 64L)
+))
+
 tar_option_set(
   ## Packages that your targets need for their tasks.
   packages = c(
@@ -30,6 +45,7 @@ tar_option_set(
     "ggspatial",
     "purrr",
     "sf",
+    "spatialutils",
     "terra",
     "tidyterra",
     "tibble",
@@ -40,15 +56,15 @@ tar_option_set(
   ## Optional settings
   # format = "qs",
   memory = "transient",
-  # garbage_collection = 100,
+  garbage_collection = TRUE,
 
   ## Pipelines that take a long time to run may benefit from distributed computing.
   ## To use this capability in tar_make(), supply a {crew} controller
   ## as discussed at <https://books.ropensci.org/targets/crew.html>.
   controller = crew::crew_controller_local(
-    workers = min(parallelly::availableCores(omit = 1), 256L), ## adjust max workers as needed
+    workers = n_workers,
     seconds_idle = 600,
-    crashes_max = 20L ## using higher value here because of race condition with so many threads
+    crashes_max = 20L
   ),
   storage = "worker",
   retrieval = "worker",
@@ -56,11 +72,18 @@ tar_option_set(
   ## Debugging options (see <https://books.ropensci.org/targets/debugging.html>)
   ## NOTE: to run in interactive session for use with browser(), run pipeline with:
   ## `tar_make(callr_function = NULL, use_crew = FALSE, as_job = FALSE)`
-  error = "trim", ## allows targets to keep running unless affected by the error
+  ## `"trim"` was renamed `"abridge"` in targets 1.5.0; the old name now fails tar_validate().
+  ## Unaffected targets keep running; anything downstream of an error is skipped.
+  error = "abridge",
   # workspace_on_error = TRUE
 
   ## Set other options as needed.
 )
+
+## Number of tiles / chunks used to parallelise the spatial overlays and distance calculations.
+n_tiles <- c(8, 8) ## 64 tiles over the study area
+n_chunks_nn <- 64L
+n_chunks_all <- 64L
 
 ## Run the R scripts in the R/ folder with your custom functions:
 tar_source()
@@ -187,7 +210,7 @@ list(
     command = save_gpkg(VRI, "VRI.gpkg"),
     format = "file"
   ),
-  tar_target(
+  tar_terra_vect(
     name = VRI_BECNDT,
     command = create_vri_becndt(VRI, BECNDT, leading_group_cariboo)
   ),
@@ -206,9 +229,33 @@ list(
     command = save_gpkg(forest_disturbance, "forest_disturbance.gpkg"),
     format = "file"
   ),
+  ## Seral stage assignment is an overlay, and overlays are embarrassingly parallel over space:
+  ## tile the study area and let the crew workers do it. Each branch reads only the features
+  ## overlapping its tile straight from the GeoPackages, so no worker ever holds the 4 M-polygon
+  ## forest disturbance layer.
   tar_target(
+    name = study_area_tiles,
+    command = make_study_area_tiles(Quesnel_TSA_buffered_LCC, n = n_tiles),
+    iteration = "group"
+  ),
+  tar_target(
+    name = sifa_max,
+    command = max_stand_age(forest_disturbance_gpkg)
+  ),
+  tar_terra_vect(
+    name = forest_disturbance_seral_tiles,
+    command = create_forest_disturbance_seral(
+      forest_disturbance_gpkg,
+      VRI_BECNDT_gpkg,
+      study_area_tiles,
+      sifa_max
+    ),
+    pattern = map(study_area_tiles),
+    iteration = "list"
+  ),
+  tar_terra_vect(
     name = forest_disturbance_seral,
-    command = create_forest_disturbance_seral(forest_disturbance, VRI_BECNDT)
+    command = combine_spatvectors(forest_disturbance_seral_tiles)
   ),
   tar_target(
     name = forest_disturbance_seral_png,
@@ -225,45 +272,46 @@ list(
     format = "file"
   ),
 
-  tar_target(
+  ## Patch construction (README appendix, arcpy steps 1-6) ---------------------------------------
+  tar_terra_vect(
     name = patches_input_data,
     command = patches_get_input_data(forest_disturbance_seral)
   ),
 
-  ## TODO: targets branching not working with sf objects
-  ## - even though sf inherits from data.frame, branching complains about it not being a data.frame;
-  ## - manually split the forest seral sf object to run in parallel, since it's only a few predetermined groups;
-  ## - manually recombine at the end, then assign resistance and sourcewt values;
-  tar_target(
+  tar_terra_vect(
     name = patches_mature_old,
     command = patches_create_old_mature(patches_input_data, c("Mature", "Old"))
   ),
-  tar_target(
+  tar_terra_vect(
     name = patches_old,
     command = patches_create_old_mature(patches_input_data, "Old")
   ),
 
-  tar_target(
+  ## Edge-influence buffers, one per neighbouring seral stage
+  ## (Early <20 yr -> 200 m, Early >=20 yr -> 101 m, Mid -> 52 m, Mature -> 25 m).
+  tar_terra_vect(
     name = patches_buffer_200,
     command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 200)
   ),
-  tar_target(
+  tar_terra_vect(
     name = patches_buffer_100,
     command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 100)
   ),
-  tar_target(
+  tar_terra_vect(
     name = patches_buffer_50,
     command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 50)
   ),
-  tar_target(
+  tar_terra_vect(
     name = patches_buffer_25,
     command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 25)
   ),
 
-  tar_target(
-    name = patches_interior_forest_old,
-    command = patches_create_interior_forest(
-      patches_old,
+  ## The four sequential erases collapse to one erase against the union of the buffers that apply.
+  ## The 25 m (Mature) buffer applies only to the old-only target -- see
+  ## `patches_create_erase_mask()`.
+  tar_terra_vect(
+    name = patches_erase_mask_old,
+    command = patches_create_erase_mask(
       patches_buffer_200,
       patches_buffer_100,
       patches_buffer_50,
@@ -271,10 +319,9 @@ list(
       "Old"
     )
   ),
-  tar_target(
-    name = patches_interior_forest_mature_old,
-    command = patches_create_interior_forest(
-      patches_mature_old,
+  tar_terra_vect(
+    name = patches_erase_mask_mature_old,
+    command = patches_create_erase_mask(
       patches_buffer_200,
       patches_buffer_100,
       patches_buffer_50,
@@ -283,31 +330,39 @@ list(
     )
   ),
 
-  tar_target(
+  tar_terra_vect(
+    name = patches_interior_forest_old,
+    command = patches_create_interior_forest(patches_old, patches_erase_mask_old, "Old")
+  ),
+  tar_terra_vect(
+    name = patches_interior_forest_mature_old,
+    command = patches_create_interior_forest(
+      patches_mature_old,
+      patches_erase_mask_mature_old,
+      "Mature"
+    )
+  ),
+
+  tar_terra_vect(
     name = patches_patch_size,
     command = patches_create_patch_size_data(patches_input_data)
   ),
 
-  ## split into three steps to speed up rerunning
-  tar_target(
-    name = patches_union_final_1,
-    command = patches_union_into_final_resultant_1(
-      patches_interior_forest_mature_old,
-      patches_interior_forest_old
+  ## arcpy step 6a: Union of the seral layer with both interior-forest layers. Every polygon keeps
+  ## its own seral stage and gains `old_interior` / `matold_interior` flags -- interior forest is an
+  ## attribute, not a relabelling.
+  tar_terra_vect(
+    name = patches_union_final,
+    command = patches_union_into_final_resultant(
+      patches_patch_size,
+      patches_interior_forest_old,
+      patches_interior_forest_mature_old
     )
   ),
-  tar_target(
-    name = patches_union_final_2,
-    command = patches_union_into_final_resultant_2(patches_union_final_1, patches_patch_size)
-  ),
-  tar_target(
-    name = patches_union_final_3,
-    command = patches_union_into_final_resultant_3(patches_union_final_2, forest_disturbance_seral)
-  ),
 
-  tar_target(
+  tar_terra_vect(
     name = forest_patches_final,
-    command = define_forest_seral_patch_conn_vals(patches_union_final_3)
+    command = define_forest_seral_patch_conn_vals(patches_union_final)
   ),
   tar_target(
     name = forest_patches_final_gpkg,
@@ -466,9 +521,12 @@ list(
   ),
 
   ## patch statistics / summaries
+  ##
+  ## Computed on the dissolved seral layer (arcpy step 5a), where a "patch" is a contiguous area of
+  ## one seral stage -- not on the final resultant, whose polygons are overlay fragments.
   tar_target(
     name = patch_summary,
-    command = calc_patch_stats(forest_patches_final),
+    command = calc_patch_stats(patches_patch_size)
   ),
   tar_target(
     name = patch_summary_csv,
@@ -477,20 +535,26 @@ list(
   ),
 
   ## interpatch assesments ------------------------------------------------------------------------
-  tar_target(
+  tar_terra_vect(
     name = patches_matold,
     command = calc_matold(forest_patches_final)
   ),
 
-  ## use more chunks for nn dist calcs b/c need to loop over rows in each chunk
+  ## Chunks are index ranges, not pre-split copies of the layer: every branch needs the whole layer
+  ## to find neighbours anyway, and shipping a list of 255 pre-split chunks alongside it is what
+  ## drove the ~350 GB of resident memory this step used to need.
   tar_target(
     name = forest_patches_chunks_nn_dists,
-    command = make_chunks(patches_matold, n_chunks = 255L), ## 255 chunks: ~350 GB RAM total; @ ~15-20 mins each
-    deployment = "main" ## keep in main R session for optimal worker dispatch
+    command = make_chunks(terra::nrow(patches_matold), n_chunks = n_chunks_nn),
+    iteration = "group"
   ),
   tar_target(
     name = nn_interpatch_distances_chunks,
-    command = calc_nn_dists(patches_matold, forest_patches_chunks_nn_dists),
+    command = calc_nn_dists(
+      patches_matold,
+      forest_patches_chunks_nn_dists,
+      n_chunks = n_chunks_nn
+    ),
     pattern = map(forest_patches_chunks_nn_dists),
     iteration = "list"
   ),
@@ -508,31 +572,26 @@ list(
     format = "file"
   ),
 
-  ## use fewer chunks for all dist calcs b/c need to loop over rows
-  tar_target(
-    name = forest_patches_chunks_all_dists,
-    command = make_chunks(patches_matold, n_chunks = 64L),
-    deployment = "main" ## keep in main R session for optimal worker dispatch
-  ),
+  ## all pairwise distances: one branch per chunk pair, written straight to a parquet dataset
   tar_target(
     name = all_interpatch_distances_grid,
-    command = calc_all_dists_grid(length(forest_patches_chunks_all_dists)),
+    command = calc_all_dists_grid(n_chunks_all),
+    iteration = "group",
     deployment = "main" ## trivial to compute
   ),
   tar_target(
-    name = all_interpatch_distances_chunks,
-    command = calc_all_dists(forest_patches_chunks_all_dists, all_interpatch_distances_grid),
-    pattern = map(all_interpatch_distances_grid)
-  ),
-
-  tar_target(
-    name = all_interpatch_distances_combined,
-    command = calc_all_dists_combine(all_interpatch_distances_chunks),
-    pattern = map(all_interpatch_distances_chunks)
+    name = all_interpatch_distances_parquet,
+    command = calc_all_dists(
+      patches_matold,
+      all_interpatch_distances_grid,
+      n_chunks = n_chunks_all
+    ),
+    pattern = map(all_interpatch_distances_grid),
+    format = "file"
   ),
   tar_target(
     name = quantiles_all_dists,
-    command = calc_all_dists_quantiles(all_interpatch_distances_combined)
+    command = calc_all_dists_quantiles(all_interpatch_distances_parquet)
   ),
 
   ## create resistance and sourcewt rasters
@@ -790,6 +849,10 @@ list(
   ),
 
   ## Omniscape --------------------------------------------------------------------------------
+  ##
+  ## Runs are now launched from R (see `run_omniscape()` / `julia_env()`), so the whole analysis is
+  ## one `tar_make()`. They are still expensive -- hours to days each -- so which configurations
+  ## actually run is controlled by `omniscape_runs` below rather than by launching everything.
   tar_target(
     name = omniscape_config_alldist,
     command = write_omniscape_config(
@@ -798,7 +861,7 @@ list(
       patch_distances = quantiles_all_dists,
       q = 25, ## ~45 km
       run_name = "2026-01-23",
-      ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
+      ntiles = c(1, 1) ## untiled; see write_omniscape_config() on tile overlap
     ),
     format = "file",
     pattern = map(resistance_composite, sourcewt_composite),
@@ -813,28 +876,57 @@ list(
       patch_distances = quantiles_nn_dists,
       q = 100, ## could reasonably use e.g., 90, 95, 99, 100
       run_name = "2026-01-23",
-      ntiles = c(2, 3) ## NOTE: be sure to delete old tiles if changing this value
+      ntiles = c(1, 1)
     ),
     format = "file",
     pattern = map(resistance_composite, sourcewt_composite),
     iteration = "list"
   ),
 
-  ## TODO: too many issues launching julia, running Omniscape from R;
-  ## -- run manually from bash shell (but not via Rstudio terminal!)
-  # tar_target(
-  #   name = omniscape_run,
-  #   command = run_omniscape(omniscape_config, 64L),
-  #   format = "file",
-  #   pattern = map(omniscape_config),
-  #   iteration = "list"
-  # ),
+  ## Which launch scripts to actually run, and with how many Julia threads.
+  ##
+  ## `BC_CONN_OMNISCAPE` selects the configurations: "none" (default -- write configs only),
+  ## "nn", "alldist", or "all". Leaving it unset means a full `tar_make()` prepares every input and
+  ## stops short of committing the machine to a multi-day Omniscape run.
+  tar_target(
+    name = omniscape_scripts_to_run,
+    command = select_omniscape_runs(
+      omniscape_config_nndist,
+      omniscape_config_alldist,
+      which = Sys.getenv("BC_CONN_OMNISCAPE", "none")
+    ),
+    deployment = "main",
+    cue = tar_cue(mode = "always") ## the env var is not a target dependency
+  ),
+  ## Runs are executed sequentially rather than branched: each one already saturates the machine
+  ## (64 Julia threads, 100-650 GB), so running two at once would only thrash.
+  tar_target(
+    name = omniscape_run,
+    command = run_omniscape_all(
+      omniscape_scripts_to_run,
+      julia_threads = as.integer(Sys.getenv("BC_CONN_JULIA_THREADS", 64L))
+    ),
+    format = "file",
+    deployment = "main" ## long-running; keep it off the crew workers
+  ),
 
-  ## TODO: use `pattern = map(omniscape_run)` instead of finding output dirs manually
-  # tar_target(
-  #   name = omniscape_summary,
-  #   command = zonal_summaries(Quesnel_TSA, LCC, moose_wetlands, MDWR, OGMA, parks, wetlands, WHA)
-  # ),
+  tar_target(
+    name = omniscape_summary,
+    command = zonal_summaries(
+      omniscape_run,
+      Quesnel_TSA,
+      LCC,
+      LU,
+      BEC,
+      moose_wetlands,
+      MDWR,
+      OGMA,
+      parks,
+      wetlands,
+      WHA
+    ),
+    format = "file"
+  ),
 
   ## render README
   tar_render(
