@@ -221,9 +221,16 @@ list(
     ## only to fail at store time with "unused argument". Its branches already read back as a list.
     pattern = map(study_area_tiles)
   ),
+  ## `deployment = "main"`: these two targets only concatenate the branches above, but they failed
+  ## on a crew worker with "Error storing output: C stack usage 13972132161860 is too close to the
+  ## limit" -- a nonsense figure. R's C stack detection is unreliable in the worker (`Cstack_info()`
+  ## reports a normal 8 MB stack in a plain session), and writing several hundred thousand polygons
+  ## recurses deeply enough to trip it. The identical combine and write succeed on main in ~5 s.
+  ## Running here also avoids shipping the combined layer back from a worker.
   tar_terra_vect(
     name = VRI_BECNDT,
-    command = combine_spatvectors(VRI_BECNDT_tiles)
+    command = combine_spatvectors(VRI_BECNDT_tiles),
+    deployment = "main"
   ),
   tar_target(
     name = VRI_BECNDT_gpkg,
@@ -265,7 +272,8 @@ list(
   ),
   tar_terra_vect(
     name = forest_disturbance_seral,
-    command = combine_spatvectors(forest_disturbance_seral_tiles)
+    command = combine_spatvectors(forest_disturbance_seral_tiles),
+    deployment = "main" ## see VRI_BECNDT above
   ),
   tar_target(
     name = forest_disturbance_seral_png,
