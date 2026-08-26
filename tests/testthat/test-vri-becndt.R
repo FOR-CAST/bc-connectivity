@@ -131,3 +131,20 @@ test_that("a tile outside every input returns an empty layer", {
 
   expect_equal(nrow(create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC, far)), 0L)
 })
+
+test_that("the leading-group join partitions the VRI x BEC result exactly", {
+  ## `terra::union()` failed both halves of this on real data: its output polygons overlapped each
+  ## other by 2,444 ha and its dissolved footprint was 1,619 ha smaller than its input, so it
+  ## double-counted some land and dropped other land outright.
+  fx <- vri_fixture()
+  out <- create_vri_becndt(fx$VRI, fx$BECNDT, fx$LGC)
+
+  ## no duplication: the parts sum to the area they jointly cover
+  expect_equal(area_ha(out), area_ha(terra::aggregate(out)), tolerance = 1e-9)
+
+  ## no loss: that area is the whole VRI x BEC footprint
+  expect_equal(area_ha(terra::aggregate(out)), 100 * 100 / 1e4, tolerance = 1e-9)
+
+  ## and every part carries a leading group or an explicit NA, never a fabricated one
+  expect_setequal(unique(terra::values(out)$LEADING_GRP), c("FirGroup", NA_character_))
+})
