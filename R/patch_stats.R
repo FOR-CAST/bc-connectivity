@@ -5,10 +5,21 @@
 ##
 ## They used to be computed on the final resultant instead. That layer is an overlay: its polygons
 ## are the fragments produced by splitting the seral layer at every interior-forest boundary, not
-## patches. The resulting "patch sizes" were dominated by overlay slivers -- the smallest reported
-## Old "patch" was 4.6e-6 m^2 and the median 1,936 m^2 (0.19 ha), against a real mean patch size of
-## ~9 ha -- so the statistics described the overlay, not the landscape.
-calc_patch_stats <- function(patch_size) {
+## patches.
+##
+## A minimum patch size is applied because the dissolved seral layer is itself full of slivers --
+## artifacts of the source polygon boundaries rather than landscape structure. Measured on the
+## Quesnel NRD: of 283,151 patches, 63% are smaller than a single 30 m pixel and 1,088 have exactly
+## zero area, yet all of those together account for 1,427 ha out of 2,704,355 -- 0.05% of the
+## landscape. Without a floor the median patch size describes the slivers, not the forest.
+##
+## 1 ha matches the threshold the CEF Biodiversity Protocol uses for residual patches (§3.2.2), and
+## the one arcpy `Eliminate` applies at steps 2c/2g. Note that this is a *reporting* filter: it
+## changes the statistics only, never the layers the connectivity analysis is built from. The
+## excluded count and area are reported alongside so nothing is hidden.
+calc_patch_stats <- function(patch_size, min_area = units::set_units(1, "ha")) {
+  min_m2 <- as.numeric(units::set_units(min_area, "m^2", mode = "standard"))
+
   v <- tidyterra::as_spatvector(patch_size) |> dplyr::filter(!is.na(Seral))
 
   data.frame(
@@ -17,14 +28,17 @@ calc_patch_stats <- function(patch_size) {
   ) |>
     dplyr::group_by(Seral) |>
     dplyr::summarise(
-      N = dplyr::n(),
-      Area_Min = min(Area),
-      Area_Mean = mean(Area),
-      Area_Median = stats::median(Area),
-      Area_Max = max(Area),
-      Area_Total = sum(Area),
+      N = sum(Area >= min_m2),
+      Area_Min = min(Area[Area >= min_m2]),
+      Area_Mean = mean(Area[Area >= min_m2]),
+      Area_Median = stats::median(Area[Area >= min_m2]),
+      Area_Max = max(Area[Area >= min_m2]),
+      Area_Total = sum(Area[Area >= min_m2]),
+      N_Excluded = sum(Area < min_m2),
+      Area_Excluded = sum(Area[Area < min_m2]),
       .groups = "drop"
-    )
+    ) |>
+    dplyr::mutate(Min_Patch_Area = min_m2, .after = "Seral")
 }
 
 save_patch_stats <- function(stats_df) {
