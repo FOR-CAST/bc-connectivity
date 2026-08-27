@@ -1,0 +1,450 @@
+---
+title: "Quesnel NRD connectivity: corrections and rerun, August 2026"
+subtitle: "What changed, what it cost, and what it means for the Omniscape runs"
+author: "Alex Chubaty"
+date: "Last updated: `r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+    latex_engine: pdflatex
+geometry: margin=2.5cm
+urlcolor: blue
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+
+## knitr evaluates chunks in the directory of the input file, so anything that resolves the project
+## by falling back to the working directory (`workflowtools::findProjectPath()` among them) reports
+## `reports/` and every derived path silently misses. Walk up to the directory holding `_targets.R`.
+find_project_root <- function(start = getwd()) {
+  p <- normalizePath(start, mustWork = FALSE)
+  while (!file.exists(file.path(p, "_targets.R")) && dirname(p) != p) p <- dirname(p)
+  if (!file.exists(file.path(p, "_targets.R"))) stop("could not locate the project root")
+  p
+}
+
+proj <- find_project_root()
+knitr::opts_knit$set(root.dir = proj)
+
+library(dplyr)
+library(knitr)
+library(targets)
+
+## Artefacts of the published (pre-correction) run, copied out of the way before the rerun
+## overwrote them. See section "Reproducing this report".
+PUBLISHED <- file.path(proj, "Data", "processed", "published-2026-01-27")
+## Derived from wherever `_targets` actually resolves to (it is usually a symlink to bulk storage),
+## so no site-specific absolute path is baked into the repo. Override with the environment variable.
+PUB_META <- Sys.getenv(
+  "BC_CONN_PUBLISHED_META",
+  file.path(dirname(normalizePath(file.path(proj, "_targets"), mustWork = FALSE)),
+            "_targets_meta_backup_pre-2026-08-25-fixes")
+)
+## Figures live beside this document, wherever it is. Building the path out of `proj` instead
+## hardcodes the assumption that this file sits in `reports/`, and when project-root resolution
+## slipped that assumption produced a nested `reports/reports/figures`.
+rmd_dir <- tryCatch(dirname(knitr::current_input(dir = TRUE)), error = function(e) NULL)
+
+if (is.null(rmd_dir) || !nzchar(rmd_dir) || is.na(rmd_dir)) {
+  rmd_dir <- file.path(proj, "reports") ## sourcing the chunks outside knitr
+}
+
+FIGDIR <- normalizePath(file.path(rmd_dir, "figures"), mustWork = FALSE)
+dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
+
+ha  <- function(x) sum(terra::expanse(x, unit = "ha", transform = FALSE))
+num <- function(x, d = 1) formatC(round(x, d), format = "f", big.mark = ",", digits = d)
+dur <- function(s) {
+  ifelse(is.na(s), "--",
+    ifelse(s >= 3600, sprintf("%.2f h", s / 3600),
+      ifelse(s >= 60, sprintf("%.1f m", s / 60), sprintf("%.1f s", s))))
+}
+have <- function(...) all(file.exists(...))
+
+## `tar_read()` happily returns a target that has NOT been rebuilt: the store keeps the published
+## run's object and metadata until the target is remade. Reading one of those and calling it
+## "corrected" would silently compare the published run against itself. A target counts as rebuilt
+## only where its recorded time differs from the published snapshot.
+secs_by_name <- function(store) {
+  if (!dir.exists(store)) return(NULL)
+  m <- tar_meta(store = store, fields = c("name", "seconds"))
+  stats::setNames(m$seconds, m$name)
+}
+
+PUB_SECONDS <- secs_by_name(PUB_META)
+CUR_SECONDS <- secs_by_name(file.path(proj, "_targets"))
+
+is_rebuilt <- function(target) {
+  if (is.null(PUB_SECONDS) || !target %in% names(PUB_SECONDS)) return(TRUE)
+  if (is.null(CUR_SECONDS) || !target %in% names(CUR_SECONDS)) return(FALSE)
+  cur <- CUR_SECONDS[[target]]
+  if (is.na(cur)) return(FALSE)
+  !isTRUE(all.equal(cur, unname(PUB_SECONDS[[target]])))
+}
+```
+
+# Summary
+
+A defect found in the seral-patch construction (commit `145cffb`) turned out to be one of several,
+and together they invalidate the connectivity results published in January 2026.
+This report documents what was wrong, what the corrected numbers are, what the rerun cost, and how
+urgently the Omniscape runs need to be repeated.
+
+The headline is that the two layers Omniscape actually consumes -- the composite resistance and
+source-weight rasters -- change materially, because roughly half of what the published run treated
+as old interior forest was not forest at all, and a further large block of genuine old forest was
+modelled at the wrong resistance.
+The Omniscape runs therefore need to be repeated; they cannot be patched.
+
+```{r headline}
+data.frame(
+  Item = c(
+    "Seral layer, total area",
+    "Old interior forest",
+    "VRI x NDT-BEC layer, double-counted area",
+    "Pipeline steps eliminated"
+  ),
+  Published = c("2,931,558 ha", "326,081.5 ha (13,783 polys)", "15,449.2 ha", "--"),
+  Corrected = c("see Section 3", "166,915.6 ha (10,348 polys)", "0.0 ha", "35.1 h of compute"),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = "Headline effects of the corrections.", booktabs = TRUE)
+```
+
+# Defects
+
+Each of these produced plausible-looking wrong numbers rather than an error, which is why they
+survived into a published run.
+
+```{r defects}
+data.frame(
+  Defect = c(
+    "Interior forest erased the 25 m buffer from the mature+old target as well as old",
+    "Old/mature-old patches were never filtered to INTERIOR_CATEGORY MO/O",
+    "Interior forest overwrote `Seral`; the union propagated the wrong attributes",
+    "Seral layer built with `sf::st_join()` instead of an intersection",
+    "Leading group joined with `terra::union()`",
+    "Sliver elimination used the area rule, not arcpy's LENGTH rule",
+    "Patch statistics measured overlay fragments",
+    "Omniscape tile overlap divided by pixel size"
+  ),
+  Effect = c(
+    "mature+old interior forest came out byte-identical to old-only",
+    "50.8% of `old interior forest` was unclassified land",
+    "160,417 ha of old cores modelled at resistance 250 instead of 1",
+    "layer inflated to 7.78 M polygons / 39.5 Mha",
+    "22,628 ha of land dropped, 15,449 ha double-counted",
+    "not the semantics the arcpy scripts this ports rely on",
+    "smallest reported Old patch was 4.6e-6 m2",
+    "artifact-ridden mosaic in the tiled benchmark run"
+  ),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = "Defects corrected in this rerun.", booktabs = TRUE)
+```
+
+# Data corrections
+
+## The VRI x NDT-BEC overlay
+
+The leading-group layer is left-joined onto the VRI x NDT-BEC intersection.
+This was done with `terra::union()` followed by dropping the leading-group-only parts.
+`terra::union()` is wrong here: it emits output polygons that overlap one another, and its dissolved
+footprint is smaller than its input, so it double-counts some land and drops other land outright.
+The two errors act in opposite directions, which is why the published total looked only slightly low
+rather than obviously broken.
+
+`terra::intersect()` plus `terra::erase()` partitions the input exactly.
+
+```{r vri-becndt}
+data.frame(
+  Measure = c("features", "sum of parts (ha)", "dissolved footprint (ha)", "double-counted (ha)"),
+  Published = c("400,534", "3,534,286.2", "3,518,837.1", "15,449.2"),
+  Corrected = c("398,109", "3,541,465.4", "3,541,465.4", "0.0"),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = paste(
+    "VRI x NDT-BEC overlay, whole study area.",
+    "In the corrected layer the parts sum exactly to the area they cover."
+  ), booktabs = TRUE)
+```
+
+## Forest patches
+
+```{r patches-table}
+pub_gpkg <- file.path(PUBLISHED, "forest_patches_final.gpkg")
+ok_patches <- have(pub_gpkg) &&
+  !inherits(try(tar_read_raw("forest_patches_final"), silent = TRUE), "try-error") &&
+  is_rebuilt("forest_patches_final")
+```
+
+```{r patches-compare, eval = ok_patches}
+tabulate_patches <- function(v) {
+  v$ha <- terra::expanse(v, unit = "ha", transform = FALSE)
+  as.data.frame(v) |>
+    group_by(Seral, Resistance, SourceWt) |>
+    summarise(n = n(), ha = sum(ha), .groups = "drop")
+}
+
+b <- terra::vect(pub_gpkg)
+a <- tidyterra::as_spatvector(tar_read_raw("forest_patches_final"))
+
+cmp <- full_join(
+  tabulate_patches(b) |> rename(n_pub = n, ha_pub = ha),
+  tabulate_patches(a) |> rename(n_cor = n, ha_cor = ha),
+  by = c("Seral", "Resistance", "SourceWt")
+) |>
+  mutate(across(where(is.numeric), \(x) ifelse(is.na(x), 0, x)),
+         d = ha_cor - ha_pub,
+         pct = ifelse(ha_pub > 0, 100 * d / ha_pub, NA_real_)) |>
+  arrange(Resistance)
+
+cmp |>
+  transmute(Seral, Resistance, SourceWt,
+            `Published (ha)` = num(ha_pub), `Corrected (ha)` = num(ha_cor),
+            `Change (ha)` = num(d), `Change (%)` = num(pct)) |>
+  kable(caption = paste(
+    "Final resultant by seral stage. Resistance and source weight are assigned from",
+    "`Seral`, so a stage that changes area moves that area between resistance classes."
+  ), booktabs = TRUE)
+```
+
+```{r patches-missing, eval = !ok_patches, results = "asis"}
+cat("_The corrected `forest_patches_final` was not available when this was rendered._\n")
+```
+
+## Patch statistics
+
+Patch statistics now apply a 1 ha floor, matching the CEF Biodiversity Protocol threshold for
+residual patches and the threshold arcpy `Eliminate` applies.
+This is a reporting filter only: it never changes the layers the connectivity analysis is built
+from, and the excluded count and area are reported alongside.
+
+```{r patch-stats, results = "asis"}
+pub_stats <- file.path(PUB_META, "Quesnel_TSA_seral_patch_stats.csv")
+cor_stats <- file.path(proj, "Outputs", "Quesnel_TSA_seral_patch_stats.csv")
+if (have(pub_stats, cor_stats)) {
+  p <- read.csv(pub_stats); q <- read.csv(cor_stats)
+  keep <- intersect(names(p), names(q))
+  bind_rows(mutate(p[, keep], run = "published"), mutate(q[, keep], run = "corrected")) |>
+    kable(caption = "Seral patch statistics, published vs corrected.", booktabs = TRUE) |>
+    cat(sep = "\n")
+} else {
+  cat("_Patch statistics not available._")
+}
+```
+
+# Figures
+
+The two maps below are rendered by the same function from the same code path, so differences
+between them are differences in the data and not in how they were drawn.
+
+```{r map-before, eval = ok_patches, fig.cap = "Published patches (January 2026). Old is thin and fragmented; Mature is near-continuous.", out.width = "100%"}
+targets::tar_source()
+f <- file.path(FIGDIR, "patches_published.png")
+if (!file.exists(f)) {
+  plot_forest_disturbance_seral(b, tar_read_raw("Quesnel_TSA"),
+                                "patches_published.png", outdir = FIGDIR)
+}
+include_graphics(f, rel_path = FALSE)
+```
+
+```{r map-after, eval = ok_patches, fig.cap = "Corrected patches (August 2026).", out.width = "100%"}
+f <- file.path(FIGDIR, "patches_corrected.png")
+if (!file.exists(f)) {
+  plot_forest_disturbance_seral(a, tar_read_raw("Quesnel_TSA"),
+                                "patches_corrected.png", outdir = FIGDIR)
+}
+include_graphics(f, rel_path = FALSE)
+```
+
+# Runtime and resources
+
+## Runtime
+
+Times are CPU seconds as recorded by `targets`; for branched targets they are the sum over branches,
+so they exceed wall-clock where branches ran in parallel.
+
+A caveat that matters when reproducing this: the live `_targets` store keeps metadata rows for
+targets that have *not* been rebuilt, so a naive comparison of the two stores double-counts the
+unchanged work and reports a meaningless 1.0x.
+Targets are treated as rebuilt here only where the recorded time differs from the published run.
+
+```{r runtime, results = "asis"}
+roll <- function(store) {
+  m <- tar_meta(store = store, fields = c("name", "seconds", "parent"))
+  br <- m |> filter(!is.na(parent)) |> group_by(name = parent) |>
+    summarise(seconds = sum(seconds, na.rm = TRUE), .groups = "drop")
+  tp <- m |> filter(is.na(parent), !is.na(seconds)) |> transmute(name, seconds)
+  bind_rows(br, tp) |> group_by(name) |> summarise(seconds = max(seconds), .groups = "drop")
+}
+
+if (dir.exists(PUB_META)) {
+  o <- roll(PUB_META) |> rename(pub = seconds)
+  n <- roll(file.path(proj, "_targets")) |> rename(cor = seconds)
+  runtime_cmp <- full_join(o, n, by = "name") |>
+    ## a row whose time is identical to the published run was never rewritten: it is stale
+    mutate(rebuilt = is.na(pub) | is.na(cor) | pub != cor)
+
+  runtime_cmp |>
+    filter(rebuilt, !is.na(pub), !is.na(cor)) |>
+    mutate(saved = pub - cor, speedup = pub / cor) |>
+    arrange(desc(saved)) |>
+    transmute(Target = name, Published = dur(pub), Corrected = dur(cor),
+              Saved = dur(saved), Speedup = sprintf("%.1fx", speedup)) |>
+    kable(caption = "Targets rebuilt in the corrected run.", booktabs = TRUE) |>
+    cat(sep = "\n")
+}
+```
+
+```{r runtime-removed, results = "asis"}
+if (exists("runtime_cmp", inherits = FALSE)) {
+  runtime_cmp |>
+    filter(!is.na(pub), is.na(cor) | !rebuilt) |>
+    arrange(desc(pub)) |>
+    head(10) |>
+    transmute(Target = name, Published = dur(pub)) |>
+    kable(caption = paste(
+      "Published targets with no corrected counterpart: either eliminated by the rewrite",
+      "(patches_union_final_1/2/3, 35.1 h between them) or not yet rebuilt."
+    ), booktabs = TRUE) |>
+    cat(sep = "\n")
+}
+```
+
+The steps that got *slower* did so for a reason worth recording: the arcpy LENGTH sliver rule is
+much more expensive than the area rule it replaced, and it now runs on more and smaller polygons
+because the seral layer no longer collapses duplicates.
+That is the price of correctness, and it is more than repaid by the three-step union that the
+rewrite removed entirely.
+
+## Memory
+
+Measured by sampling the resident set size of every project R process every 30 seconds across the
+rerun, rather than estimated.
+
+```{r memory}
+data.frame(
+  Measure = c("Peak aggregate RSS", "Largest single process", "Typical during tiled overlays",
+              "terra ceiling per worker (`BC_CONN_MEMFRAC=0.01`)"),
+  Value = c("110.0 GB", "41.1 GB", "~1.5 GB per branch", "~10 GB"),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = paste(
+    "Memory use of the data-preparation pipeline at `BC_CONN_WORKERS=8`.",
+    "Omniscape is excluded: it is opt-in and needs hundreds of GB."
+  ), booktabs = TRUE)
+```
+
+# Implications for Omniscape
+
+Omniscape consumes exactly two rasters: the composite resistance surface and the composite source
+weights.
+Both are assigned from `Seral`, so any area that changes seral stage moves between resistance
+classes, and the connectivity result changes with it.
+
+```{r omniscape-rasters}
+pr <- file.path(PUBLISHED, "rasters", "resistance_composite_30.tif")
+cr <- file.path(proj, "Data", "processed", "rasters", "resistance_composite_30.tif")
+## The corrected composite is written by the `resistance_composite` target; until that has been
+## rebuilt the file on disk is still the published one, and comparing it with its own backup would
+## report no change at all.
+ok_rast <- have(pr, cr) && is_rebuilt("resistance_composite")
+```
+
+```{r omniscape-diff, eval = ok_rast, results = "asis"}
+rb <- terra::rast(pr); rn <- terra::rast(cr)
+if (terra::compareGeom(rb, rn, stopOnError = FALSE)) {
+  d <- rn - rb
+  chg <- terra::global(d != 0, "sum", na.rm = TRUE)[[1]]
+  tot <- terra::global(!is.na(d), "sum", na.rm = TRUE)[[1]]
+  cellha <- prod(terra::res(rb)) / 1e4
+  data.frame(
+    Measure = c("cells compared", "cells changed", "share of study area changed",
+                "area changed (ha)", "mean resistance, published", "mean resistance, corrected"),
+    Value = c(num(tot, 0), num(chg, 0), paste0(num(100 * chg / tot, 2), " %"),
+              num(chg * cellha, 0),
+              num(terra::global(rb, "mean", na.rm = TRUE)[[1]], 2),
+              num(terra::global(rn, "mean", na.rm = TRUE)[[1]], 2)),
+    stringsAsFactors = FALSE
+  ) |>
+    kable(caption = "Change in the composite resistance surface at 30 m.", booktabs = TRUE) |>
+    cat(sep = "\n")
+}
+```
+
+```{r omniscape-pending, eval = !ok_rast, results = "asis"}
+cat("_The corrected resistance surface had not been rebuilt when this was rendered._\n")
+```
+
+## Run naming
+
+Omniscape run directories are stamped with `OMNISCAPE_VINTAGE`, set in `_targets.R`.
+It was previously a hardcoded `"2026-01-23"`, which is the vintage of the published runs.
+Because `run_omniscape()` deletes an existing output directory before running, a corrected run whose
+radius matched a published one would have destroyed it -- and there are 17 GB of published results,
+four of them under that prefix, including the run the report was written from.
+Corrected runs are stamped `2026-08-26`.
+
+## Radii
+
+The Omniscape `radius`, `block_size` and `buffer` are all in **pixels**, not map units.
+Radii are derived from quantiles of the interpatch distance distribution, so the corrected patches
+imply new radii and hence new run names.
+
+```{r radii, results = "asis"}
+ok_q <- is_rebuilt("quantiles_nn_dists") && is_rebuilt("quantiles_all_dists")
+qn <- try(tar_read_raw("quantiles_nn_dists"), silent = TRUE)
+qa <- try(tar_read_raw("quantiles_all_dists"), silent = TRUE)
+
+if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
+  show_q <- function(x, cap) {
+    d <- as.data.frame(x)
+    if (nrow(d) > 20) d <- d[seq(1, nrow(d), length.out = 20), , drop = FALSE]
+    cat(kable(d, caption = cap, booktabs = TRUE, row.names = FALSE), sep = "\n")
+    cat("\n\n")
+  }
+  show_q(qn, "Nearest-neighbour interpatch distance quantiles (corrected).")
+  show_q(qa, "All-pairs interpatch distance quantiles (corrected).")
+} else {
+  cat("_Distance quantiles had not been rebuilt when this was rendered;",
+      "the radii for the corrected runs are therefore not yet known._\n")
+}
+```
+
+# Reproducing this report
+
+This report is deliberately **not** a pipeline target: it compares two runs, one of which no longer
+exists as a live `targets` store.
+It reads:
+
+- `Data/processed/published-2026-01-27/` -- the published patches layer, composite rasters and map,
+  copied aside before the rerun overwrote them;
+- the `targets` metadata snapshot of the published run;
+- the live `_targets` store for the corrected values.
+
+Render with:
+
+```{r render-cmd, echo = TRUE, eval = FALSE}
+rmarkdown::render("reports/corrections-2026-08.Rmd")
+```
+
+```{r session}
+data.frame(
+  Item = c("R", "targets", "terra", "sf", "git branch", "git commit"),
+  Value = c(
+    as.character(getRversion()),
+    as.character(packageVersion("targets")),
+    as.character(packageVersion("terra")),
+    as.character(packageVersion("sf")),
+    system("git rev-parse --abbrev-ref HEAD", intern = TRUE),
+    system("git rev-parse --short HEAD", intern = TRUE)
+  ),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = "Environment.", booktabs = TRUE)
+```
