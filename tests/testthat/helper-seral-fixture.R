@@ -70,3 +70,17 @@ area_ha <- function(x) {
     sum(as.numeric(sf::st_area(x))) / 1e4
   }
 }
+
+## An axis-aligned rectangle as an `sfg`. This lives here rather than in a test file because
+## `box()` also exists in `graphics`: defined in a test file it is only visible to the files
+## testthat happens to source afterwards, and everywhere else it silently resolves to
+## `graphics::box()` and fails with "plot.new has not been called yet".
+box <- function(xmin, xmax, ymin, ymax) {
+  sf::st_polygon(list(rbind(
+    c(xmin, ymin),
+    c(xmax, ymin),
+    c(xmax, ymax),
+    c(xmin, ymax),
+    c(xmin, ymin)
+  )))
+}

@@ -5,16 +5,6 @@
 skip_if_not_installed("terra")
 skip_if_not_installed("spatialutils")
 
-box <- function(xmin, xmax, ymin, ymax) {
-  sf::st_polygon(list(rbind(
-    c(xmin, ymin),
-    c(xmax, ymin),
-    c(xmax, ymax),
-    c(xmin, ymax),
-    c(xmin, ymin)
-  )))
-}
-
 vri_fixture <- function() {
   list(
     ## VRI and BEC both cover [0, 100] x [0, 100]

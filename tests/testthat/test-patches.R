@@ -106,3 +106,38 @@ test_that("the final resultant preserves Seral and flags interior forest separat
   expect_true(all(c("old_interior", "matold_interior") %in% names(d)))
   expect_setequal(na.omit(d$old_interior), "old_interior")
 })
+
+test_that("the final resultant keeps the base layer's footprint exactly", {
+  ## This pins the contract: a left join must not invent area, lose area, or count any twice.
+  ##
+  ## It does NOT reproduce the `terra::union()` failure that motivated the rewrite. On clean
+  ## synthetic geometry `union()` is exact; the corruption only shows on real polygons. Measured on
+  ## a window of 2,933 seral polygons it returned 221 ha more than its base, overlapped itself by
+  ## 303 ha, and dropped 82 ha of land outright -- so the evidence for that lives in the commit
+  ## message and the corrections report, not here.
+  base <- sf::st_sf(
+    Seral = c("Old", "Mature"),
+    geom = sf::st_sfc(box(0, 100, 0, 100), box(100, 200, 0, 100), crs = CRS_FIXTURE)
+  ) |>
+    terra::vect()
+
+  ## an interior-forest patch straddling the seam, so both base polygons are split
+  interior <- sf::st_sf(
+    old_interior = "old_interior",
+    geom = sf::st_sfc(box(50, 150, 25, 75), crs = CRS_FIXTURE)
+  ) |>
+    terra::vect()
+
+  out <- overlay_left_join(base, interior)
+  area <- function(v) sum(terra::expanse(v, unit = "ha", transform = FALSE))
+
+  ## no area invented, none lost, and none counted twice
+  expect_equal(area(out), area(base), tolerance = 1e-9)
+  expect_equal(area(out), area(terra::aggregate(out)), tolerance = 1e-9)
+
+  ## the flag is carried where the patch reaches and NA elsewhere, and `Seral` survives intact
+  d <- as.data.frame(out)
+  d$ha <- terra::expanse(out, unit = "ha", transform = FALSE)
+  expect_equal(sum(d$ha[!is.na(d$old_interior)]), 100 * 50 / 1e4, tolerance = 1e-9)
+  expect_setequal(unique(d$Seral), c("Old", "Mature"))
+})

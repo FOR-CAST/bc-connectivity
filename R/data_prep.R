@@ -1027,10 +1027,38 @@ patches_union_into_final_resultant <- function(
   base <- tidyterra::as_spatvector(patch_size) |>
     dplyr::filter(!is.na(Seral))
 
-  terra::union(base, tidyterra::as_spatvector(interior_forest_mature_old)) |>
+  base |>
+    overlay_left_join(tidyterra::as_spatvector(interior_forest_mature_old)) |>
     spatialutils::repair_geoms() |>
-    terra::union(tidyterra::as_spatvector(interior_forest_old)) |>
+    overlay_left_join(tidyterra::as_spatvector(interior_forest_old)) |>
     spatialutils::repair_geoms()
+}
+
+## Tag `x` with `y`'s attributes where the two overlap, leaving them NA elsewhere: a left join done
+## as an overlay, keeping `x`'s footprint exactly.
+##
+## `terra::union()` is the obvious way to write this and is wrong. Measured on a window of 2,933
+## seral polygons, the union chain returned 74,959.504 ha against a base of 74,738.411 ha, with a
+## dissolved footprint of only 74,656.115 ha -- so it double-counted 303 ha of output while dropping
+## 82 ha of real land, and took 233 s against 8 s here (28.5x). `create_vri_becndt()` carries the
+## same finding at study-area scale, where `union()` dropped 22,628 ha and double-counted 15,449 ha.
+##
+## `intersect()` and `erase()` partition `x` exactly, which is what a left join is supposed to do.
+overlay_left_join <- function(x, y) {
+  inside <- terra::intersect(x, y)
+  outside <- terra::erase(x, y)
+
+  ## columns `y` contributes are NA wherever `y` does not reach; take an NA of the right type from
+  ## `inside` rather than a bare logical `NA`, so `rbind()` does not have to coerce the column
+  added <- setdiff(names(inside), names(outside))
+
+  if (nrow(outside) > 0L) {
+    for (nm in added) {
+      outside[[nm]] <- rep(terra::values(inside)[[nm]][NA_integer_], nrow(outside))
+    }
+  }
+
+  combine_spatvectors(list(inside, outside))
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {

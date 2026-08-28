@@ -16,3 +16,6 @@ _tmp.R
 # One-off corrections report: the Rmd is tracked, its rendered output and figures are not.
 reports/*.pdf
 reports/figures/
+
+# stray device output from a test that accidentally called graphics::box()
+Rplots.pdf
