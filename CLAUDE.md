@@ -76,6 +76,7 @@ Prefer the stated option unless there is a specific reason not to.
   It is also superlinear -- 418x slower than the equivalent on one study-area tile, 28.5x on another, and one target ran 25 h before being killed.
   Use `overlay_left_join()` in `R/data_prep.R` for a left join, and `terra::intersect()` for an inner one; both partition the left-hand layer exactly.
   Synthetic fixtures do *not* reproduce the failure, so a passing unit test is not evidence that a `union()` is safe.
+  Reported upstream as [rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175); it reproduces on terra 1.8.86 and 1.9.34 under both R 4.5.3 and R 4.6.1, so upgrading is not a fix.
 - **`sf::st_join()` is not an overlay.**
   It keeps whole geometries from `x` and emits one copy per `y` they touch.
   For assigning attributes by location, use an intersection so geometries are split at the boundary and each location carries exactly one set of values.

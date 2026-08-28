@@ -173,6 +173,66 @@ data.frame(
   ), booktabs = TRUE)
 ```
 
+## The `terra::union()` defect
+
+The single largest cause of wrong numbers here was one function, reached for in three separate
+places because the project's own notes recommended it: `terra::union()` has exactly the overlay
+semantics the arcpy scripts need, and produces silently wrong results on this data.
+
+It fails in two directions at once, which is why the totals looked plausible rather than broken. Its
+output polygons overlap one another, so their areas sum to more ground than they cover; and the
+ground they cover is smaller than the inputs, so land goes missing. The two errors partly cancel.
+
+```{r union-defect}
+data.frame(
+  Where = c("VRI x NDT-BEC overlay (study area)",
+            "Final resultant (2,933-polygon window)",
+            "Minimal case (7 polygons)"),
+  `Counted twice` = c("15,449 ha", "303 ha", "5.7 ha"),
+  `Land lost` = c("22,628 ha", "82 ha", "1,203 ha"),
+  `Slower by` = c("418x", "28.5x", "--"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = "The same defect measured at three scales.", booktabs = TRUE)
+```
+
+Three things about it are worth recording, because each one delayed finding it.
+
+It is not a version problem. The identical numbers come out under terra 1.8.86 and 1.9.34, on both
+R 4.5.3 and R 4.6.1, with GDAL 3.8.4 and GEOS 3.12.1, so it is not fixed in the current release. It
+had not been reported, and is now filed as
+[rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175).
+
+It does not reproduce on synthetic data. On clean, hand-built polygons `union()` is exact. Only real
+inventory geometry triggers it, so a passing test suite is no evidence that a call is safe.
+
+It is a precision failure. Shifting the vertices by a single millimetre makes the answer come out
+right, to within 0.14 m² of 12.3 million:
+
+```{r union-precision}
+data.frame(
+  Tolerance = c("none", "1 mm", "1 cm", "10 cm", "1 m", "10 m"),
+  `Counted twice (m2)` = c("56,640.5", "0.0", "0.0", "0.0", "0.0", "299.1"),
+  `Error vs truth (m2)` = c("-12,030,541.2", "-0.1", "+0.3", "+6.9", "+1,222.6", "+8,570.4"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = paste(
+    "Simplifying the inputs before the union, on the minimal case.",
+    "A millimetre is far below the precision of the source data."
+  ), booktabs = TRUE)
+```
+
+That last point offers a tempting workaround, and the pipeline deliberately does not use it. The
+replacement, `overlay_left_join()`, is `intersect()` plus `erase()`: it partitions the input exactly
+by construction rather than by luck, it is faster, and it does not depend on a tolerance that
+happens to suit this data and silently stops working at 10 m.
+
+The seven-polygon case, the figure above and the measurements are attached to
+[rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175). Until that is resolved, treat
+`terra::union()` as unusable on this data regardless of the version installed.
+
 ## Forest patches
 
 ```{r patches-table}

@@ -50,6 +50,9 @@ create_bbox <- function(studyArea) {
 ## also superlinear: 418x slower than the equivalent on one tile, 28.5x on another. Use
 ## `overlay_left_join()` for a left join and `terra::intersect()` for an inner one.
 ##
+## Reported upstream as <https://github.com/rspatial/terra/issues/2175>. It reproduces identically on
+## terra 1.8.86 and 1.9.34 under both R 4.5.3 and R 4.6.1, so upgrading terra will not fix it.
+##
 ## Note in particular that `sf::st_join()` is NOT an overlay: it keeps whole geometries from `x`,
 ## duplicating a row for every `y` they touch. A stand spanning two NDT-BEC zones comes back twice
 ## at full extent and is then assigned two different seral stages. See
