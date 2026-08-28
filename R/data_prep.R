@@ -38,11 +38,17 @@ create_bbox <- function(studyArea) {
 
 ## Polygon work in this project is done with `terra`, driven through `tidyterra`'s dplyr verbs.
 ##
-## terra's overlay operators are GEOS-backed and vectorised in C++, and they implement arcpy's
-## overlay semantics directly: `terra::union()`/`terra::intersect()` split geometries at the overlay
-## boundaries and carry *both* attribute sets through, which is what the arcpy scripts this project
-## ports rely on. `tidyterra` then lets the attribute manipulation read the same as the `sf` +
-## `dplyr` code it replaces.
+## terra's overlay operators are GEOS-backed and vectorised in C++, and `terra::intersect()` /
+## `terra::erase()` split geometries at the overlay boundaries and carry the attribute sets through,
+## which is what the arcpy scripts this project ports rely on. `tidyterra` then lets the attribute
+## manipulation read the same as the `sf` + `dplyr` code it replaces.
+##
+## `terra::union()` is the exception and must NOT be used. Its documented semantics are the right
+## ones, but on this project's real geometry it returns output polygons that overlap each other and
+## a dissolved footprint smaller than its input -- it double-counts some land and drops other land
+## outright, in opposite directions, so totals come out plausibly rather than obviously wrong. It is
+## also superlinear: 418x slower than the equivalent on one tile, 28.5x on another. Use
+## `overlay_left_join()` for a left join and `terra::intersect()` for an inner one.
 ##
 ## Note in particular that `sf::st_join()` is NOT an overlay: it keeps whole geometries from `x`,
 ## duplicating a row for every `y` they touch. A stand spanning two NDT-BEC zones comes back twice
@@ -819,12 +825,14 @@ max_stand_age <- function(for_dist_gpkg) {
 ## NOTE: naming conventions for patch creation functions resemble those of the BC arcpy scripts;
 ## see the README appendix for the step-by-step description they are ported from.
 ##
-## The patch chain works on `terra` SpatVectors rather than `sf`. terra's overlay operators are
-## GEOS-backed and vectorised in C++, and -- crucially -- `terra::union()` implements arcpy's
-## `Union_analysis` semantics exactly: geometries are split at the overlay boundaries and *both*
-## attribute sets are carried through, `NA` where a layer does not cover. The `sf` port this
-## replaces (`st_union_analysis()`) instead kept only `x`'s attributes on every intersection and
-## then dissolved on `Seral`, which silently relabelled interior old forest as `Mature`.
+## The patch chain works on `terra` SpatVectors rather than `sf`. It needs arcpy's
+## `Union_analysis` semantics -- geometries split at the overlay boundaries, *both* attribute sets
+## carried through, `NA` where a layer does not cover -- because the `sf` port this replaces
+## (`st_union_analysis()`) kept only `x`'s attributes on every intersection and then dissolved on
+## `Seral`, which silently relabelled interior old forest as `Mature`.
+##
+## Those semantics are obtained with `overlay_left_join()`, not `terra::union()`; see the note at
+## the top of this file for why the latter cannot be trusted on real geometry.
 
 ## Area, sliver elimination, and dissolving on attributes that contain `NA` are all places where
 ## the obvious `terra` call does something subtly different from what the arcpy scripts do; they
@@ -1013,7 +1021,8 @@ patches_create_interior_forest <- function(patches, erase_mask, age_class) {
 ##
 ## arcpy `Union` of the seral layer with both interior-forest layers: geometries are split at every
 ## boundary and all three attribute sets travel through, so a polygon knows its seral stage *and*
-## whether it is old interior and/or mature+old interior.
+## whether it is old interior and/or mature+old interior. Done with `overlay_left_join()` rather
+## than `terra::union()` -- see below.
 ##
 ## The former three-step `st_union_analysis()` chain is gone. Besides clobbering attributes, its
 ## third step (`patches_union_final_3`) unioned the resultant with the seral layer dissolved on

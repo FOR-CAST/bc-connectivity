@@ -68,7 +68,14 @@ Functions that write files take an output-directory argument defaulting to the r
 These are all things that have silently produced wrong numbers in this project.
 Prefer the stated option unless there is a specific reason not to.
 
-- **`terra` over `sf` for polygon work.** terra's overlay operators are GEOS-backed and vectorised in C++, and they implement arcpy's semantics directly: `terra::union()` splits geometries at the overlay boundaries and carries *both* attribute sets through, which is what the arcpy scripts this project ports rely on.
+- **`terra` over `sf` for polygon work.** terra's overlay operators are GEOS-backed and vectorised in C++, and `terra::intersect()` / `terra::erase()` split geometries at the overlay boundaries and carry the attribute sets through, which is what the arcpy scripts this project ports rely on.
+- **Never use `terra::union()`.**
+  Its documented semantics are exactly the arcpy `Union_analysis` ones, which is why it was reached for three separate times here, and it is wrong every time on real geometry.
+  It returns output polygons that overlap one another *and* a dissolved footprint smaller than its input, so it double-counts some land while dropping other land outright -- in opposite directions, which is what makes the totals look plausibly rather than obviously wrong.
+  Measured on the VRI x NDT-BEC overlay it dropped 22,628 ha and double-counted 15,449 ha; on a 2,933-polygon window of the final resultant it overlapped itself by 303 ha and dropped 82 ha.
+  It is also superlinear -- 418x slower than the equivalent on one study-area tile, 28.5x on another, and one target ran 25 h before being killed.
+  Use `overlay_left_join()` in `R/data_prep.R` for a left join, and `terra::intersect()` for an inner one; both partition the left-hand layer exactly.
+  Synthetic fixtures do *not* reproduce the failure, so a passing unit test is not evidence that a `union()` is safe.
 - **`sf::st_join()` is not an overlay.**
   It keeps whole geometries from `x` and emits one copy per `y` they touch.
   For assigning attributes by location, use an intersection so geometries are split at the boundary and each location carries exactly one set of values.
