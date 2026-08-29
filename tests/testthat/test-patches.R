@@ -141,3 +141,33 @@ test_that("the final resultant keeps the base layer's footprint exactly", {
   expect_equal(sum(d$ha[!is.na(d$old_interior)]), 100 * 50 / 1e4, tolerance = 1e-9)
   expect_setequal(unique(d$Seral), c("Old", "Mature"))
 })
+
+test_that("the left-join overlay survives the degenerate overlaps", {
+  ## The full-scale run failed at "[[<-,SpatVector] cannot add these values", which said nothing
+  ## about which column or why. These are the shapes that reach the column-filling code.
+  base <- sf::st_sf(
+    Seral = c("Old", "Mature"),
+    geom = sf::st_sfc(box(0, 100, 0, 100), box(100, 200, 0, 100), crs = CRS_FIXTURE)
+  ) |>
+    terra::vect()
+  flag <- function(g) {
+    terra::vect(sf::st_sf(old_interior = "old_interior", geom = sf::st_sfc(g, crs = CRS_FIXTURE)))
+  }
+  area <- function(v) sum(terra::expanse(v, unit = "ha", transform = FALSE))
+
+  ## y misses x entirely: every row keeps its attributes and the new column is all NA
+  disjoint <- overlay_left_join(base, flag(box(1000, 1100, 1000, 1100)))
+  expect_equal(area(disjoint), area(base), tolerance = 1e-9)
+  expect_setequal(names(disjoint), c("Seral", "old_interior"))
+  expect_true(all(is.na(terra::values(disjoint)$old_interior)))
+  expect_setequal(terra::values(disjoint)$Seral, c("Old", "Mature"))
+
+  ## y covers x completely: nothing is left outside, and every row is flagged
+  covered <- overlay_left_join(base, flag(box(-10, 210, -10, 110)))
+  expect_equal(area(covered), area(base), tolerance = 1e-9)
+  expect_setequal(names(covered), c("Seral", "old_interior"))
+  expect_false(any(is.na(terra::values(covered)$old_interior)))
+
+  ## columns come back in the same order whichever branch supplied them
+  expect_equal(names(disjoint), names(covered))
+})

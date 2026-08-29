@@ -1057,20 +1057,70 @@ patches_union_into_final_resultant <- function(
 ##
 ## `intersect()` and `erase()` partition `x` exactly, which is what a left join is supposed to do.
 overlay_left_join <- function(x, y) {
-  inside <- terra::intersect(x, y)
+  ## `y` legitimately misses `x` altogether -- a tile with no interior forest in it, say. terra warns
+  ## "no intersection" for that, which is expected and noisy; the empty result is handled below.
+  inside <- withCallingHandlers(
+    terra::intersect(x, y),
+    warning = function(w) {
+      if (grepl("no intersection", conditionMessage(w), fixed = TRUE)) {
+        invokeRestart("muffleWarning")
+      }
+    }
+  )
+
   outside <- terra::erase(x, y)
 
-  ## columns `y` contributes are NA wherever `y` does not reach; take an NA of the right type from
-  ## `inside` rather than a bare logical `NA`, so `rbind()` does not have to coerce the column
-  added <- setdiff(names(inside), names(outside))
-
-  if (nrow(outside) > 0L) {
-    for (nm in added) {
-      outside[[nm]] <- rep(terra::values(inside)[[nm]][NA_integer_], nrow(outside))
+  ## A `SpatVector` can come back from an overlay with more geometries than attribute rows. Nothing
+  ## complains at the time; the next thing to touch the attributes fails instead, a long way from
+  ## the cause. Check here, where the cause still is.
+  check <- function(v, what) {
+    if (nrow(v) != nrow(terra::values(v))) {
+      stop(sprintf(
+        "%s came back with %d geometries but %d attribute rows",
+        what,
+        nrow(v),
+        nrow(terra::values(v))
+      ))
     }
+    v
   }
 
-  combine_spatvectors(list(inside, outside))
+  inside <- check(inside, "intersect()")
+  outside <- check(outside, "erase()")
+
+  ## The columns the result must end up with, taken from the inputs rather than from either overlay
+  ## result -- an empty overlay can come back with its attribute columns dropped, and rebuilding the
+  ## table from that would silently discard them.
+  want <- c(names(x), setdiff(names(y), names(x)))
+
+  ## Columns `y` contributes are NA wherever `y` does not reach. Build each attribute table in full
+  ## and set it in one go: assigning column by column with `[[<-` fails on some real inputs with
+  ## "cannot add these values", and says nothing about which column or why.
+  fill <- function(v, proto) {
+    if (nrow(v) == 0L) {
+      return(v)
+    }
+
+    d <- terra::values(v)
+
+    for (nm in want) {
+      if (is.null(d[[nm]])) {
+        d[[nm]] <- rep(proto[[nm]][NA_integer_], nrow(d))
+      }
+    }
+
+    ## `rbind()` matches columns by position, not by name
+    terra::values(v) <- d[, want, drop = FALSE]
+    v
+  }
+
+  ## one row of each input, purely to carry the column types
+  proto <- c(
+    as.list(terra::values(x)[0, , drop = FALSE]),
+    as.list(terra::values(y)[0, , drop = FALSE])
+  )
+
+  combine_spatvectors(list(fill(inside, proto), fill(outside, proto)))
 }
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
