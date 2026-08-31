@@ -77,6 +77,13 @@ Prefer the stated option unless there is a specific reason not to.
   Use `overlay_left_join()` in `R/data_prep.R` for a left join, and `terra::intersect()` for an inner one; both partition the left-hand layer exactly.
   Synthetic fixtures do *not* reproduce the failure, so a passing unit test is not evidence that a `union()` is safe.
   Reported upstream as [rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175); it reproduces on terra 1.8.86 and 1.9.34 under both R 4.5.3 and R 4.6.1, so upgrading is not a fix.
+- **Do not use `terra::erase()` either; use `erase_polygons()` in `R/data_prep.R`.**
+  It can return a `SpatVector` with more attribute rows than geometries: a polygon whose difference comes out empty loses its geometry but keeps its row.
+  Nothing complains at the time, and whatever next reads the attributes fails instead, a long way from the cause -- one run got six hours in before dying on `[[<-,SpatVector] cannot add these values`.
+  It hit 5 of 49 tiles of the seral overlay, each off by exactly one row.
+  Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179); still open, and *not* covered by the #2175 fix, which moved `union()` onto `erase_agg()` -- the function `erase()` already called.
+  `erase_polygons()` uses `sf::st_difference()`, which cannot desynchronise because the attributes are columns of the same data frame as the geometry.
+  Measured across 42 tiles: sf consistent on 42, terra on 37, agreeing to 0.000000 m² wherever terra succeeded, at about twice the cost.
 - **`sf::st_join()` is not an overlay.**
   It keeps whole geometries from `x` and emits one copy per `y` they touch.
   For assigning attributes by location, use an intersection so geometries are split at the boundary and each location carries exactly one set of values.

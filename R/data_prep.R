@@ -1056,6 +1056,43 @@ patches_union_into_final_resultant <- function(
 ## same finding at study-area scale, where `union()` dropped 22,628 ha and double-counted 15,449 ha.
 ##
 ## `intersect()` and `erase()` partition `x` exactly, which is what a left join is supposed to do.
+## The difference `x \ y`, keeping `x`'s attributes.
+##
+## Done with sf rather than `terra::erase()`, which can return a `SpatVector` carrying one more
+## attribute row than it has geometries: it drops a geometry whose difference comes out empty
+## without dropping the matching attribute row. Nothing complains at the time, and the next thing to
+## read the attributes fails instead, a long way from the cause. Measured on the seral overlay it hit
+## 5 of 49 tiles, each off by exactly one row. Reported upstream as
+## <https://github.com/rspatial/terra/issues/2179>, and still open. `terra::erase()` calls
+## `erase_agg()` internally, which is the function terra moved `union()` onto when it fixed
+## <https://github.com/rspatial/terra/issues/2175>, so that fix does not cover this one.
+##
+## An `sf` object cannot desynchronise, because the attributes are columns of the same data frame as
+## the geometry. Across 42 tiles sf was consistent on all of them where terra managed 37, and where
+## terra did succeed the two agreed to 0.000000 m2. sf costs about twice as much, which on a step
+## that tiles to roughly five minutes is worth paying to have one code path rather than a fast one
+## and a fallback that only runs on inputs nobody can characterise.
+erase_polygons <- function(x, y) {
+  d <- suppressWarnings(
+    sf::st_difference(sf::st_as_sf(x), sf::st_union(sf::st_as_sf(y)))
+  )
+
+  ## A cut can leave a line or a point behind, in a GEOMETRYCOLLECTION; only the polygons carry area.
+  ## Extract only when there is something to extract -- `st_collection_extract()` warns when the
+  ## geometries are already polygons, which is the ordinary case.
+  if (any(sf::st_geometry_type(d) == "GEOMETRYCOLLECTION")) {
+    d <- sf::st_collection_extract(d, "POLYGON", warn = FALSE)
+  }
+
+  ## `y` covering `x` entirely is ordinary too, and `terra::vect()` warns on an empty `sf`.
+  ## `[` keeps the columns; `terra::crop()` would not.
+  if (nrow(d) == 0L) {
+    return(x[integer(0), ])
+  }
+
+  terra::vect(d)
+}
+
 overlay_left_join <- function(x, y) {
   ## `y` legitimately misses `x` altogether -- a tile with no interior forest in it, say. terra warns
   ## "no intersection" for that, which is expected and noisy; the empty result is handled below.
@@ -1068,7 +1105,7 @@ overlay_left_join <- function(x, y) {
     }
   )
 
-  outside <- terra::erase(x, y)
+  outside <- erase_polygons(x, y)
 
   ## A `SpatVector` can come back from an overlay with more geometries than attribute rows. Nothing
   ## complains at the time; the next thing to touch the attributes fails instead, a long way from
@@ -1086,7 +1123,6 @@ overlay_left_join <- function(x, y) {
   }
 
   inside <- check(inside, "intersect()")
-  outside <- check(outside, "erase()")
 
   ## The columns the result must end up with, taken from the inputs rather than from either overlay
   ## result -- an empty overlay can come back with its attribute columns dropped, and rebuilding the

@@ -230,8 +230,49 @@ by construction rather than by luck, it is faster, and it does not depend on a t
 happens to suit this data and silently stops working at 10 m.
 
 The seven-polygon case, the figure above and the measurements are attached to
-[rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175). Until that is resolved, treat
-`terra::union()` as unusable on this data regardless of the version installed.
+[rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175), which was **fixed upstream on
+2026-08-29**. The project now runs terra 1.9-48, installed from GitHub and pinned by commit in
+`renv.lock`, and the fix is confirmed here: the minimal case goes from 56,640 m² of self-overlap to
+0.000, and the study-area window from a 8,607 m² footprint error to 0.012 m².
+
+## A second defect, in `terra::erase()`
+
+Replacing `union()` was not the end of it. The rewritten step then ran for six hours and died with
+`[[<-,SpatVector] cannot add these values`, which named neither a column nor a reason. The cause was
+`terra::erase()` returning a `SpatVector` with **more attribute rows than geometries**: a polygon
+whose difference comes out empty loses its geometry but keeps its row. Nothing reports it at the
+time; whatever next reads the attributes fails instead.
+
+It is a different bug from the first, and the fix for #2175 does not cover it: that fix moved
+`union()` onto `erase_agg()`, which is the function R's `erase()` was already calling. Reported as
+[rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179), still open.
+
+```{r erase-defect}
+data.frame(
+  Measure = c("tiles where the overlay is consistent", "total time for the erase step",
+              "agreement where terra succeeded"),
+  terra = c("37 of 42", "192.5 s", "--"),
+  sf = c("42 of 42", "388.9 s", "0.000000 m2"),
+  stringsAsFactors = FALSE
+) |>
+  kable(caption = paste(
+    "`terra::erase()` against `sf::st_difference()` on the same 42 tiles.",
+    "sf cannot desynchronise: its attributes are columns of the same data frame as the geometry."
+  ), booktabs = TRUE)
+```
+
+The pipeline therefore uses `sf::st_difference()` for this one step, through `erase_polygons()`. An
+earlier version tried terra first and fell back to sf only when the result was inconsistent; that
+was dropped deliberately. It made the output depend on which tiles happened to trip a bug nobody can
+characterise, and one code path is easier to trust than two. The measured cost of using sf
+throughout is about twice the terra time on a step that tiles to roughly five minutes.
+
+Two things about this defect are worth recording. It does not reproduce on synthetic geometry
+either: hand-built degenerate polygons come back *invalid*, and terra handles those correctly. The
+polygon that triggers it is a valid four-vertex ring with zero area, whose second and third vertices
+differ by 1e-10 -- a line traced out and back. And the failure is silent by construction, which is
+why the check now sits inside `overlay_left_join()`: it compares geometry and attribute counts after
+every overlay and fails there, rather than letting a malformed object travel.
 
 ## Forest patches
 
