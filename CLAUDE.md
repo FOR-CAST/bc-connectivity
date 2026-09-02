@@ -81,7 +81,10 @@ Prefer the stated option unless there is a specific reason not to.
   It can return a `SpatVector` with more attribute rows than geometries: a polygon whose difference comes out empty loses its geometry but keeps its row.
   Nothing complains at the time, and whatever next reads the attributes fails instead, a long way from the cause -- one run got six hours in before dying on `[[<-,SpatVector] cannot add these values`.
   It hit 5 of 49 tiles of the seral overlay, each off by exactly one row.
-  Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179); still open, and *not* covered by the #2175 fix, which moved `union()` onto `erase_agg()` -- the function `erase()` already called.
+  Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179), and **fixed upstream** in [`12df7fbd`](https://github.com/rspatial/terra/commit/12df7fbd4f85eb01faa02c580a31ce7e34275c6a).
+  It was *not* covered by the #2175 fix, which moved `union()` onto `erase_agg()` -- the function `erase()` already called -- so it needed its own.
+  The fix is **not in the pinned build**: `renv.lock` has terra at `1a8843f`, which is #2175 only.
+  Keep using `erase_polygons()` until the newer build is pinned *and* the fix is verified on this study area the way #2175 was; it also handles an empty `y` and the non-polygonal residue an overlay can leave behind, neither of which is a terra bug.
   `erase_polygons()` uses `sf::st_difference()`, which cannot desynchronise because the attributes are columns of the same data frame as the geometry.
   Measured across 42 tiles: sf consistent on 42, terra on 37, agreeing to 0.000000 m² wherever terra succeeded, at about twice the cost.
 - **`sf::st_join()` is not an overlay.**

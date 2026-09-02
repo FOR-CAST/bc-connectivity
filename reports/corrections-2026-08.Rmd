@@ -274,6 +274,28 @@ differ by 1e-10 -- a line traced out and back. And the failure is silent by cons
 why the check now sits inside `overlay_left_join()`: it compares geometry and attribute counts after
 every overlay and fails there, rather than letting a malformed object travel.
 
+### Fixed upstream, after this work
+
+`terra::erase()` was fixed in [`12df7fbd`](https://github.com/rspatial/terra/commit/12df7fbd4f85eb01faa02c580a31ce7e34275c6a).
+That fix is **not** in the build this pipeline runs: `renv.lock` pins terra at `1a8843f`, which
+carries the #2175 fix only, so the defect described above is present in the version that produced
+these results -- which is why the workaround is still in place and still necessary.
+
+The workaround has since been promoted to `spatialutils` as `erase_polygons()`, together with
+`overlay_left_join()` and `keep_polygons()`.
+It survives the fix on its own merits: it also tolerates an empty right-hand layer, and it drops the
+non-polygonal residue an overlay can leave behind.
+Neither of those is a terra defect.
+
+The second of the two is worth recording because it bit during this work.
+`sf::st_difference()` can return a bare `LINESTRING` sitting directly in the geometry column -- not
+inside a `GEOMETRYCOLLECTION` -- when everything left of a polygon is a shared edge.
+`terra::vect()` then drops that geometry while keeping its attribute row, producing exactly the
+desynchronisation #2179 causes, from an entirely different direction.
+Measured on one tile of the study area, one of 6,871 differences was such a line.
+A guard testing only for `GEOMETRYCOLLECTION` misses it; `spatialutils::intersect_clean()` carried
+the same too-narrow guard and has been fixed in the same release.
+
 ## Forest patches
 
 ```{r patches-table}
@@ -423,6 +445,61 @@ because the seral layer no longer collapses duplicates.
 That is the price of correctness, and it is more than repaid by the three-step union that the
 rewrite removed entirely.
 
+## Tiling the final resultant
+
+`patches_union_final` is the arcpy step-6 overlay: the seral layer joined to both interior-forest
+layers.
+It ran as a single process and took **5 h 51 m 58 s**.
+
+The overlay is embarrassingly parallel over space, so it now branches over `study_area_tiles` -- the
+same 8x8 grid the seral layer itself was built on -- and reads its base layer through GDAL rather
+than out of the `targets` store, so a worker materialises only the polygons inside its own tile.
+
+| | serial | tiled |
+|:--|--:|--:|
+| runtime | 5 h 51 m 58 s | **17 m 48 s** |
+| branches | 1 | 49, all succeeding |
+| slowest branch | -- | 2 m 48 s |
+| features | 189,666 | 192,683 |
+| planar area | 2,473,003.272 ha | 2,473,003.272 ha |
+
+**19.8x faster, with the area preserved exactly.**
+
+Reusing the *same* grid is load-bearing, not a convenience.
+The seral layer already carries vertices lying bit-exactly on these seam coordinates, so re-cutting
+on the same grid intersects at existing vertices and GEOS invents no new ones; the halves of a split
+polygon abut exactly and dissolve back together.
+A finer grid would cut at fresh coordinates and forfeit that.
+
+Cropping splits polygons at the seams, so the resultant carries 3,017 more features (+1.59%).
+That is a change to a shipped artefact -- `forest_patches_final.gpkg` -- even though no hectare
+moves.
+It does not propagate: `calc_matold()` dissolves before the interpatch distances are measured.
+
+The verification that matters is the distance distribution, since that is what sets the Omniscape
+radii:
+
+| quantile | serial (m) | tiled (m) | difference |
+|:--|--:|--:|--:|
+| 25% | 0.372 | 0.464 | +0.092 |
+| 50% | 12.500 | 12.603 | +0.103 |
+| 75% | 39.787 | 39.899 | +0.112 |
+| 90% | 91.901 | 92.131 | +0.230 |
+| 99% | 330.123 | 330.685 | +0.562 |
+| **100%** | **2566.803** | **2566.803** | **0.000** |
+
+Every quantile agrees to under a metre, and q100 -- the one `omniscape_config_nndist` actually
+consumes -- is identical.
+The radius is unchanged either way.
+
+Dissolving does move slightly: `patches_matold` comes out 68,255 patches tiled against 68,401
+serial.
+This is the dissolve, not the tiling.
+Before the dissolve the two layers agree to **0.000000 ha**; after it, the *serial* dissolve has
+gained 0.798 ha, which a dissolve cannot do.
+`terra::aggregate()` is simply not exact on a layer of this size -- the same layers self-overlap by
+about 10 ha out of 2.47 Mha in both builds.
+
 ## Memory
 
 Measured by sampling the resident set size of every project R process every 30 seconds across the
@@ -497,12 +574,41 @@ The Omniscape `radius`, `block_size` and `buffer` are all in **pixels**, not map
 Radii are derived from quantiles of the interpatch distance distribution, so the corrected patches
 imply new radii and hence new run names.
 
+**Both radii move**, and by more than a pixel.
+
+The published values are recoverable independently of any stored quantile, because
+`write_omniscape_config()` stamps the radius into the run directory name: the `2026-01-23` vintage
+wrote `p30_r1507_bs151` (regional) and `p30_r58_bs7` / `p90_r20_bs3` (local).
+
 ```{r radii, results = "asis"}
 ok_q <- is_rebuilt("quantiles_nn_dists") && is_rebuilt("quantiles_all_dists")
 qn <- try(tar_read_raw("quantiles_nn_dists"), silent = TRUE)
 qa <- try(tar_read_raw("quantiles_all_dists"), silent = TRUE)
 
 if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
+  ## `use_radius()` takes the quantile in METRES and returns pixels, so the pin is resolution-
+  ## independent: the same distance gives a different pixel count at 30 m and at 90 m.
+  px <- function(m, res) ceiling(m / res)
+
+  nn100 <- as.numeric(qn[["100%"]])
+  all25 <- as.numeric(qa[["25%"]])
+
+  ## published metres, back-derived from the run names above (radius px * pixel size)
+  pub <- data.frame(
+    Quantity = c("Regional (all-pairs q25)", "Local (nearest-neighbour q100)"),
+    `Published m` = c(45202, 1726),
+    `Corrected m` = c(all25, nn100),
+    `px at 30 m` = c(sprintf("1507 -> %d", px(all25, 30)), sprintf("58 -> %d", px(nn100, 30))),
+    `px at 90 m` = c(sprintf("503 -> %d", px(all25, 90)), sprintf("20 -> %d", px(nn100, 90))),
+    check.names = FALSE
+  )
+  pub$`Published m` <- num(pub$`Published m`, 0)
+  pub$`Corrected m` <- num(pub$`Corrected m`, 0)
+
+  cat(kable(pub, caption = "Radii before and after the corrections.", booktabs = TRUE,
+            row.names = FALSE), sep = "\n")
+  cat("\n\n")
+
   show_q <- function(x, cap) {
     d <- as.data.frame(x)
     if (nrow(d) > 20) d <- d[seq(1, nrow(d), length.out = 20), , drop = FALSE]
@@ -517,6 +623,18 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
 }
 ```
 
+The regional radius falls by 5.2% and the local one rises by 49%.
+Neither is within the roughly one-pixel slack that would leave the pixel count unchanged, so every
+corrected run needs its own configuration -- which is what the four `2026-08-26` directories are.
+
+The direction differs because the two quantiles measure different things.
+The all-pairs q25 fell because the corrected patch set covers less area overall; the
+nearest-neighbour q100 is a **maximum**, and maxima are sensitive to the patch-construction defect
+in a way that interior quantiles are not.
+
+This is entirely a consequence of the corrections, not of tiling: the serial and tiled builds give
+q100 identical to the millimetre (see "Tiling the final resultant").
+
 # Reproducing this report
 
 This report is deliberately **not** a pipeline target: it compares two runs, one of which no longer
@@ -530,8 +648,15 @@ It reads:
 
 Render with:
 
+The rendered PDF is written to `Outputs/`, not next to the source, so it lands on the shared volume
+alongside the other results rather than inside the clone:
+
 ```{r render-cmd, echo = TRUE, eval = FALSE}
-rmarkdown::render("reports/corrections-2026-08.Rmd")
+rmarkdown::render(
+  "reports/corrections-2026-08.Rmd",
+  output_file = "corrections-2026-08.pdf",
+  output_dir = "Outputs"
+)
 ```
 
 ```{r session}

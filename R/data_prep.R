@@ -70,6 +70,25 @@ combine_spatvectors <- function(x) {
     stop("no non-empty branches to combine")
   }
 
+  ## `rbind` on `SpatVector`s matches columns by *name*, takes its column order from the first
+  ## argument, and NA-fills any column a later branch is missing -- silently. So a branch that lost
+  ## a column reads as "that attribute is NA everywhere inside this branch", which is
+  ## indistinguishable from a real result and wrong in the quiet direction. An empty
+  ## `terra::crop()` drops every column, which is exactly how a branch comes to be missing one.
+  ## Compare the column sets here, where the cause is still visible.
+  cols <- lapply(x, names)
+  same <- vapply(cols, function(nm) setequal(nm, cols[[1]]), logical(1))
+
+  if (!all(same)) {
+    bad <- which(!same)[1]
+    stop(sprintf(
+      "branch %d has columns (%s), but branch 1 has (%s)",
+      bad,
+      paste(cols[[bad]], collapse = ", "),
+      paste(cols[[1]], collapse = ", ")
+    ))
+  }
+
   ## `unname()` matters: `rbind` matches named list elements to its own formals
   do.call(rbind, unname(x))
 }
@@ -1034,130 +1053,81 @@ patches_create_interior_forest <- function(patches, erase_mask, age_class) {
 patches_union_into_final_resultant <- function(
   patch_size,
   interior_forest_old,
-  interior_forest_mature_old
+  interior_forest_mature_old,
+  tile = NULL
 ) {
-  base <- tidyterra::as_spatvector(patch_size) |>
-    dplyr::filter(!is.na(Seral))
+  ## The columns every branch must present, whatever it happens to find inside its tile.
+  want <- c("Seral", "matold_interior", "old_interior")
+
+  ## Clip one input to the tile, or pass it through untouched when running untiled.
+  ##
+  ## Guarded twice over. `terra::crop()` returns a `SpatVector` with zero rows *and* zero columns
+  ## when nothing overlaps, and a layer that merely *touches* the tile passes `is.related()` and
+  ## still crops to nothing -- so the relate test alone is not enough. `v[integer(0), ]` keeps the
+  ## columns where `crop()` would drop them, and a branch that lost its columns is NA-filled
+  ## silently by `rbind()` rather than failing.
+  ##
+  ## `repair_geoms()` after the cut, because slicing at a tile edge manufactures degenerate rings,
+  ## and a valid four-vertex zero-area ring is precisely the shape behind the `terra::erase()`
+  ## corruption in <https://github.com/rspatial/terra/issues/2179>. Tiling creates more of them.
+  clip <- function(x, fields = NULL) {
+    if (is.null(tile)) {
+      return(tidyterra::as_spatvector(x))
+    }
+
+    aoi <- tidyterra::as_spatvector(tile)
+
+    ## A GeoPackage path pushes the spatial filter down into the GDAL read, so a worker never
+    ## materialises the whole layer -- the same reason `create_forest_disturbance_seral()` takes
+    ## paths rather than objects. The in-memory branch is what the untiled call and the tests use.
+    v <- if (is.character(x)) {
+      spatialutils::read_vector_aoi(x, aoi, fields = fields)
+    } else {
+      tidyterra::as_spatvector(x)
+    }
+
+    if (nrow(v) == 0L || !any(terra::is.related(v, aoi, "intersects"))) {
+      return(v[integer(0), ])
+    }
+
+    out <- terra::crop(v, aoi)
+
+    if (nrow(out) == 0L) {
+      return(v[integer(0), ])
+    }
+
+    spatialutils::repair_geoms(out)
+  }
+
+  base <- clip(patch_size, fields = "Seral")
+
+  if (nrow(base) > 0L) {
+    base <- dplyr::filter(base, !is.na(Seral))
+  }
+
+  ## A tile no forest reaches still has to present the full column set, in the same order as every
+  ## other branch. Six of the 49 study-area tiles hold no seral polygons at all.
+  if (nrow(base) == 0L) {
+    empty <- base[integer(0), ]
+    terra::values(empty) <- stats::setNames(
+      as.data.frame(rep(list(character(0)), length(want)), stringsAsFactors = FALSE),
+      want
+    )
+    return(empty)
+  }
 
   base |>
-    overlay_left_join(tidyterra::as_spatvector(interior_forest_mature_old)) |>
+    spatialutils::overlay_left_join(clip(interior_forest_mature_old, fields = "matold_interior")) |>
     spatialutils::repair_geoms() |>
-    overlay_left_join(tidyterra::as_spatvector(interior_forest_old)) |>
+    spatialutils::overlay_left_join(clip(interior_forest_old, fields = "old_interior")) |>
     spatialutils::repair_geoms()
 }
 
-## Tag `x` with `y`'s attributes where the two overlap, leaving them NA elsewhere: a left join done
-## as an overlay, keeping `x`'s footprint exactly.
-##
-## `terra::union()` is the obvious way to write this and is wrong. Measured on a window of 2,933
-## seral polygons, the union chain returned 74,959.504 ha against a base of 74,738.411 ha, with a
-## dissolved footprint of only 74,656.115 ha -- so it double-counted 303 ha of output while dropping
-## 82 ha of real land, and took 233 s against 8 s here (28.5x). `create_vri_becndt()` carries the
-## same finding at study-area scale, where `union()` dropped 22,628 ha and double-counted 15,449 ha.
-##
-## `intersect()` and `erase()` partition `x` exactly, which is what a left join is supposed to do.
-## The difference `x \ y`, keeping `x`'s attributes.
-##
-## Done with sf rather than `terra::erase()`, which can return a `SpatVector` carrying one more
-## attribute row than it has geometries: it drops a geometry whose difference comes out empty
-## without dropping the matching attribute row. Nothing complains at the time, and the next thing to
-## read the attributes fails instead, a long way from the cause. Measured on the seral overlay it hit
-## 5 of 49 tiles, each off by exactly one row. Reported upstream as
-## <https://github.com/rspatial/terra/issues/2179>, and still open. `terra::erase()` calls
-## `erase_agg()` internally, which is the function terra moved `union()` onto when it fixed
-## <https://github.com/rspatial/terra/issues/2175>, so that fix does not cover this one.
-##
-## An `sf` object cannot desynchronise, because the attributes are columns of the same data frame as
-## the geometry. Across 42 tiles sf was consistent on all of them where terra managed 37, and where
-## terra did succeed the two agreed to 0.000000 m2. sf costs about twice as much, which on a step
-## that tiles to roughly five minutes is worth paying to have one code path rather than a fast one
-## and a fallback that only runs on inputs nobody can characterise.
-erase_polygons <- function(x, y) {
-  d <- suppressWarnings(
-    sf::st_difference(sf::st_as_sf(x), sf::st_union(sf::st_as_sf(y)))
-  )
-
-  ## A cut can leave a line or a point behind, in a GEOMETRYCOLLECTION; only the polygons carry area.
-  ## Extract only when there is something to extract -- `st_collection_extract()` warns when the
-  ## geometries are already polygons, which is the ordinary case.
-  if (any(sf::st_geometry_type(d) == "GEOMETRYCOLLECTION")) {
-    d <- sf::st_collection_extract(d, "POLYGON", warn = FALSE)
-  }
-
-  ## `y` covering `x` entirely is ordinary too, and `terra::vect()` warns on an empty `sf`.
-  ## `[` keeps the columns; `terra::crop()` would not.
-  if (nrow(d) == 0L) {
-    return(x[integer(0), ])
-  }
-
-  terra::vect(d)
-}
-
-overlay_left_join <- function(x, y) {
-  ## `y` legitimately misses `x` altogether -- a tile with no interior forest in it, say. terra warns
-  ## "no intersection" for that, which is expected and noisy; the empty result is handled below.
-  inside <- withCallingHandlers(
-    terra::intersect(x, y),
-    warning = function(w) {
-      if (grepl("no intersection", conditionMessage(w), fixed = TRUE)) {
-        invokeRestart("muffleWarning")
-      }
-    }
-  )
-
-  outside <- erase_polygons(x, y)
-
-  ## A `SpatVector` can come back from an overlay with more geometries than attribute rows. Nothing
-  ## complains at the time; the next thing to touch the attributes fails instead, a long way from
-  ## the cause. Check here, where the cause still is.
-  check <- function(v, what) {
-    if (nrow(v) != nrow(terra::values(v))) {
-      stop(sprintf(
-        "%s came back with %d geometries but %d attribute rows",
-        what,
-        nrow(v),
-        nrow(terra::values(v))
-      ))
-    }
-    v
-  }
-
-  inside <- check(inside, "intersect()")
-
-  ## The columns the result must end up with, taken from the inputs rather than from either overlay
-  ## result -- an empty overlay can come back with its attribute columns dropped, and rebuilding the
-  ## table from that would silently discard them.
-  want <- c(names(x), setdiff(names(y), names(x)))
-
-  ## Columns `y` contributes are NA wherever `y` does not reach. Build each attribute table in full
-  ## and set it in one go: assigning column by column with `[[<-` fails on some real inputs with
-  ## "cannot add these values", and says nothing about which column or why.
-  fill <- function(v, proto) {
-    if (nrow(v) == 0L) {
-      return(v)
-    }
-
-    d <- terra::values(v)
-
-    for (nm in want) {
-      if (is.null(d[[nm]])) {
-        d[[nm]] <- rep(proto[[nm]][NA_integer_], nrow(d))
-      }
-    }
-
-    ## `rbind()` matches columns by position, not by name
-    terra::values(v) <- d[, want, drop = FALSE]
-    v
-  }
-
-  ## one row of each input, purely to carry the column types
-  proto <- c(
-    as.list(terra::values(x)[0, , drop = FALSE]),
-    as.list(terra::values(y)[0, , drop = FALSE])
-  )
-
-  combine_spatvectors(list(fill(inside, proto), fill(outside, proto)))
-}
+## `erase_polygons()` and `overlay_left_join()` now live in spatialutils, where they are tested
+## on their own terms; they were written here, against the two terra overlay defects this project
+## ran into, and are general enough that keeping a second copy would only let the two drift.
+##   <https://github.com/rspatial/terra/issues/2175> (union, fixed upstream)
+##   <https://github.com/rspatial/terra/issues/2179> (erase, fixed in 12df7fbd, not yet pinned)
 
 define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
   ## add resistance and sourcewt based on aggregated patches

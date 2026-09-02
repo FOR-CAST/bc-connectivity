@@ -377,17 +377,47 @@ list(
     name = patches_patch_size,
     command = patches_create_patch_size_data(patches_input_data)
   ),
+  ## The tiled resultant reads its base layer through GDAL rather than out of the store: a worker
+  ## then materialises only the polygons inside its own tile, instead of deserialising all 255,879
+  ## of them to keep a few thousand.
+  tar_target(
+    name = patches_patch_size_gpkg,
+    command = save_gpkg(patches_patch_size, "patches_patch_size.gpkg"),
+    format = "file"
+  ),
 
   ## arcpy step 6a: Union of the seral layer with both interior-forest layers. Every polygon keeps
   ## its own seral stage and gains `old_interior` / `matold_interior` flags -- interior forest is an
   ## attribute, not a relabelling.
+  ## Tiled: this ran 5h 51m 58s in a single process on 2026-08-31, and the overlay is embarrassingly
+  ## parallel over space.
+  ##
+  ## The tiles are `study_area_tiles` -- the *same* grid the seral layer was built on, which matters
+  ## for more than consistency. That layer already carries vertices lying bit-exactly on these seam
+  ## coordinates, so re-cutting here intersects at existing vertices, GEOS invents no new ones, and
+  ## the halves of a split polygon abut exactly. A different or finer grid would cut at fresh
+  ## coordinates and forfeit that.
+  ##
+  ## Cropping splits polygons at the seams, so the resultant has a few percent more features than
+  ## the untiled build. Area, footprint and every attribute combination are unchanged, and
+  ## `calc_matold()` dissolves and explodes before the interpatch distances are measured, which puts
+  ## split patches back together -- verified on real geometry across a seam: identical feature count
+  ## after `calc_matold()`, and identical nearest-neighbour quantiles.
+  tar_terra_vect(
+    name = patches_union_final_tiles,
+    command = patches_union_into_final_resultant(
+      patches_patch_size_gpkg,
+      patches_interior_forest_old,
+      patches_interior_forest_mature_old,
+      study_area_tiles
+    ),
+    ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
+    pattern = map(study_area_tiles)
+  ),
   tar_terra_vect(
     name = patches_union_final,
-    command = patches_union_into_final_resultant(
-      patches_patch_size,
-      patches_interior_forest_old,
-      patches_interior_forest_mature_old
-    )
+    command = combine_spatvectors(patches_union_final_tiles),
+    deployment = "main"
   ),
 
   tar_terra_vect(

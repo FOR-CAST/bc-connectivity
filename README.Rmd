@@ -1,5 +1,11 @@
 ---
-title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes" date: "Last updated: `r Sys.Date()`" output: html_document: keep_md: true bibliography: citations/references.bib citation-style: citations/ecology-letters.csl
+title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_document:
+    keep_md: true
+bibliography: citations/references.bib
+citation-style: citations/ecology-letters.csl
 ---
 
 ```{r setup, include=FALSE}

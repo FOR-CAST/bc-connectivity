@@ -1,8 +1,8 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: 2026-02-10"
-output: 
-  html_document: 
+date: "Last updated: 2026-09-01"
+output:
+  html_document:
     keep_md: true
 bibliography: citations/references.bib
 citation-style: citations/ecology-letters.csl
@@ -11,8 +11,7 @@ citation-style: citations/ecology-letters.csl
 
 
 This repository contains code to produce a connectivity map for the intactness of old forests to inform biodiversity management for the Quesnel Natural Resource District (NRD).
-This connectivity case study is part of Phase 3 of an Ecological Corridors project led by Travis Heckford,
-to develop analytical tools for practitioners to implement Connectivity, Corridors, and Functional Ecological Networks (C-C-FEN).
+This connectivity case study is part of Phase 3 of an Ecological Corridors project led by Travis Heckford, to develop analytical tools for practitioners to implement Connectivity, Corridors, and Functional Ecological Networks (C-C-FEN).
 
 **Authors and contributors:**
 
@@ -32,12 +31,37 @@ This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
 ```r
 ## Run the workflow:
-## NOTE: callr/sf interaction causes multithread deadlock
-targets::tar_make(callr_function = NULL)
+targets::tar_make()
 
 ## Visualize the target dependencies:
 targets::tar_visnetwork()
 ```
+
+Long runs should be started detached, so they survive an SSH or IDE disconnect from the compute node:
+
+```bash
+scripts/run_pipeline.sh              # detached; reattach with `tmux attach -t bc-conn`
+scripts/run_pipeline.sh --attach     # foreground instead
+```
+
+This wraps the whole pipeline rather than just the Omniscape runs.
+`processx` kills its children when the R session exits, so detaching only the Julia subprocess would not help: if the session dies, `targets` loses the run regardless.
+
+- If you use VS Code or Positron, the [`tarborist`](https://github.com/tylermorganwall/tarborist) extension shows the target graph and each target's status in the editor, which is handy for a pipeline this size.
+
+The spatial steps are dispatched to `crew` workers.
+Thread-pool settings (`OMP_NUM_THREADS`) and `terra` options live in `.Rprofile` rather than `_targets.R`, because workers start their own R sessions that load `.Rprofile` but never source `_targets.R`.
+
+Environment variables control how much of the machine the run takes:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
+| `BC_CONN_JULIA_THREADS` | `64` | Julia threads per Omniscape run |
+| `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
+| `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
+
+By default a full `tar_make()` prepares every Omniscape input and stops short of launching the runs themselves, which take hours to days each.
 
 ### Debugging
 
@@ -45,7 +69,19 @@ See <https://books.ropensci.org/targets/debugging.html> for help.
 
 ```r
 ## Run the workflow verbosely
-tar_make(callr_function = NULL, reporter = "verbose")
+tar_make(reporter = "verbose")
+
+## Run in the current session, for use with browser()
+tar_make(callr_function = NULL, use_crew = FALSE, as_job = FALSE)
+```
+
+### Tests
+
+Patch construction is covered by a small standalone `testthat` suite that checks the interior-forest areas against a synthetic concentric case with closed-form answers:
+
+```r
+targets::tar_source()
+testthat::test_dir("tests/testthat")
 ```
 
 
@@ -67,6 +103,7 @@ tar_make(callr_function = NULL, reporter = "verbose")
 ## ├── bc-connectivity.Rproj
 ## ├── CITATION.cff
 ## ├── citations
+## ├── CLAUDE.md
 ## ├── docker
 ## ├── INFO.md
 ## ├── LICENSE.md
@@ -76,15 +113,16 @@ tar_make(callr_function = NULL, reporter = "verbose")
 ## ├── README.Rmd
 ## ├── renv
 ## ├── renv.lock
+## ├── reports
 ## ├── scripts
+## ├── tests
 ## ├── workflow_patches.png
 ## ├── workflow_seral.png
 ## ├── workflow_summary.png
 ## └── workflow.png
 ```
 
-Directories created locally when the workflow runs -- `Data/`, `Outputs/`, `Teams/`, and
-`_targets/` -- are not tracked in git and so are not listed above.
+Directories created locally when the workflow runs -- `Data/`, `Outputs/`, `Teams/`, and `_targets/` -- are not tracked in git and so are not listed above.
 See [Data access](#data-access) for how to populate `Data/`.
 
 ## Data sources
@@ -152,68 +190,56 @@ All vector data layers were projected to a common CRS and clipped to a boundary 
 
 ## Data access
 
-No input data are distributed with this repository. The `Data/` directory is created
-locally when the workflow runs.
+No input data are distributed with this repository.
+The `Data/` directory is created locally when the workflow runs.
 
-**Publicly available layers.** Everything listed above except the Forest Disturbance layer
-downloads automatically as part of the `targets` workflow, via the
-[`bcdata`](https://github.com/bcgov/bcdata) and [`bcmaps`](https://github.com/bcgov/bcmaps)
-packages or by direct download from the BC Data Catalogue and Open Government Portal.
+**Publicly available layers.**
+Everything listed above except the Forest Disturbance layer downloads automatically as part of the `targets` workflow, via the [`bcdata`](https://github.com/bcgov/bcdata) and [`bcmaps`](https://github.com/bcgov/bcmaps) packages or by direct download from the BC Data Catalogue and Open Government Portal.
 No account, API key, or credential is required.
 
-**Restricted layer.** The **BC Cumulative Effects Framework Forest Disturbance (2024)**
-layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a CEF Custom Product. It is not available
-through the `bcdata` package or the BC Data Catalogue, and it is not redistributed here.
+**Restricted layer.**
+The **BC Cumulative Effects Framework Forest Disturbance (2024)** layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a CEF Custom Product.
+It is not available through the `bcdata` package or the BC Data Catalogue, and it is not redistributed here.
 The workflow will stop with an error if it is missing.
 
 To request access, contact the project data steward:
 
 - **Travis Heckford**, Government of British Columbia -- <Travis.Heckford@gov.bc.ca>
 
-Please describe your intended use when requesting the data. Once obtained, place the
-geodatabase in the workflow's download directory so that the following path resolves:
+Please describe your intended use when requesting the data.
+Once obtained, place the geodatabase in the workflow's download directory so that the following path resolves:
 
 ```
 Data/download/BC_CEF_Forest_Disturbance_2024.gdb
 ```
 
-The workflow will then proceed normally. Note that the Forest Disturbance layer drives the
-Simple Inferred Forest Age (SIFA) and seral stage calculations, so the connectivity results
-cannot be reproduced without it.
+The workflow will then proceed normally.
+Note that the Forest Disturbance layer drives the Simple Inferred Forest Age (SIFA) and seral stage calculations, so the connectivity results cannot be reproduced without it.
 
 ## Data licence and attribution
 
 The **code** in this repository and the **input data** it consumes are licensed separately.
 See [Licence](#licence) for the code.
 
-Most input layers are published by the Government of British Columbia through the
-[BC Data Catalogue](https://catalogue.data.gov.bc.ca) under the
-[Open Government Licence -- British Columbia](https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc),
-which requires attribution:
+Most input layers are published by the Government of British Columbia through the [BC Data Catalogue](https://catalogue.data.gov.bc.ca) under the [Open Government Licence -- British Columbia](https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc), which requires attribution:
 
 > Contains information licensed under the Open Government Licence -- British Columbia.
 
-The Land Cover of Canada (2020) layer is published by Natural Resources Canada through the
-[Open Government Portal](https://open.canada.ca) under the
-[Open Government Licence -- Canada](https://open.canada.ca/en/open-government-licence-canada),
-which requires attribution:
+The Land Cover of Canada (2020) layer is published by Natural Resources Canada through the [Open Government Portal](https://open.canada.ca) under the [Open Government Licence -- Canada](https://open.canada.ca/en/open-government-licence-canada), which requires attribution:
 
 > Contains information licensed under the Open Government Licence -- Canada.
 
-The BC Cumulative Effects Framework Forest Disturbance layer is **not** an open-licensed
-product. Its terms of use are set by the data steward at the time of release; check them
-before redistributing that layer or any derived product from which it can be reconstructed.
+The BC Cumulative Effects Framework Forest Disturbance layer is **not** an open-licensed product.
+Its terms of use are set by the data steward at the time of release; check them before redistributing that layer or any derived product from which it can be reconstructed.
 
-Individual datasets may carry their own terms, currency, and accuracy statements. Consult
-the linked catalogue record for each layer before relying on it, and verify licensing
-before redistributing any derived data products.
+Individual datasets may carry their own terms, currency, and accuracy statements.
+Consult the linked catalogue record for each layer before relying on it, and verify licensing before redistributing any derived data products.
 
 ## Moving window size
 
-An interpatch assessment for the study area was conducted in `R` to inform the buffer size of data and the moving window radii required for Omniscape. 
+An interpatch assessment for the study area was conducted in `R` to inform the buffer size of data and the moving window radii required for Omniscape.
 
-Simple Inferred Forest Age (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers to identify landscape patches following the Forest Biodiversity
-Cumulative Effects Framework [§3.2.2, @CEF:2020].
+Simple Inferred Forest Age (SIFA) from the Forest Disturbance layer was joined with VRI (dominant species) and Natural Disturbance Type and BEC Zone (NDT-BEC) layers to identify landscape patches following the Forest Biodiversity Cumulative Effects Framework [§3.2.2, @CEF:2020].
 
 We calculate patch area and other statistics for all seral stages by NDT-BEC.
 
@@ -226,10 +252,10 @@ We calculate edge-to-edge distances for all and nearest-neighbour old seral stag
 ## # A tibble: 1 × 5
 ##    `0%`  `25%`  `50%`   `75%`  `100%`
 ##   <dbl>  <dbl>  <dbl>   <dbl>   <dbl>
-## 1     0 45202. 77899. 120835. 364515.
+## 1     0 42857. 74574. 117060. 364519.
 ```
 
-We selected the 20th percentile value of all interpatch distances as the maximum search radius (45.2 km).
+We selected the 25th percentile value of all interpatch distances as the maximum search radius (42.9 km).
 
 **Nearest neighbour interpatch distances (quantiles)**
 
@@ -237,42 +263,42 @@ We selected the 20th percentile value of all interpatch distances as the maximum
 ```
 ## Units: [m]
 ##           0%           1%           2%           3%           4%           5% 
-##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+## 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 
 ##           6%           7%           8%           9%          10%          11% 
-##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+## 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 
 ##          12%          13%          14%          15%          16%          17% 
-##    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000    0.0000000 
+## 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 
 ##          18%          19%          20%          21%          22%          23% 
-##    0.0000000    0.0000000    0.0000000    0.0000000    0.2447690    0.7166543 
+## 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 0.000000e+00 
 ##          24%          25%          26%          27%          28%          29% 
-##    1.2136404    1.7128808    2.2378266    2.7680750    3.2888325    3.7943570 
+## 8.026429e-02 4.639222e-01 8.995795e-01 1.341497e+00 1.794448e+00 2.274208e+00 
 ##          30%          31%          32%          33%          34%          35% 
-##    4.0282323    4.5178525    4.9839834    5.5237323    6.0519911    6.5718971 
+## 2.748989e+00 3.246071e+00 3.695769e+00 3.938109e+00 4.330994e+00 4.782435e+00 
 ##          36%          37%          38%          39%          40%          41% 
-##    7.1301322    7.6616953    8.1505027    8.7062829    9.2834548    9.8327188 
+## 5.205661e+00 5.676341e+00 6.188823e+00 6.655115e+00 7.163916e+00 7.674608e+00 
 ##          42%          43%          44%          45%          46%          47% 
-##   10.1926314   10.8383194   11.5457525   12.2288754   13.0337423   13.9521850 
+## 8.126851e+00 8.652743e+00 9.190081e+00 9.719332e+00 1.004782e+01 1.064354e+01 
 ##          48%          49%          50%          51%          52%          53% 
-##   14.7468258   15.6458723   16.5616779   17.5184125   18.4921753   19.5292517 
+## 1.128213e+01 1.190149e+01 1.260344e+01 1.341930e+01 1.419885e+01 1.503706e+01 
 ##          54%          55%          56%          57%          58%          59% 
-##   19.9854725   21.0217928   22.0554932   23.1681620   24.3003051   24.9826730 
+## 1.585860e+01 1.676363e+01 1.771142e+01 1.865736e+01 1.959911e+01 1.999900e+01 
 ##          60%          61%          62%          63%          64%          65% 
-##   24.9873227   24.9894720   24.9906617   24.9913212   24.9914968   25.0000000 
+## 2.100415e+01 2.203817e+01 2.304932e+01 2.417973e+01 2.543540e+01 2.668534e+01 
 ##          66%          67%          68%          69%          70%          71% 
-##   25.7372239   27.1045846   28.3382509   29.5251148   29.6941983   31.1253797 
+## 2.789201e+01 2.908139e+01 2.955812e+01 3.017336e+01 3.157506e+01 3.308296e+01 
 ##          72%          73%          74%          75%          76%          77% 
-##   32.7951751   34.5638881   36.3916177   38.5554676   40.2530263   42.1161945 
+## 3.472724e+01 3.643012e+01 3.841753e+01 3.989918e+01 4.183904e+01 4.394264e+01 
 ##          78%          79%          80%          81%          82%          83% 
-##   44.6037229   47.1674151   49.4931217   52.0742741   55.2165730   58.6406721 
+## 4.604083e+01 4.865292e+01 5.073663e+01 5.360739e+01 5.682364e+01 5.940401e+01 
 ##          84%          85%          86%          87%          88%          89% 
-##   61.4297034   65.4196803   69.5917742   74.2841656   79.3788600   85.0407552 
+## 6.269522e+01 6.648403e+01 7.061358e+01 7.530228e+01 8.014714e+01 8.587139e+01 
 ##          90%          91%          92%          93%          94%          95% 
-##   91.3718304   99.7198573  108.4038184  118.8804880  131.8032383  147.7071177 
+## 9.213052e+01 9.994196e+01 1.086448e+02 1.191588e+02 1.324290e+02 1.483218e+02 
 ##          96%          97%          98%          99%         100% 
-##  167.6084838  198.3021129  238.4098262  325.2452551 1725.5407667
+## 1.690630e+02 2.009080e+02 2.423389e+02 3.306847e+02 2.566803e+03
 ```
 
-We selected the 100th percentile value of the nearest neighbour interpatch distances as the minimum search radius (1.7 km).
+We selected the 100th percentile value of the nearest neighbour interpatch distances as the minimum search radius (2.6 km).
 
 ## Connectivity modelling
 
@@ -281,16 +307,16 @@ We selected the 100th percentile value of the nearest neighbour interpatch dista
 R scripts were developed to generate composite resistance and source weight rasters using the feature layers compiled in the previous steps:
 
 - The resistance values range from 1 to 1000 (low value = high biodiversity) ;
-- The source weight values range from 0 to 1 (low value = no habitat potential). 
+- The source weight values range from 0 to 1 (low value = no habitat potential).
 
-Rasterization was performed at a 30 m spatial resolution, aligned with the national 2020 landcover raster, and prepared using the `terra` package [@Hijmans:2025]. 
+Rasterization was performed at a 30 m spatial resolution, aligned with the national 2020 landcover raster, and prepared using the `terra` package [@Hijmans:2025].
 Feature layers were rasterized from vector data into a resistance raster and a source weight raster.
 
 #### Input layer creation
 
-Data layers with associated variables and attributes were compiled into a spreadsheet to organize the downloaded feature data. 
+Data layers with associated variables and attributes were compiled into a spreadsheet to organize the downloaded feature data.
 
-A column detailing data treatment for Omniscape was created, including resistance/source weights rationales, if/how the data was buffered, or if/how the data was filtered). 
+A column detailing data treatment for Omniscape was created, including resistance/source weights rationales, if/how the data was buffered, or if/how the data was filtered).
 
 Columns were created for the assignment of resistance and source weight values; where possible, justifications were recorded and used from peer-reviewed landscape connectivity studies.
 
@@ -310,46 +336,19 @@ Each polygon was assigned a seral stage using thresholds following the Biodivers
 
 Seral stage patch calculations adapted from BC Gov `arcpy` scripts:
 
-<details>
-<summary>Click to expand</summary>
+<details> <summary>Click to expand</summary>
 
-1. `get_input_data` loads the seral stage polygons and dissolves by seral stage:
-  a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`;
-  b. loads `aoi` (LU) study area polygon(s);
-  c. takes `seral_managed` polygon layer and repairs geometry, then dissolves polygons (`SINGLE_PART`) based on attributes `SERAL_STAGE` and `early_less20yrs`, saving as `seral` polygon layer;
+1. `get_input_data` loads the seral stage polygons and dissolves by seral stage: a. loads `r1_seral_managed` polygon layer, saving as `seral_managed`; b. loads `aoi` (LU) study area polygon(s); c. takes `seral_managed` polygon layer and repairs geometry, then dissolves polygons (`SINGLE_PART`) based on attributes `SERAL_STAGE` and `early_less20yrs`, saving as `seral` polygon layer;
 
-2. `create_old_and_old_mature` creates `OLD` and `OLD_MATURE` feature classes:
-  a. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% c('old', 'mature')` and sets `INTERIOR_CATEGORY = "MO"` for these polygons, saving to `x1_mature_old_from_seral` polygon layer;
-  b. takes `x1_mature_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category` polygon layer;
-  c. takes `x2_dissolved_interior_category` polygon layer, filters polygons with `INTERIOR_CATEGORY != "MO"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_matold_eliminated_lessthan_1ha` polygon layer;
-  d. takes `x3_matold_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "MO"` and adds fields/attributes, setting `mature_old = "MO"`, `mature_old_patch_size = <AREA>/10000`, then filters polygons with `mature_old_patch_size > 0` and adds field/attribute, setting `mature_old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `mature_old_patch_size > 40` and adds field/attribute, setting `mature_old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `mature_old_patch_size > 80` and adds field/attribute, setting `mature_old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `mature_old_patch_size > 250` and adds field/attribute, setting `mature_old_patch_category = "patch_class_250up_ha"`, saving to `r1_mature_old_1ha_eliminated` polygon layer;
-  e. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% 'old'` and sets `INTERIOR_CATEGORY = "O"` for these polygons, saving to `x1_old_from_seral` polygon layer;
-  f. takes `x1_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category_old` polygon layer;
-  g. takes `x2_dissolved_interior_category_old` polygon layer, filters polygons with `INTERIOR_CATEGORY != "O"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_old_eliminated_lessthan_1ha` polygon layer;
-  h. takes `x3_old_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "O"` and adds fields/attributes, setting `old = "MO"`, `old_patch_size = <AREA>/10000`, then filters polygons with `old_patch_size > 0` and adds field/attribute, setting `old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `old_patch_size > 40` and adds field/attribute, setting `old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `old_patch_size > 80` and adds field/attribute, setting `old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `old_patch_size > 250` and adds field/attribute, setting `old_patch_category = "patch_class_250up_ha"`, saving to `r1_old_1ha_eliminated` polygon layer;
+2. `create_old_and_old_mature` creates `OLD` and `OLD_MATURE` feature classes: a. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% c('old', 'mature')` and sets `INTERIOR_CATEGORY = "MO"` for these polygons, saving to `x1_mature_old_from_seral` polygon layer; b. takes `x1_mature_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category` polygon layer; c. takes `x2_dissolved_interior_category` polygon layer, filters polygons with `INTERIOR_CATEGORY != "MO"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_matold_eliminated_lessthan_1ha` polygon layer; d. takes `x3_matold_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "MO"` and adds fields/attributes, setting `mature_old = "MO"`, `mature_old_patch_size = <AREA>/10000`, then filters polygons with `mature_old_patch_size > 0` and adds field/attribute, setting `mature_old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `mature_old_patch_size > 40` and adds field/attribute, setting `mature_old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `mature_old_patch_size > 80` and adds field/attribute, setting `mature_old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `mature_old_patch_size > 250` and adds field/attribute, setting `mature_old_patch_category = "patch_class_250up_ha"`, saving to `r1_mature_old_1ha_eliminated` polygon layer; e. takes `seral` polygon layer, adds field/attribute `INTERIOR_CATEGORY` with default value `'other'`, then filters polygons with `SERAL_STAGE %in% 'old'` and sets `INTERIOR_CATEGORY = "O"` for these polygons, saving to `x1_old_from_seral` polygon layer; f. takes `x1_old_from_seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `INTERIOR_CATEGORY` attribute, saving to `x2_dissolved_interior_category_old` polygon layer; g. takes `x2_dissolved_interior_category_old` polygon layer, filters polygons with `INTERIOR_CATEGORY != "O"` and merges those smaller than $1 ha$ with neighbouring polygon with the longest shared border, saving to `x3_old_eliminated_lessthan_1ha` polygon layer; h. takes `x3_old_eliminated_lessthan_1ha` polygon layer, filters polygons with `INTERIOR_CATEGORY == "O"` and adds fields/attributes, setting `old = "MO"`, `old_patch_size = <AREA>/10000`, then filters polygons with `old_patch_size > 0` and adds field/attribute, setting `old_patch_category = "patch_class_0_40_ha"`, then filters polygons with `old_patch_size > 40` and adds field/attribute, setting `old_patch_category = "patch_class_41_80_ha"`, then filters polygons with `old_patch_size > 80` and adds field/attribute, setting `old_patch_category = "patch_class_81_250_ha"`, then filters polygons with `old_patch_size > 250` and adds field/attribute, setting `old_patch_category = "patch_class_250up_ha"`, saving to `r1_old_1ha_eliminated` polygon layer;
 
-3. `create_buffers_to_delete` creates multiple sets of buffered polygons to be removed from the `OLD`/`OLD_MATURE` feature classes:
-  a. takes `seral` polygon layer, copying it for each of the buffer distances (nominally $200 m$, $100 m$, $50 m$, $25 m$), and saving to polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, respectively;
-  b. takes each of polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, dissolves the polygons (`SINGLE_PART`), saving to polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, respectively;
-  c. takes each of polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, filters those polygons larger than 1 $ha$ and buffer these to the corresponding buffer distance (actually using $200 m$, $101 m$, $52 m$, $25 m$), saving polygon layers `x3_200m_to_erase`, `x3_100m_to_erase`, `x3_50m_to_erase`, `x3_25m_to_erase`, respectively;
+3. `create_buffers_to_delete` creates multiple sets of buffered polygons to be removed from the `OLD`/`OLD_MATURE` feature classes: a. takes `seral` polygon layer, copying it for each of the buffer distances (nominally $200 m$, $100 m$, $50 m$, $25 m$), and saving to polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, respectively; b. takes each of polygon layers `x1_200m_to_buffer`, `x1_100m_to_buffer`, `x1_50m_to_buffer`, `x1_25m_to_buffer`, dissolves the polygons (`SINGLE_PART`), saving to polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, respectively; c. takes each of polygon layers `x2_200m_to_buffer_dis`, `x2_100m_to_buffer_dis`, `x2_50m_to_buffer_dis`, `x2_25m_to_buffer_dis`, filters those polygons larger than 1 $ha$ and buffer these to the corresponding buffer distance (actually using $200 m$, $101 m$, $52 m$, $25 m$), saving polygon layers `x3_200m_to_erase`, `x3_100m_to_erase`, `x3_50m_to_erase`, `x3_25m_to_erase`, respectively;
 
-4. `create_interior_forest` creates interior forest layer by erasing relevant buffers from `OLD`/`OLD_MATURE` patches:
-  a. takes `r1_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving `x1_old_200_erased` polygon layer;
-  b. takes `x1_old_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_old_100_erased` polygon layer;
-  c. takes `x2_old_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_old_50_erased` polygon layer;
-  d. takes `x4_old_50_erased` polygon layer and erases `x3_25m_to_erase` from it, saving `x5_old_25_erased` polygon layer;
-  e. takes `r1_mature_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving to `x1_matold_200_erased` polygon layer;
-  f. takes `x1_matold_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_matold_100_erased` polygon layer;
-  g. takes `x2_matold_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_matold_50_erased` polygon layer;
-  h. takes `x4_matold_50_erased` polygon layer, adds a field/attribute, setting `matold_interior = "matold_interior"` for polygons with `mature_old == "MO"`, saving to `r1_matold_interior` polygon layer;
-  i. takes `x5_old_25_erased` polygon layer, adds a field/attribute, setting `old_interior = "old_interior"` for polygons with `old == "O"`, saving to `r1_old_interior` polygon layer;
+4. `create_interior_forest` creates interior forest layer by erasing relevant buffers from `OLD`/`OLD_MATURE` patches: a. takes `r1_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving `x1_old_200_erased` polygon layer; b. takes `x1_old_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_old_100_erased` polygon layer; c. takes `x2_old_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_old_50_erased` polygon layer; d. takes `x4_old_50_erased` polygon layer and erases `x3_25m_to_erase` from it, saving `x5_old_25_erased` polygon layer; e. takes `r1_mature_old_1ha_eliminated` polygon layer and erases `x3_200m_to_erase` from it, saving to `x1_matold_200_erased` polygon layer; f. takes `x1_matold_200_erased` polygon layer and erases `x3_100m_to_erase` from it, saving `x2_matold_100_erased` polygon layer; g. takes `x2_matold_100_erased` polygon layer and erases `x3_50m_to_erase` from it, saving `x4_matold_50_erased` polygon layer; h. takes `x4_matold_50_erased` polygon layer, adds a field/attribute, setting `matold_interior = "matold_interior"` for polygons with `mature_old == "MO"`, saving to `r1_matold_interior` polygon layer; i. takes `x5_old_25_erased` polygon layer, adds a field/attribute, setting `old_interior = "old_interior"` for polygons with `old == "O"`, saving to `r1_old_interior` polygon layer;
 
-5. `create_patch_size_data` calculates patch sizes:
-  a. takes `seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `seral_stage` attribute, and add field/attribute, setting `patch_size = "<10 ha"` for polygons with `<AREA> <= 100000`, then `patch_size = "11-40 ha"` for polygons with `<AREA> > 100000`, then `patch_size = "41-80 ha"` for polygons with `<AREA> > 400000`, then `patch_size = "81-250 ha"` for polygons with `<AREA> > 800000`, then `patch_size = "251-1000 ha"` for polygons with `<AREA> > 2500000`, then `patch_size = "1001-10000 ha"` for polygons with `<AREA> > 10000000`, then `patch_size = ">1000 ha"` for polygons with `<AREA> > 1000000`, then filters polygons with `seral_stage is NULL` setting `seral_stage = NA`, then add field/attribute `patch_cat` setting it to `paste0(seral_stage, "_", patch_size)`, and finally saving to `x1_dissolved_on_seral_stage` polygon layer;
+5. `create_patch_size_data` calculates patch sizes: a. takes `seral` polygon layer, dissolves (`SINGLE_PART`, `DISSOLVE_LINES`) all polygons based on `seral_stage` attribute, and add field/attribute, setting `patch_size = "<10 ha"` for polygons with `<AREA> <= 100000`, then `patch_size = "11-40 ha"` for polygons with `<AREA> > 100000`, then `patch_size = "41-80 ha"` for polygons with `<AREA> > 400000`, then `patch_size = "81-250 ha"` for polygons with `<AREA> > 800000`, then `patch_size = "251-1000 ha"` for polygons with `<AREA> > 2500000`, then `patch_size = "1001-10000 ha"` for polygons with `<AREA> > 10000000`, then `patch_size = ">1000 ha"` for polygons with `<AREA> > 1000000`, then filters polygons with `seral_stage is NULL` setting `seral_stage = NA`, then add field/attribute `patch_cat` setting it to `paste0(seral_stage, "_", patch_size)`, and finally saving to `x1_dissolved_on_seral_stage` polygon layer;
 
-6. `union_into_final_resultant` creates the final polygon unions:
-  a. takes polygon layers `r1_matold_interior`, `r1_old_interior`, and `x1_dissolved_on_seral_stage`, repairs geometries, then performs union, saving to `r1_patch` polygon layer;
-  b. takes polygon layers `r1_patch` and `seral_managed`, repairs geomtries, then unions, saving to `r1_final_resultant_union` polygon layer;
+6. `union_into_final_resultant` creates the final polygon unions: a. takes polygon layers `r1_matold_interior`, `r1_old_interior`, and `x1_dissolved_on_seral_stage`, repairs geometries, then performs union, saving to `r1_patch` polygon layer; b. takes polygon layers `r1_patch` and `seral_managed`, repairs geomtries, then unions, saving to `r1_final_resultant_union` polygon layer;
 
 </details>
 
@@ -369,21 +368,21 @@ Other biodiversity features were used for summarizing connectivity analyses, rat
 
 **Anthropogenic Disturbance Features:**
 
-A consolidated roads layer for the Cariboo region was merged with a provincial railways layer. 
+A consolidated roads layer for the Cariboo region was merged with a provincial railways layer.
 
-Resistance and source weights were applied using tiered values based on road class, tenure, and usage intensity, with buffers being applied (25-250 m) representing a negative impact on biodiversity. 
+Resistance and source weights were applied using tiered values based on road class, tenure, and usage intensity, with buffers being applied (25-250 m) representing a negative impact on biodiversity.
 
 **Water Features:**
 
-Lakes, rivers, and streams were assigned high resistance and low source weight, reflecting barriers to biodiversity for most terrestrial species. 
+Lakes, rivers, and streams were assigned high resistance and low source weight, reflecting barriers to biodiversity for most terrestrial species.
 
-Stream resistance values varied by stream order, and streams were buffered by order; S2 and S3 stream buffers were exaggerated to ensure presence in the 30m raster. 
+Stream resistance values varied by stream order, and streams were buffered by order; S2 and S3 stream buffers were exaggerated to ensure presence in the 30m raster.
 
 ### Composite raster creation
 
 **Resistance:**
 
-To create a composite resistance raster, all feature layer resistance rasters were combined using the following stacking rules: 
+To create a composite resistance raster, all feature layer resistance rasters were combined using the following stacking rules:
 
 - Roads and water features can only increase resistance, not decrease it;
 
@@ -391,21 +390,24 @@ To create a composite resistance raster, all feature layer resistance rasters we
 
 **Source Weight:**
 
-To create a composite source weight raster used inverse logic, all feature layer source weight rasters were combined using the following stacking rules: 
+To create a composite source weight raster used inverse logic, all feature layer source weight rasters were combined using the following stacking rules:
 
 - Roads and water features can only reduce source weight, never increase it;
 
-- `NA` values were replaced with 0 to ensure compatibility with Omniscape. 
+- `NA` values were replaced with 0 to ensure compatibility with Omniscape.
 
 ### Omniscape runs
 
 Used Omniscape to produce connectivity maps.
 
-**NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now.
-  <https://github.com/Circuitscape/Omniscape.jl/issues/160>
+**NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now. <https://github.com/Circuitscape/Omniscape.jl/issues/160>
 
-**NOTE:** Omniscape runs need to be run manually (i.e., outside of the `targets` data prep workflow) because of a problem preventing launch of `julia` from `R`.
-Consequently, post-processing and analyses of Omniscape outputs also needs to be run manually for the time being.
+Omniscape runs are launched from the `targets` workflow, so the whole analysis is a single `tar_make()`.
+(This previously had to be done by hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled shared libraries, which any Julia subprocess inherits, so Julia resolved libraries such as `libcurl` against R's copies and segfaulted on `using Omniscape`.
+Dropping that variable from the child environment -- see `julia_env()` in `R/run_omniscape.R` -- is all that was needed.)
+
+Because a single run takes hours to days and can need hundreds of GB of RAM, they are opt-in: set `BC_CONN_OMNISCAPE` to `nn`, `alldist`, or `all` before running the pipeline.
+Runs execute sequentially, since each one already saturates the machine.
 
 The data preparation workflow generates several Omniscape configurations by adjusting the following:
 
@@ -413,34 +415,64 @@ The data preparation workflow generates several Omniscape configurations by adju
 - _radius_ (`r`): the moving window size (in pixels), based on the results of the nearest neighbour / all nseighbour analyses (the smaller `r` value for a given pixel size corresponds to the nearest neighbour patch distances, whereas the larger `r` value for a given pixel size corresponds to the result of all patch distances);
 - _block size_ (`bs`): used to speed up computations, set to approximately 10% of `r` (in pixels), per [@Phillips:2021]).
 
-To allow for running Omniscape with large `r` values, the inputs resistance and source weight rasters are split into several tiles (`t`), and corresponding Omniscript configurations are produced.
-(The `2026-01-13_p30_r1802_bs181` configuration was run as tiles and the Omniscape outputs mosaicked together for subsequent analyses.)
+Resistance and source weight rasters can optionally be split into tiles (`t`) so that runs with large `r` values fit in memory, with corresponding Omniscape configurations produced for each tile.
+
+**NOTE:** tiles must overlap by at least `2 * radius` for the mosaicked result to be free of edge artifacts ([Omniscape.jl#75](https://github.com/Circuitscape/Omniscape.jl/issues/75)).
+`write_omniscape_config()` computed that overlap in the wrong units until 2026-08-25, giving 101 pixels of overlap where a radius of 1507 px needs 3014 -- so any previously mosaicked tiled output (including `2026-01-13_p30_r1802_bs181`) is artifact-ridden and should not be used.
+Note also that at a correct overlap the buffered tiles are nearly as large as the untiled raster for large `r`, so tiling buys very little there; `ntiles = c(1, 1)` (the current default) runs untiled.
 
 Omniscape configurations produced by the data preparation workflow:
 
-| **Omniscape configuration**  | **Description**                                       |
-| ---------------------------- | ----------------------------------------------------- |
-| `2026-01-13_p30_r1802_bs181` | 30m pixels; radius 1802 pixels; block size 181 pixels |
-| `2026-01-13_p30_r183_bs19`   | 30m pixels; radius 183 pixels; block size 19 pixels   |
-| `2026-01-13_p90_r601_bs61`   | 90m pixels; radius 601 pixels; block size 61 pixels   |
-| `2026-01-13_p90_r61_bs7`     | 90m pixels; radius 61 pixels; block size 7 pixels     |
 
-**NOTE:** 
+```
+## _No Omniscape runs recorded in this store; set `BC_CONN_OMNISCAPE` and rerun._
+```
 
-Additional (manual) configurations were produced manually as part of testing/benchmarking Omniscape runs, corresponding to $1/2$ and $1/4$ the search radius of the `2026-01-13_p30_r1802_bs181` configuration:
+Resource use is measured, not estimated: each run is executed under `time -v`, and its peak resident set size and wall-clock time are written to `omniscape_metrics.csv` in the run's output directory.
+`targets` records neither -- its metadata has `seconds` and the size of the *stored object*, but nothing about memory -- and `crew`'s worker metrics would instrument the R worker rather than the Julia subprocess Omniscape actually runs in.
 
-| **Omniscape configuration**  | **Description**                                       |
-| ---------------------------- | ----------------------------------------------------- |
-| `2026-01-13_p30_r451_bs45`   | 30m pixels; radius 451 pixels; block size 45 pixels   |
-| `2026-01-13_p30_r901_bs91`   | 30m pixels; radius 901 pixels; block size 91 pixels   |
+Tiled variants exist to benchmark resource use against the untiled run rather than because the analysis needs them, so they are opt-in via `BC_CONN_OMNISCAPE_BENCH`.
 
+All configurations were run on a single AMD EPYC CPU using 64 threads (per below).
 
-Individual Omniscape runs can be launched from the terminal using e.g.,
+Individual runs can still be launched by hand from a terminal if needed, e.g.,
 
 ```bash
 ## NOTE: adjust number of threads (`-t` argument) based on CPU and RAM availability
-julia -t 16 Omniscape/2026-01-13_p30_r183_bs19/script.jl
+julia -t 64 Omniscape/2026-01-23_p30_r1507_bs151/script.jl
 ```
+
+## Corrections (2026-08-25)
+
+Several defects were found in the patch-construction chain.
+Together they mean that **any result produced by this pipeline before 2026-08-25 is invalid and must be regenerated** -- the patch statistics, both interpatch-distance distributions, the Omniscape radii derived from them, the resistance and source-weight rasters, and every Omniscape run.
+
+Measured on the Quesnel NRD, on a final layer covering 2,733,136 ha:
+
+| Defect | Effect on the modelled landscape |
+| --- | --- |
+| `patches_create_interior_forest()` erased the 25 m (Mature) edge-influence buffer from the mature+old target as well as the old-only target. Mature stands are part of the mature+old patch, so erasing their own edge influence removed every mature stand plus a 25 m margin. | `patches_interior_forest_mature_old` was numerically identical to `patches_interior_forest_old` (both 326,081.5 ha over 13,783 polygons). Anything reported as "mature+old interior forest" was really old-only interior forest. |
+| `patches_create_old_mature()` never dropped the non-target `INTERIOR_CATEGORY` class before the erase (arcpy steps 2d/2h). None of the four buffers cover unclassified (`NA` seral) land, so that land survived the erase. | 165,527 ha of the 326,036 ha "old interior forest" layer -- **50.8%** -- was not old forest. It entered the final layer as `Mature`, at Resistance 250 / SourceWt 0.75 instead of 1000 / 0. |
+| `patches_create_interior_forest()` overwrote `Seral` with the interior-forest age class, and `st_union_analysis()` then propagated `x`'s attributes onto every intersection. | 160,417 ha of old forest core -- 45% of all old forest -- was relabelled `Mature` and modelled at Resistance 250 / SourceWt 0.75 instead of 1 / 1.0. `patches_union_final_1` came out 100% `Mature`, with `Old` reduced to 179 slivers totalling 2.4e-11 ha. |
+| `create_forest_disturbance_seral()` used `sf::st_join()`, which duplicates whole geometries rather than splitting them at the overlay boundaries. | The seral layer was inflated from 4.02 M polygons / 4.09 Mha to 7.78 M / 39.5 Mha, and ~165,000 ha (6% of the landscape) belonged to two or more seral stages at once, resolved arbitrarily by union order. |
+| `write_omniscape_config()` divided the tile overlap by the pixel size, but `radius` is already in pixels. | Tiles overlapped by 101 px where a radius of 1507 px needs 3014. Mosaicked tiled output (e.g. `2026-01-13_p30_r1802_bs181`) has seam artifacts across essentially the whole tile. |
+| `calc_patch_stats()` measured patches on the final resultant, whose polygons are overlay fragments rather than patches. | Reported patch sizes described the overlay: the smallest `Old` "patch" was 4.6e-6 m^2 and the median 1,936 m^2 (0.19 ha). Statistics are now computed on the dissolved seral layer (arcpy step 5a). |
+| Sliver elimination passed `overlap = TRUE` to `terra::combineGeoms()`, which assigns a sliver by overlap area rather than by shared-border length. | The arcpy `Eliminate` step this ports uses the *LENGTH* rule -- "the neighbouring polygon with the longest shared border" (steps 2c/2g). Now delegated to `spatialutils::eliminate_slivers()`, which implements that rule. |
+| Areas were about to be measured with `terra::expanse()`, whose `transform = TRUE` default returns *geodesic* area. | 2.69% larger than planar area in this study area's Lambert projection (3,010,405 ha vs 2,931,558 ha for the seral layer) -- enough to move stands across the 1 ha buffer threshold and inflate every reported total. All areas are now planar, matching `sf::st_area()` and ArcGIS `Shape_Area`. |
+
+Reconciling the corrected areas against the published ones closes exactly: `Old` 355,530 - 160,417 = 195,113 ha (reported: 195,083); `Mature` 714,243 + 160,417 + 165,527 = 1,040,187 ha (reported: 1,040,306).
+
+Interior forest is now carried as `old_interior` / `matold_interior` attribute columns alongside `Seral`, as the arcpy `Union` it ports does, rather than by overwriting the seral stage.
+
+Two defects prevented the pipeline from running at all on its pinned dependencies, and were presumably why it had to be driven by hand:
+
+- `error = "trim"` no longer validates -- it was renamed `"abridge"` in `targets` 1.5.0.
+- `.Rprofile` attached `dplyr`, `sf`, and `targets`.
+  `.Rprofile` runs *before* R attaches the default packages, so those landed **below** `stats` on the search path, and `library()` on an already-attached package cannot lift them back up.
+  A bare `filter()` therefore resolved to `stats::filter()`, failing with an unrelated-looking error.
+  Nothing is attached there now, and every call in `R/` is qualified.
+
+Two further changes affect run time rather than results: `patches_union_final_3` was removed (it re-unioned a layer step 2 had already unioned in, costing 33.5 h to change 12 polygons out of 162,905 and zero area), and the nearest-neighbour distance calculation no longer rebuilds a GEOS index once per polygon.
 
 # Using this repository
 
@@ -454,26 +486,19 @@ git clone https://github.com/Heckford/bc-connectivity
 
 ### Platform
 
-This project was developed and tested on **Ubuntu 24.04 LTS (noble)**, with R 4.5.3 and
-Julia 1.11.7. Prebuilt package binaries for this platform are available from
-[Posit Package Manager](https://packagemanager.posit.co), so `renv::restore()` completes
-without compiling packages from source.
+This project was developed and tested on **Ubuntu 24.04 LTS (noble)**, with R 4.5.3 and Julia 1.11.7. Prebuilt package binaries for this platform are available from [Posit Package Manager](https://packagemanager.posit.co), so `renv::restore()` completes without compiling packages from source.
 
-**Ubuntu 26.04 LTS (resolute) is not currently supported.** Its updated toolchain
-(glibc 2.43, GCC 15 / clang 21) introduces two problems:
+**Ubuntu 26.04 LTS (resolute) is not currently supported.**
+Its updated toolchain (glibc 2.43, GCC 15 / clang 21) introduces two problems:
 
-- glibc 2.43 defines the C23 `once_flag` type in `<stdlib.h>`. Packages that bundle their
-  own copy of `tinycthread` and are compiled with `-D_GNU_SOURCE` -- which sets
-  `__GLIBC_USE(ISOC23)` -- then fail to build with a `typedef redefinition` error. This
-  affects the version of `later` pinned in `renv.lock` (fixed upstream in `later` 1.4.7).
+- glibc 2.43 defines the C23 `once_flag` type in `<stdlib.h>`.
+  Packages that bundle their own copy of `tinycthread` and are compiled with `-D_GNU_SOURCE` -- which sets `__GLIBC_USE(ISOC23)` -- then fail to build with a `typedef redefinition` error.
+  This affects the version of `later` pinned in `renv.lock` (fixed upstream in `later` 1.4.7).
 
-- Most versions pinned in `renv.lock` predate the Posit Package Manager binaries built for
-  resolute. Because binary repositories carry only current package versions, those pins
-  fall back to building from source, where further incompatibilities with the newer
-  compilers are likely.
+- Most versions pinned in `renv.lock` predate the Posit Package Manager binaries built for resolute.
+  Because binary repositories carry only current package versions, those pins fall back to building from source, where further incompatibilities with the newer compilers are likely.
 
-Running on Ubuntu 26.04 therefore requires updating the pinned package versions (see
-[R packages](#r-packages)), which changes the recorded computational environment.
+Running on Ubuntu 26.04 therefore requires updating the pinned package versions (see [R packages](#r-packages)), which changes the recorded computational environment.
 Use Ubuntu 24.04 to reproduce the published results.
 
 ### R 4.5.3
@@ -549,26 +574,22 @@ See [`CONTRIBUTING.md`](.github/CONTRIBUTING.md).
 
 # Licence
 
-Copyright 2025-2026 Province of British Columbia
-Copyright 2025-2026 FOR-CAST Research & Analytics
+Copyright 2025-2026 Province of British Columbia Copyright 2025-2026 FOR-CAST Research & Analytics
 
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
-project except in compliance with the License. You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this project except in compliance with the License.
+You may obtain a copy of the License at
 
 <http://www.apache.org/licenses/LICENSE-2.0>
 
-Unless required by applicable law or agreed to in writing, software distributed under the
-License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
-either express or implied. See the [License](LICENSE.md) for the specific language
-governing permissions and limitations under the License.
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the [License](LICENSE.md) for the specific language governing permissions and limitations under the License.
 
-This licence applies to the **code** in this repository. Input data are covered by their
-own licences -- see [Data licence and attribution](#data-licence-and-attribution).
+This licence applies to the **code** in this repository.
+Input data are covered by their own licences -- see [Data licence and attribution](#data-licence-and-attribution).
 
 # Citation
 
-If you use this software or the analyses it produces, please cite it using the metadata in
-[`CITATION.cff`](CITATION.cff).
+If you use this software or the analyses it produces, please cite it using the metadata in [`CITATION.cff`](CITATION.cff).
 
 # References
 
