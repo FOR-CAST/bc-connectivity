@@ -1357,7 +1357,7 @@
     },
     "lattice": {
       "Package": "lattice",
-      "Version": "0.22-7",
+      "Version": "0.22-9",
       "Source": "Repository",
       "Repository": "CRAN",
       "Requirements": [
@@ -2036,19 +2036,6 @@
         "xtable"
       ],
       "Hash": "4eee104c56972c9ef07741219099b0dd"
-    },
-    "smoothr": {
-      "Package": "smoothr",
-      "Version": "1.3.0",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "R",
-        "sf",
-        "stats",
-        "units"
-      ],
-      "Hash": "23b30bde8d7336af97350cbdd155f5de"
     },
     "sourcetools": {
       "Package": "sourcetools",

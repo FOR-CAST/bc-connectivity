@@ -438,6 +438,34 @@ Two defects prevented the pipeline from running at all on its pinned dependencie
 
 Two further changes affect run time rather than results: `patches_union_final_3` was removed (it re-unioned a layer step 2 had already unioned in, costing 33.5 h to change 12 polygons out of 162,905 and zero area), and the nearest-neighbour distance calculation no longer rebuilds a GEOS index once per polygon.
 
+## Corrections (2026-09-01)
+
+Two defects in `terra`'s overlay operators were found while rerunning the pipeline, and both were reported upstream.
+Neither produces an error: they return plausible-looking wrong geometry.
+
+| Defect | Effect on the modelled landscape |
+| --- | --- |
+| `terra::union()` returns output polygons that overlap one another *and* a dissolved footprint smaller than its input, so it double-counts some land while dropping other land outright. Reported as [rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175); fixed upstream 2026-08-29. | On the VRI x NDT-BEC overlay it dropped **22,628 ha** and double-counted **15,449 ha**. On a 2,933-polygon window of the final resultant it returned 74,959.504 ha against a base of 74,738.411 ha with a dissolved footprint of 74,656.115 ha: 303 ha counted twice, 82 ha lost. It is also superlinear -- 418x slower than the equivalent on one tile, and one target ran 25 h before being killed. Replaced by `spatialutils::overlay_left_join()` (intersection plus difference), which partitions the left-hand layer exactly. |
+| `terra::erase()` can return a `SpatVector` carrying more attribute rows than it has geometries: a polygon whose difference comes out empty loses its geometry but keeps its row. Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179); fixed upstream in [`12df7fbd`](https://github.com/rspatial/terra/commit/12df7fbd4f85eb01faa02c580a31ce7e34275c6a), which is **not** in the pinned build. | Nothing complains at the time; whatever next reads the attributes fails instead, a long way from the cause -- one run got six hours in before dying on `[[<-,SpatVector] cannot add these values`. It hit 5 of 49 tiles of the seral overlay, each off by exactly one row. Replaced by `spatialutils::erase_polygons()`, which goes through `sf` and cannot desynchronise. |
+
+Neither defect reproduces on synthetic geometry, so a passing unit test is not evidence that either operator is safe on real data.
+
+**The Omniscape radii change**, which is the correction that propagates furthest.
+Radii are derived from quantiles of the interpatch distance distribution, and that distribution is measured between patches whose construction the 2026-08-25 corrections changed:
+
+| Quantity | Published | Corrected | px at 30 m | px at 90 m |
+| --- | --- | --- | --- | --- |
+| Regional (all-pairs q25) | 45,202 m | **42,857 m** (-5.2%) | 1507 -> **1429** | 503 -> **477** |
+| Local (nearest-neighbour q100) | 1,726 m | **2,567 m** (+49%) | 58 -> **86** | 20 -> **29** |
+
+Both move by more than one pixel at either resolution, so every published Omniscape run needs redoing with a new configuration.
+The corrected configurations are stamped `2026-08-26`.
+
+`patches_union_final` is now tiled over `study_area_tiles`, which cuts it from **5 h 51 m 58 s to 17 m 48 s** (19.8x).
+Cropping splits polygons at the tile seams, so `forest_patches_final.gpkg` carries **192,683 features against 189,666** (+1.59%).
+No area moves: the tiled and serial layers agree to **0.000000 ha**, and to sub-mm^2 on every combination of `Seral`, `matold_interior` and `old_interior`.
+The split does not reach the distance calculations, because `calc_matold()` dissolves first -- serial and tiled nearest-neighbour quantiles agree to under a metre at every level, and the q100 that sets the radius is identical.
+
 # Using this repository
 
 ## Getting the code

@@ -12,10 +12,20 @@ output:
     latex_engine: pdflatex
 geometry: margin=2.5cm
 urlcolor: blue
+header-includes:
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE, fig.align = "center",
+  ## Keep figures in the section that discusses them. Captioned figures are LaTeX floats,
+  ## so by default two full-width 4800 px maps drift to wherever they fit -- which put them
+  ## pages away from the text about them. `H` (from the float package, loaded in the YAML
+  ## header) pins them exactly where they appear in the source.
+  fig.pos = "H", out.extra = ""
+)
 
 ## knitr evaluates chunks in the directory of the input file, so anything that resolves the project
 ## by falling back to the working directory (`workflowtools::findProjectPath()` among them) reports
