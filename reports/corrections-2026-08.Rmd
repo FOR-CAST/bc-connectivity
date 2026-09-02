@@ -40,6 +40,12 @@ find_project_root <- function(start = getwd()) {
 proj <- find_project_root()
 knitr::opts_knit$set(root.dir = proj)
 
+## Emit native LaTeX tables rather than markdown ones. Pandoc turns a markdown table into a
+## `longtable`, which splits across pages -- so a table lands half on one page and half on the next.
+## `format = "latex"` with `booktabs` produces a `table` float instead, and floats never split; the
+## preamble then pins them in place and sets them a size down.
+options(knitr.table.format = "latex")
+
 library(dplyr)
 library(knitr)
 library(targets)
@@ -65,6 +71,21 @@ if (is.null(rmd_dir) || !nzchar(rmd_dir) || is.na(rmd_dir)) {
 
 FIGDIR <- normalizePath(file.path(rmd_dir, "figures"), mustWork = FALSE)
 dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
+
+## One place that decides how every table in this report is drawn.
+##
+## `HOLD_position` keeps a table with the text discussing it instead of letting LaTeX float it
+## elsewhere, and the smaller size keeps the wider ones on a single page. Written with `kableExtra`
+## rather than raw LaTeX in the document preamble, so it can be adjusted by anyone comfortable with
+## R without having to read TeX.
+##
+## Captions are plain text on purpose: with native LaTeX tables the caption is passed through
+## verbatim, so a stray underscore or backtick becomes a TeX error reported several pages away from
+## the caption that caused it.
+styled <- function(x, ...) {
+  knitr::kable(x, ...) |>
+    kableExtra::kable_styling(latex_options = "HOLD_position", font_size = 9)
+}
 
 ha  <- function(x) sum(terra::expanse(x, unit = "ha", transform = FALSE))
 num <- function(x, d = 1) formatC(round(x, d), format = "f", big.mark = ",", digits = d)
@@ -122,7 +143,7 @@ data.frame(
   Corrected = c("see Section 3", "166,915.6 ha (10,348 polys)", "0.0 ha", "35.1 h of compute"),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = "Headline effects of the corrections.", booktabs = TRUE)
+  styled(caption = "Headline effects of the corrections.", booktabs = TRUE)
 ```
 
 # Defects
@@ -154,7 +175,7 @@ data.frame(
   ),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = "Defects corrected in this rerun.", booktabs = TRUE)
+  styled(caption = "Defects corrected in this rerun.", booktabs = TRUE)
 ```
 
 # Data corrections
@@ -177,7 +198,7 @@ data.frame(
   Corrected = c("398,109", "3,541,465.4", "3,541,465.4", "0.0"),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = paste(
+  styled(caption = paste(
     "VRI x NDT-BEC overlay, whole study area.",
     "In the corrected layer the parts sum exactly to the area they cover."
   ), booktabs = TRUE)
@@ -204,7 +225,7 @@ data.frame(
   check.names = FALSE,
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = "The same defect measured at three scales.", booktabs = TRUE)
+  styled(caption = "The same defect measured at three scales.", booktabs = TRUE)
 ```
 
 Three things about it are worth recording, because each one delayed finding it.
@@ -228,7 +249,7 @@ data.frame(
   check.names = FALSE,
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = paste(
+  styled(caption = paste(
     "Simplifying the inputs before the union, on the minimal case.",
     "A millimetre is far below the precision of the source data."
   ), booktabs = TRUE)
@@ -265,8 +286,8 @@ data.frame(
   sf = c("42 of 42", "388.9 s", "0.000000 m2"),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = paste(
-    "`terra::erase()` against `sf::st_difference()` on the same 42 tiles.",
+  styled(caption = paste(
+    "Erasing with terra against erasing with sf, on the same 42 tiles.",
     "sf cannot desynchronise: its attributes are columns of the same data frame as the geometry."
   ), booktabs = TRUE)
 ```
@@ -340,9 +361,9 @@ cmp |>
   transmute(Seral, Resistance, SourceWt,
             `Published (ha)` = num(ha_pub), `Corrected (ha)` = num(ha_cor),
             `Change (ha)` = num(d), `Change (%)` = num(pct)) |>
-  kable(caption = paste(
-    "Final resultant by seral stage. Resistance and source weight are assigned from",
-    "`Seral`, so a stage that changes area moves that area between resistance classes."
+  styled(caption = paste(
+    "Final resultant by seral stage. Resistance and source weight are assigned from the seral",
+    "stage, so a stage that changes area moves that area between resistance classes."
   ), booktabs = TRUE)
 ```
 
@@ -364,7 +385,7 @@ if (have(pub_stats, cor_stats)) {
   p <- read.csv(pub_stats); q <- read.csv(cor_stats)
   keep <- intersect(names(p), names(q))
   bind_rows(mutate(p[, keep], run = "published"), mutate(q[, keep], run = "corrected")) |>
-    kable(caption = "Seral patch statistics, published vs corrected.", booktabs = TRUE) |>
+    styled(caption = "Seral patch statistics, published vs corrected.", booktabs = TRUE) |>
     cat(sep = "\n")
 } else {
   cat("_Patch statistics not available._")
@@ -399,15 +420,36 @@ include_graphics(f, rel_path = FALSE)
 
 ## Runtime
 
-Times are CPU seconds as recorded by `targets`; for branched targets they are the sum over branches,
-so they exceed wall-clock where branches ran in parallel.
+Times are CPU seconds as recorded by `targets`, summed over branches, so they exceed wall clock
+wherever branches ran in parallel.
+They are grouped by workflow stage rather than by target: the rewrite split, merged and removed
+targets, so individual names do not line up between the two runs, and several stages now do in one
+target what previously took three.
 
-A caveat that matters when reproducing this: the live `_targets` store keeps metadata rows for
-targets that have *not* been rebuilt, so a naive comparison of the two stores double-counts the
-unchanged work and reports a meaningless 1.0x.
-Targets are treated as rebuilt here only where the recorded time differs from the published run.
+Two things have to be filtered out or the comparison is meaningless.
+The store keeps metadata for targets that were *not rebuilt*, which would compare the published run
+against itself; and it also keeps metadata for targets the rewrite *removed*, which counts
+eliminated work as though it still ran.
+Totals below are filtered against `tar_manifest()` -- the targets that exist in the pipeline today
+-- with removed targets attributed to the stage they used to serve, so each row shows the net effect
+of the change rather than a deletion and an addition side by side.
 
-```{r runtime, results = "asis"}
+```{r runtime-stage, results = "asis"}
+## Group targets into workflow stages. Order matters: first match wins.
+stage_of <- function(x) {
+  dplyr::case_when(
+    grepl("^omniscape", x) ~ "Omniscape configuration",
+    grepl("interpatch_distances|quantiles_|forest_patches_chunks|patches_matold", x) ~
+      "Interpatch distances",
+    grepl("^(resistance|sourcewt)_", x) ~ "Resistance and source-weight surfaces",
+    grepl("^patches_|^patch_summary|^forest_patches_final", x) ~ "Patch construction",
+    grepl("^forest_disturbance_seral", x) ~ "Seral classification",
+    grepl("^VRI_BECNDT", x) ~ "VRI x NDT-BEC overlay",
+    grepl("^(readme|reproducibility_receipt)$", x) ~ "Reporting",
+    TRUE ~ "Input layers and study area"
+  )
+}
+
 roll <- function(store) {
   m <- tar_meta(store = store, fields = c("name", "seconds", "parent"))
   br <- m |> filter(!is.na(parent)) |> group_by(name = parent) |>
@@ -417,43 +459,54 @@ roll <- function(store) {
 }
 
 if (dir.exists(PUB_META)) {
+  live <- tar_manifest()$name
   o <- roll(PUB_META) |> rename(pub = seconds)
-  n <- roll(file.path(proj, "_targets")) |> rename(cor = seconds)
-  runtime_cmp <- full_join(o, n, by = "name") |>
-    ## a row whose time is identical to the published run was never rewritten: it is stale
-    mutate(rebuilt = is.na(pub) | is.na(cor) | pub != cor)
+  n <- roll(file.path(proj, "_targets")) |> filter(name %in% live) |> rename(cor = seconds)
 
-  runtime_cmp |>
-    filter(rebuilt, !is.na(pub), !is.na(cor)) |>
-    mutate(saved = pub - cor, speedup = pub / cor) |>
-    arrange(desc(saved)) |>
-    transmute(Target = name, Published = dur(pub), Corrected = dur(cor),
-              Saved = dur(saved), Speedup = sprintf("%.1fx", speedup)) |>
-    kable(caption = "Targets rebuilt in the corrected run.", booktabs = TRUE) |>
+  by_stage <- full_join(o, n, by = "name") |>
+    mutate(stage = stage_of(name)) |>
+    group_by(stage) |>
+    summarise(pub = sum(pub, na.rm = TRUE) / 3600,
+              cor = sum(cor, na.rm = TRUE) / 3600, .groups = "drop") |>
+    mutate(chg = cor - pub) |>
+    arrange(chg)
+
+  tot <- summarise(by_stage, stage = "**Total**", pub = sum(pub), cor = sum(cor), chg = sum(chg))
+
+  bind_rows(by_stage, tot) |>
+    transmute(
+      Stage = stage,
+      Published = sprintf("%.1f h", pub),
+      Corrected = sprintf("%.1f h", cor),
+      Change = ifelse(abs(chg) < 0.05, "--", sprintf("%+.1f h", chg))
+    ) |>
+    styled(caption = "Pipeline cost by workflow stage, published against corrected (CPU hours).",
+          booktabs = TRUE, row.names = FALSE, align = "lrrr") |>
     cat(sep = "\n")
 }
 ```
 
-```{r runtime-removed, results = "asis"}
-if (exists("runtime_cmp", inherits = FALSE)) {
-  runtime_cmp |>
-    filter(!is.na(pub), is.na(cor) | !rebuilt) |>
-    arrange(desc(pub)) |>
-    head(10) |>
-    transmute(Target = name, Published = dur(pub)) |>
-    kable(caption = paste(
-      "Published targets with no corrected counterpart: either eliminated by the rewrite",
-      "(patches_union_final_1/2/3, 35.1 h between them) or not yet rebuilt."
-    ), booktabs = TRUE) |>
-    cat(sep = "\n")
-}
-```
+**A full build costs about 90 CPU hours less than the published one**, despite the corrections
+adding work, and nearly all of that comes from two stages.
 
-The steps that got *slower* did so for a reason worth recording: the arcpy LENGTH sliver rule is
-much more expensive than the area rule it replaced, and it now runs on more and smaller polygons
-because the seral layer no longer collapses duplicates.
-That is the price of correctness, and it is more than repaid by the three-step union that the
-rewrite removed entirely.
+*Interpatch distances* (-50 h) lost `all_interpatch_distances_chunks`, which held the distances in
+memory as a list of chunks; they are now written straight to a parquet dataset.
+The quantile step over that dataset was itself rewritten after it was OOM-killed six hours into a
+run: asking DuckDB for five quantiles as five aggregates made it keep five sorted states at once and
+peak at 336 GB, where one `quantile_cont()` call over a list of probabilities peaks at 28.7 GB and
+returns bit-identical values.
+
+*Patch construction* (-40 h) lost `patches_union_final_3` (33.5 h to change 12 polygons out of
+162,905, and zero area), and `patches_union_final` itself went from 5 h 52 m to 18 m by tiling.
+
+The one stage that got *slower* is the VRI x NDT-BEC overlay (+0.5 h).
+That is the price of correctness: the arcpy LENGTH sliver rule is more expensive than the area rule
+it replaced, and it now runs on more and smaller polygons because the seral layer no longer
+collapses duplicates.
+
+These are CPU hours, not wall clock.
+Wall clock is not comparable between the two runs -- the published one was driven by hand, and the
+corrected one shared a machine with an unrelated job.
 
 ## Tiling the final resultant
 
@@ -465,13 +518,17 @@ The overlay is embarrassingly parallel over space, so it now branches over `stud
 same 8x8 grid the seral layer itself was built on -- and reads its base layer through GDAL rather
 than out of the `targets` store, so a worker materialises only the polygons inside its own tile.
 
-| | serial | tiled |
-|:--|--:|--:|
-| runtime | 5 h 51 m 58 s | **17 m 48 s** |
-| branches | 1 | 49, all succeeding |
-| slowest branch | -- | 2 m 48 s |
-| features | 189,666 | 192,683 |
-| planar area | 2,473,003.272 ha | 2,473,003.272 ha |
+```{r tiling-cost, results = "asis"}
+data.frame(
+  Quantity = c("Runtime", "Branches", "Slowest branch", "Features", "Planar area"),
+  Serial = c("5 h 51 m 58 s", "1", "--", "189,666", "2,473,003.272 ha"),
+  Tiled = c("17 m 48 s", "49, all succeeding", "2 m 48 s", "192,683", "2,473,003.272 ha"),
+  check.names = FALSE
+) |>
+  styled(caption = "Building the final resultant, serial against tiled.", booktabs = TRUE,
+         row.names = FALSE, label = "tiling-cost") |>
+  cat(sep = "\n")
+```
 
 **19.8x faster, with the area preserved exactly.**
 
@@ -489,14 +546,19 @@ It does not propagate: `calc_matold()` dissolves before the interpatch distances
 The verification that matters is the distance distribution, since that is what sets the Omniscape
 radii:
 
-| quantile | serial (m) | tiled (m) | difference |
-|:--|--:|--:|--:|
-| 25% | 0.372 | 0.464 | +0.092 |
-| 50% | 12.500 | 12.603 | +0.103 |
-| 75% | 39.787 | 39.899 | +0.112 |
-| 90% | 91.901 | 92.131 | +0.230 |
-| 99% | 330.123 | 330.685 | +0.562 |
-| **100%** | **2566.803** | **2566.803** | **0.000** |
+```{r tiling-quantiles, results = "asis"}
+data.frame(
+  Quantile = c("25%", "50%", "75%", "90%", "99%", "100%"),
+  Serial = c(0.372, 12.500, 39.787, 91.901, 330.123, 2566.803),
+  Tiled = c(0.464, 12.603, 39.899, 92.131, 330.685, 2566.803)
+) |>
+  transform(Difference = sprintf("%+.3f", Tiled - Serial)) |>
+  styled(caption = paste(
+    "Nearest-neighbour distance quantiles in metres, serial against tiled.",
+    "The 100% row is the one the Omniscape radius is derived from."
+  ), booktabs = TRUE, row.names = FALSE, label = "tiling-quantiles") |>
+  cat(sep = "\n")
+```
 
 Every quantile agrees to under a metre, and q100 -- the one `omniscape_config_nndist` actually
 consumes -- is identical.
@@ -522,8 +584,8 @@ data.frame(
   Value = c("110.0 GB", "41.1 GB", "~1.5 GB per branch", "~10 GB"),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = paste(
-    "Memory use of the data-preparation pipeline at `BC_CONN_WORKERS=8`.",
+  styled(caption = paste(
+    "Memory use of the data-preparation pipeline with 8 workers.",
     "Omniscape is excluded: it is opt-in and needs hundreds of GB."
   ), booktabs = TRUE)
 ```
@@ -560,7 +622,7 @@ if (terra::compareGeom(rb, rn, stopOnError = FALSE)) {
               num(terra::global(rn, "mean", na.rm = TRUE)[[1]], 2)),
     stringsAsFactors = FALSE
   ) |>
-    kable(caption = "Change in the composite resistance surface at 30 m.", booktabs = TRUE) |>
+    styled(caption = "Change in the composite resistance surface at 30 m.", booktabs = TRUE) |>
     cat(sep = "\n")
 }
 ```
@@ -615,18 +677,20 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
   pub$`Published m` <- num(pub$`Published m`, 0)
   pub$`Corrected m` <- num(pub$`Corrected m`, 0)
 
-  cat(kable(pub, caption = "Radii before and after the corrections.", booktabs = TRUE,
-            row.names = FALSE), sep = "\n")
+  cat(styled(pub, caption = "Radii before and after the corrections.", booktabs = TRUE,
+             row.names = FALSE, label = "radii-change"), sep = "\n")
   cat("\n\n")
 
-  show_q <- function(x, cap) {
+  show_q <- function(x, cap, lbl) {
     d <- as.data.frame(x)
     if (nrow(d) > 20) d <- d[seq(1, nrow(d), length.out = 20), , drop = FALSE]
-    cat(kable(d, caption = cap, booktabs = TRUE, row.names = FALSE), sep = "\n")
+    ## an explicit label per table: three tables come out of this one chunk, and knitr labels
+    ## them all with the chunk name otherwise, so every cross-reference resolves to the last one
+    cat(styled(d, caption = cap, booktabs = TRUE, row.names = FALSE, label = lbl), sep = "\n")
     cat("\n\n")
   }
-  show_q(qn, "Nearest-neighbour interpatch distance quantiles (corrected).")
-  show_q(qa, "All-pairs interpatch distance quantiles (corrected).")
+  show_q(qn, "Nearest-neighbour interpatch distance quantiles (corrected).", "quantiles-nn")
+  show_q(qa, "All-pairs interpatch distance quantiles (corrected).", "quantiles-all")
 } else {
   cat("_Distance quantiles had not been rebuilt when this was rendered;",
       "the radii for the corrected runs are therefore not yet known._\n")
@@ -682,5 +746,5 @@ data.frame(
   ),
   stringsAsFactors = FALSE
 ) |>
-  kable(caption = "Environment.", booktabs = TRUE)
+  styled(caption = "Environment.", booktabs = TRUE)
 ```

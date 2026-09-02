@@ -83,10 +83,12 @@ Prefer the stated option unless there is a specific reason not to.
   It hit 5 of 49 tiles of the seral overlay, each off by exactly one row.
   Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179), and **fixed upstream** in [`12df7fbd`](https://github.com/rspatial/terra/commit/12df7fbd4f85eb01faa02c580a31ce7e34275c6a).
   It was *not* covered by the #2175 fix, which moved `union()` onto `erase_agg()` -- the function `erase()` already called -- so it needed its own.
-  The fix is **not in the pinned build**: `renv.lock` has terra at `1a8843f`, which is #2175 only.
-  Keep using `erase_polygons()` until the newer build is pinned *and* the fix is verified on this study area the way #2175 was; it also handles an empty `y` and the non-polygonal residue an overlay can leave behind, neither of which is a terra bug.
-  `erase_polygons()` uses `sf::st_difference()`, which cannot desynchronise because the attributes are columns of the same data frame as the geometry.
-  Measured across 42 tiles: sf consistent on 42, terra on 37, agreeing to 0.000000 m² wherever terra succeeded, at about twice the cost.
+  `renv.lock` now pins that build, and the fix is **verified on this study area**: re-running the 42-tile benchmark that found the defect gives terra consistent on 42 of 42, where it managed 37 before, agreeing with sf to 0.000000 m².
+  **Keep using `erase_polygons()` anyway.**
+  It does two things the fix does not touch, neither of which is a terra bug: it returns `x` unchanged when `y` is empty (`sf::st_union()` of an empty layer is a zero-length geometry, and `st_difference()` against that fails with "replacement has 1 row, data has 0"), and it drops the non-polygonal residue an overlay leaves behind.
+  That second one is the trap: a difference can come back as a bare `LINESTRING` sitting directly in the geometry column -- not inside a `GEOMETRYCOLLECTION` -- and `terra::vect()` then drops the geometry while keeping its attribute row, reproducing #2179's symptom from a different direction.
+  One of tile 12's 6,871 differences was such a line, and it surfaced two calls later as `[as,sf] coercion failed`.
+  `erase_polygons()` lives in `spatialutils` now, along with `overlay_left_join()` and `keep_polygons()`; it goes through `sf::st_difference()`, which cannot desynchronise because the attributes are columns of the same data frame as the geometry, at about twice terra's cost.
 - **`sf::st_join()` is not an overlay.**
   It keeps whole geometries from `x` and emits one copy per `y` they touch.
   For assigning attributes by location, use an intersection so geometries are split at the boundary and each location carries exactly one set of values.
@@ -111,6 +113,12 @@ Prefer the stated option unless there is a specific reason not to.
   This is specific to `crop()`: `v[integer(0), ]`, `intersect()`, `erase()`, and `sf::st_crop()` all keep the columns when the result is empty.
   Nothing in terra's NEWS through dev 1.9-47 addresses it (checked against 1.8.86), so assume it is still present.
   Guard on `nrow() == 0` before touching attributes, and filter empty branches out before `rbind()`.
+- **Exact quantiles over the distance dataset need a single sorted state.**
+  `calc_all_dists_quantiles()` runs over 2.33 billion rows (18 GB of parquet), and an exact quantile cannot be streamed -- the column is materialised and sorted.
+  Asking DuckDB for five quantiles as five separate aggregates gives it five sorted states at once: it peaked at 336 GB, drove a 1 TB machine to 3.6 GB available, and was OOM-killed six hours into a run.
+  `quantile_cont(distance, [list of probs])` answers all of them from one sorted state -- 28.7 GB, 3.3 min, bit-identical values -- and a `memory_limit` makes DuckDB spill rather than die if it is squeezed.
+  Do **not** reach for `approx_quantile()`: its t-digest error is around 1%, which on the ~43 km regional quantile is ~430 m, and the Omniscape radius changes every 90 m at 90 m resolution, so the approximation moves a pinned radius by several pixels.
+
 - **Erasing several layers in sequence** is the same as erasing their union (`A \ B1 \ B2 = A \ (B1 ∪ B2)`), and much cheaper when the union is computed once.
 
 ## Package development
