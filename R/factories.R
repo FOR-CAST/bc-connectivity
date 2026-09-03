@@ -40,7 +40,7 @@ district_path <- function(type, district) {
     project = fs::path(project_dir),
     ## per-district
     inputs = file.path(project_dir, "Data", "processed", key) |> fs::dir_create(),
-    rasters = file.path(project_dir, "Data", "processed", key, "rasters") |> fs::dir_create(),
+    rasters = file.path(project_dir, "Data", "processed", "rasters", key) |> fs::dir_create(),
     omniscape = file.path(project_dir, "Omniscape", key) |> fs::dir_create(),
     outputs = file.path(project_dir, "Outputs", key) |> fs::dir_create(),
     figures = file.path(project_dir, "Outputs", key, "figures") |> fs::dir_create()
@@ -52,6 +52,108 @@ district_path <- function(type, district) {
 #' @returns list of targets
 #'
 #' @export
+## Route a writer's `dst` into the district's own directory.
+##
+## The writers in `R/data_prep.R` and `R/rasters.R` resolve their own destination as
+## `file.path(get_path(<type>), dst)`, and the raster ones append the resolution to `dst` BEFORE
+## prepending that directory. A relative subpath therefore survives both steps and lands
+## per-district, without editing any writer -- `targets` hashes function bodies, so editing one
+## would invalidate the legacy Quesnel store (100.2 GB, 280.1 h).
+##
+## Returns the relative subpath, having created the directory the writer will then write into;
+## `save_gpkg()` and `terra::writeRaster()` do not create missing parents.
+district_dst <- function(district, dst, type = c("inputs", "rasters")) {
+  type <- match.arg(type)
+  district_path(type, district) ## side effect: creates the directory
+  file.path(district$key, dst)
+}
+
+## District-aware variants of the writers that hardcode their own filename, and so offer no `dst`
+## to route with `district_dst()`. They are added here, rather than edited in place in
+## `R/data_prep.R` / `R/patch_stats.R`, so those files keep a zero diff: `targets` hashes function
+## bodies, and the legacy Quesnel store depends on the originals.
+
+get_landcover_raster_district <- function(studyArea, district) {
+  dst <- file.path(district_path("rasters", district), paste0(district$key, "_LCC.tif"))
+
+  ## the source layer is province-wide and district-independent, so it stays in the shared cache
+  lcc_url <- "https://datacube-prod-data-public.s3.ca-central-1.amazonaws.com/store/land/landcover/landcover-2020-classification.tif"
+  lcc_tif <- file.path(district_path("download", district), basename(lcc_url))
+
+  if (!file.exists(lcc_tif)) {
+    withr::with_options(list(timeout = 300), {
+      download.file(lcc_url, destfile = lcc_tif)
+    })
+  }
+
+  landcover <- terra::rast(lcc_tif)
+  studyAreaLCC <- sf::st_transform(studyArea, crs = terra::crs(landcover))
+
+  terra::crop(landcover, studyAreaLCC, mask = TRUE) |>
+    terra::writeRaster(dst, datatype = "INT1U", overwrite = TRUE)
+
+  return(dst)
+}
+
+get_dem_raster_district <- function(studyArea, district) {
+  dst <- file.path(district_path("rasters", district), paste0(district$key, "_DEM.tif"))
+
+  ## the VRT indexes the CDED tiles covering THIS district's AOI, so it is district-specific even
+  ## though it lives in the shared download directory
+  dem <- bcmaps::cded_terra(
+    aoi = studyArea,
+    dest_vrt = file.path(district_path("download", district), paste0(district$key, "_DEM.vrt"))
+  )
+  studyAreaDEM <- sf::st_transform(studyArea, crs = terra::crs(dem))
+
+  terra::crop(dem, studyAreaDEM, mask = TRUE) |>
+    terra::writeRaster(dst, overwrite = TRUE)
+
+  return(dst)
+}
+
+save_patch_stats_district <- function(stats_df, district) {
+  dst <- file.path(district_path("outputs", district), "seral_patch_stats.csv")
+
+  utils::write.csv(x = stats_df, file = dst, row.names = FALSE)
+
+  return(dst)
+}
+
+plot_hist_dists_district <- function(dists, type, district) {
+  dst <- file.path(
+    district_path("figures", district),
+    glue::glue("histogram_patch_distances_{type}.png")
+  )
+
+  gg <- ggplot2::ggplot(data.frame(dists), ggplot2::aes(x = dists)) +
+    ggplot2::geom_histogram(fill = "lightgrey") +
+    ggplot2::geom_vline(
+      xintercept = c(stats::median(dists), mean(dists)),
+      colour = c("blue", "darkred"),
+      linetype = 2,
+      linewidth = 1.5
+    ) +
+    ggplot2::annotate(
+      "text",
+      x = c(stats::median(dists), mean(dists)),
+      y = Inf,
+      label = c("median", "mean"),
+      colour = c("blue", "darkred"),
+      angle = 90,
+      vjust = 1.5,
+      hjust = 1.5
+    ) +
+    ggplot2::xlab("Interpatch distance") +
+    ggplot2::ylab("Frequency") +
+    ggplot2::ggtitle(glue::glue("Frequency distribution of {type} interpatch distances")) +
+    ggplot2::theme_minimal()
+
+  ggplot2::ggsave(filename = dst, plot = gg, width = 8, height = 6)
+
+  return(dst)
+}
+
 dataprep_targets <- function() {
   list(
     ## The single source of district truth: read from the active project name, so a project cannot
@@ -75,7 +177,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = study_area_gpkg,
-      command = save_gpkg(study_area, dst = paste0(district$key, "_studyarea.gpkg")),
+      command = save_gpkg(study_area, district_dst(district, "studyarea.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -84,10 +186,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = study_area_buffered_gpkg,
-      command = save_gpkg(
-        study_area_buffered,
-        dst = paste0(district$key, "_studyarea_buffered.gpkg")
-      ),
+      command = save_gpkg(study_area_buffered, district_dst(district, "studyarea_buffered.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -98,7 +197,7 @@ dataprep_targets <- function() {
     ## LCC used as rasterToMatch
     tar_target(
       name = LCC_tif,
-      command = get_landcover_raster(study_area_buffered),
+      command = get_landcover_raster_district(study_area_buffered, district),
       format = "file"
     ),
     tar_target(
@@ -118,7 +217,7 @@ dataprep_targets <- function() {
     ## DEM
     tar_target(
       name = DEM_tif,
-      command = get_dem_raster(study_area_buffered),
+      command = get_dem_raster_district(study_area_buffered, district),
       format = "file"
     ),
     tar_terra_rast(
@@ -133,7 +232,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = LU_gpkg,
-      command = save_gpkg(LU, "landscape_units.gpkg"),
+      command = save_gpkg(LU, district_dst(district, "landscape_units.gpkg")),
       format = "file"
     ),
 
@@ -144,7 +243,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = BEC_gpkg,
-      command = save_gpkg(BEC, "BEC.gpkg"),
+      command = save_gpkg(BEC, district_dst(district, "BEC.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -153,7 +252,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = BECNDT_gpkg,
-      command = save_gpkg(BECNDT, "BECNDT.gpkg"),
+      command = save_gpkg(BECNDT, district_dst(district, "BECNDT.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -168,7 +267,10 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = leading_group_cariboo_gpkg,
-      command = save_gpkg(leading_group_cariboo, "leading_group_cariboo.gpkg"),
+      command = save_gpkg(
+        leading_group_cariboo,
+        district_dst(district, "leading_group_cariboo.gpkg")
+      ),
       format = "file"
     ),
 
@@ -178,7 +280,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = VRI_gpkg,
-      command = save_gpkg(VRI, "VRI.gpkg"),
+      command = save_gpkg(VRI, district_dst(district, "VRI.gpkg")),
       format = "file"
     ),
     ## The VRI x NDT-BEC overlay is tiled for the same reason the seral overlay is: measured at
@@ -205,7 +307,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = VRI_BECNDT_gpkg,
-      command = save_gpkg(VRI_BECNDT, "VRI_BECNDT.gpkg"),
+      command = save_gpkg(VRI_BECNDT, district_dst(district, "VRI_BECNDT.gpkg")),
       format = "file"
     ),
 
@@ -215,7 +317,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = forest_disturbance_gpkg,
-      command = save_gpkg(forest_disturbance, "forest_disturbance.gpkg"),
+      command = save_gpkg(forest_disturbance, district_dst(district, "forest_disturbance.gpkg")),
       format = "file"
     ),
     ## Seral stage assignment is an overlay, and overlays are embarrassingly parallel over space:
@@ -257,7 +359,10 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = forest_disturbance_seral_gpkg,
-      command = save_gpkg(forest_disturbance_seral, "forest_disturbance_seral.gpkg"),
+      command = save_gpkg(
+        forest_disturbance_seral,
+        district_dst(district, "forest_disturbance_seral.gpkg")
+      ),
       format = "file"
     ),
 
@@ -341,7 +446,7 @@ dataprep_targets <- function() {
     ## of them to keep a few thousand.
     tar_target(
       name = patches_patch_size_gpkg,
-      command = save_gpkg(patches_patch_size, "patches_patch_size.gpkg"),
+      command = save_gpkg(patches_patch_size, district_dst(district, "patches_patch_size.gpkg")),
       format = "file"
     ),
 
@@ -385,7 +490,10 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = forest_patches_final_gpkg,
-      command = save_gpkg(forest_patches_final, "forest_patches_final.gpkg"),
+      command = save_gpkg(
+        forest_patches_final,
+        district_dst(district, "forest_patches_final.gpkg")
+      ),
       format = "file"
     ),
     tar_target(
@@ -405,7 +513,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = MDWR_gpkg,
-      command = save_gpkg(MDWR, "MDWR.gpkg"),
+      command = save_gpkg(MDWR, district_dst(district, "MDWR.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -414,7 +522,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = moose_wetlands_gpkg,
-      command = save_gpkg(moose_wetlands, "moose_wetlands.gpkg"),
+      command = save_gpkg(moose_wetlands, district_dst(district, "moose_wetlands.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -423,7 +531,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = OGMA_gpkg,
-      command = save_gpkg(OGMA, "OGMA_current.gpkg"),
+      command = save_gpkg(OGMA, district_dst(district, "OGMA_current.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -432,7 +540,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = parks_gpkg,
-      command = save_gpkg(parks, "parks.gpkg"),
+      command = save_gpkg(parks, district_dst(district, "parks.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -441,7 +549,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = wetlands_gpkg,
-      command = save_gpkg(wetlands, "wetlands.gpkg"),
+      command = save_gpkg(wetlands, district_dst(district, "wetlands.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -450,7 +558,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = WHA_gpkg,
-      command = save_gpkg(WHA, "WHA.gpkg"),
+      command = save_gpkg(WHA, district_dst(district, "WHA.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -459,7 +567,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = WUI_gpkg,
-      command = save_gpkg(WUI, "WUI.gpkg"),
+      command = save_gpkg(WUI, district_dst(district, "WUI.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -468,7 +576,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = secondary_gpkg,
-      command = save_gpkg(secondary, "secondary.gpkg"),
+      command = save_gpkg(secondary, district_dst(district, "secondary.gpkg")),
       format = "file"
     ),
 
@@ -479,7 +587,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = lakes_gpkg,
-      command = save_gpkg(lakes, "lakes.gpkg"),
+      command = save_gpkg(lakes, district_dst(district, "lakes.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -488,7 +596,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = rivers_gpkg,
-      command = save_gpkg(rivers, "rivers.gpkg"),
+      command = save_gpkg(rivers, district_dst(district, "rivers.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -497,7 +605,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = streams_gpkg,
-      command = save_gpkg(streams, "stream_order.gpkg"),
+      command = save_gpkg(streams, district_dst(district, "stream_order.gpkg")),
       format = "file"
     ),
 
@@ -508,7 +616,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = railways_gpkg,
-      command = save_gpkg(railways, "railways.gpkg"),
+      command = save_gpkg(railways, district_dst(district, "railways.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -517,7 +625,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = roads_gpkg,
-      command = save_gpkg(roads, "roads.gpkg"),
+      command = save_gpkg(roads, district_dst(district, "roads.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -526,7 +634,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = roads_railways_gpkg,
-      command = save_gpkg(roads_railways, "roads_railways.gpkg"),
+      command = save_gpkg(roads_railways, district_dst(district, "roads_railways.gpkg")),
       format = "file"
     ),
     tar_target(
@@ -535,7 +643,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = human_disturbance_gpkg,
-      command = save_gpkg(human_disturbance, "human_disturbance.gpkg"),
+      command = save_gpkg(human_disturbance, district_dst(district, "human_disturbance.gpkg")),
       format = "file"
     ),
 
@@ -549,7 +657,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = patch_summary_csv,
-      command = save_patch_stats(patch_summary),
+      command = save_patch_stats_district(patch_summary, district),
       format = "file"
     ),
 
@@ -587,7 +695,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = nn_interpatch_distances_png,
-      command = plot_hist_dists(nn_interpatch_distances_combined, "nn"),
+      command = plot_hist_dists_district(nn_interpatch_distances_combined, "nn", district),
       format = "file"
     ),
 
@@ -603,7 +711,8 @@ dataprep_targets <- function() {
       command = calc_all_dists(
         patches_matold,
         all_interpatch_distances_grid,
-        n_chunks = n_chunks_all
+        n_chunks = n_chunks_all,
+        ds_dir = file.path(district_path("inputs", district), "all-distances")
       ),
       pattern = map(all_interpatch_distances_grid),
       format = "file"
@@ -619,7 +728,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = forest_patches_final,
         rasterToMatch = LCC_agg,
-        dst = "resistance_forest.tif"
+        dst = district_dst(district, "resistance_forest.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -630,7 +739,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = forest_patches_final,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_forest.tif"
+        dst = district_dst(district, "sourcewt_forest.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -642,7 +751,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = roads_railways,
         rasterToMatch = LCC_agg,
-        dst = "resistance_roads.tif"
+        dst = district_dst(district, "resistance_roads.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -653,7 +762,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = roads_railways,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_roads_railways.tif"
+        dst = district_dst(district, "sourcewt_roads_railways.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -665,7 +774,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = OGMA,
         rasterToMatch = LCC_agg,
-        dst = "resistance_OGMA.tif"
+        dst = district_dst(district, "resistance_OGMA.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -676,7 +785,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = OGMA,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_OGMA.tif"
+        dst = district_dst(district, "sourcewt_OGMA.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -688,7 +797,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = parks,
         rasterToMatch = LCC_agg,
-        dst = "resistance_parks.tif"
+        dst = district_dst(district, "resistance_parks.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -699,7 +808,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = parks,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_parks.tif"
+        dst = district_dst(district, "sourcewt_parks.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -711,7 +820,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = secondary,
         rasterToMatch = LCC_agg,
-        dst = "resistance_secondary.tif"
+        dst = district_dst(district, "resistance_secondary.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -722,7 +831,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = secondary,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_secondary.tif"
+        dst = district_dst(district, "sourcewt_secondary.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -734,7 +843,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = lakes,
         rasterToMatch = LCC_agg,
-        dst = "resistance_lakes.tif"
+        dst = district_dst(district, "resistance_lakes.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -745,7 +854,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = lakes,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_lakes.tif"
+        dst = district_dst(district, "sourcewt_lakes.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -757,7 +866,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = rivers,
         rasterToMatch = LCC_agg,
-        dst = "resistance_rivers.tif"
+        dst = district_dst(district, "resistance_rivers.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -768,7 +877,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = rivers,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_rivers.tif"
+        dst = district_dst(district, "sourcewt_rivers.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -780,7 +889,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = streams,
         rasterToMatch = LCC_agg,
-        dst = "resistance_streams.tif"
+        dst = district_dst(district, "resistance_streams.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -791,7 +900,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = streams,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_streams.tif"
+        dst = district_dst(district, "sourcewt_streams.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -803,7 +912,7 @@ dataprep_targets <- function() {
       command = create_resistance_raster(
         polys = wetlands,
         rasterToMatch = LCC_agg,
-        dst = "resistance_wetlands.tif"
+        dst = district_dst(district, "resistance_wetlands.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -814,7 +923,7 @@ dataprep_targets <- function() {
       command = create_sourcewt_raster(
         polys = wetlands,
         rasterToMatch = LCC_agg,
-        dst = "sourcewt_wetlands.tif"
+        dst = district_dst(district, "sourcewt_wetlands.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(LCC_agg),
@@ -831,7 +940,7 @@ dataprep_targets <- function() {
         rivers = resistance_rivers,
         lakes = resistance_lakes,
         wetlands = resistance_wetlands,
-        dst = "resistance_composite.tif"
+        dst = district_dst(district, "resistance_composite.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(
@@ -853,7 +962,7 @@ dataprep_targets <- function() {
         rivers = sourcewt_rivers,
         lakes = sourcewt_lakes,
         wetlands = sourcewt_wetlands,
-        dst = "sourcewt_composite.tif"
+        dst = district_dst(district, "sourcewt_composite.tif", type = "rasters")
       ),
       format = "file",
       pattern = map(

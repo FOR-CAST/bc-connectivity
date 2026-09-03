@@ -1,5 +1,9 @@
 _targets
 _targets/
+## per-district stores (see _targets.yaml); the trailing glob keeps
+## _targets_dataprep.R and _targets_omniscape.R tracked
+_targets_dataprep_*
+_targets_omniscape_*
 Data
 Data/
 Outputs
