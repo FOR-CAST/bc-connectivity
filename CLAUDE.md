@@ -50,6 +50,37 @@ Omniscape runs are opt-in because a single one can take days and hundreds of GB 
 This is a shared machine.
 Check free RAM, load average, and what else is running before starting a long job, and cap `BC_CONN_WORKERS` accordingly rather than taking every core.
 
+### Omniscape's progress ETA is worthless early -- judge it by completed targets, not percent
+
+Omniscape's progress bar reports an ETA from the mean cost of the targets solved so far.
+Early on that mean is a tiny, unrepresentative sample, and the estimate swings by an order of magnitude.
+One run opened at "ETA: 8 days, 13:30", said "1 day, 6:15" a minute later, then "20:33", then "17:26" -- all still at 0%.
+
+Measured on a 190-target run whose true total was ~23.5 min, converting each ETA to an implied total (`ETA / (1 - pct)`):
+
+| progress | implied total | error |
+| --- | --- | --- |
+| 1% | 126 min | 5.4x |
+| 2% | 86 min | 3.6x |
+| 5% | 56 min | 2.4x |
+| 10% | 27.6 min | 1.17x |
+| 30% | 26.4 min | 1.12x |
+| 50% | 24.5 min | 1.04x |
+
+**The threshold is roughly 20 or more completed targets, which is not a fixed percentage.**
+At 2%, that 190-target run had finished 4 targets and was still 3.6x out.
+The 30 m regional has ~3,311 targets, so its 2% is 66 targets -- and there the estimate was already within 7% of the reading at 3%.
+So "trust it after ~2%" is right for the big production runs and far too generous for short ones.
+
+Two things to do rather than quoting an early ETA:
+
+- Compute the total independently as `elapsed / fraction_done`, and watch whether `elapsed + ETA` is still drifting.
+  A drifting total is not settled, whatever the percentage.
+- Cross-check against a completed comparable run.
+  Per-solve cost scales with window area at roughly `nodes^1.8` on this study area (measured: a 8.96x node ratio cost 52.4x), so a finished run at one radius predicts another.
+
+Do not relay an early ETA as a projection without saying it is unsettled.
+
 ## Tests
 
 ```r
