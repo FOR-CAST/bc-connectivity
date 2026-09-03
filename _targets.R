@@ -960,17 +960,36 @@ list(
     deployment = "main",
     cue = tar_cue(mode = "always") ## the env var is not a target dependency
   ),
-  ## Runs are executed sequentially rather than branched: each one already saturates the machine
-  ## (64 Julia threads, 100-650 GB), so running two at once would only thrash.
-  tar_target(
-    name = omniscape_run,
-    command = run_omniscape_all(
-      omniscape_scripts_to_run,
-      julia_threads = as.integer(Sys.getenv("BC_CONN_JULIA_THREADS", 64L))
-    ),
-    format = "file",
-    deployment = "main" ## long-running; keep it off the crew workers
-  ),
+  ## One branch per Omniscape configuration, so a failed run does not discard the others and a
+  ## completed one is not repeated -- the previous single target wrapped every run in one command,
+  ## so any failure threw away days of finished work.
+  ##
+  ## `deployment = "main"` keeps the branches *sequential*: each run takes 32 Julia threads and
+  ## 100-650 GB, so two at once only thrash. Branching buys granularity here, not parallelism.
+  ## Bounded concurrency across hosts is the separate `omniscape` targets project driven by
+  ## `crew.ssh` (see docs/cariboo-extension-plan.md B2'.1), deliberately *not* a controller group.
+  ##
+  ## Defined conditionally because `targets` fails with "cannot branch over empty target", and the
+  ## default `BC_CONN_OMNISCAPE=none` selects no runs -- the usual `tar_make()` path.
+  if (omniscape_any_selected()) {
+    tar_target(
+      name = omniscape_run,
+      command = run_omniscape(
+        omniscape_scripts_to_run,
+        julia_threads = omniscape_thread_setting()
+      ),
+      format = "file",
+      pattern = map(omniscape_scripts_to_run),
+      deployment = "main"
+    )
+  } else {
+    tar_target(
+      name = omniscape_run,
+      command = character(0),
+      format = "file",
+      deployment = "main"
+    )
+  },
 
   ## Measured resource use for every run made, for the README table
   tar_target(
