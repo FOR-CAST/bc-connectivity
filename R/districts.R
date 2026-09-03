@@ -20,19 +20,23 @@ districts <- function() {
       label = "Quesnel",
       ## 30 m AND 90 m: Quesnel is the reference landscape for the resolution-equivalence study,
       ## which is the only thing the 30 m series exists for.
-      agg_factors = c(1, 3)
+      agg_factors = c(1, 3),
+      ## Quesnel is where the radii are measured; every other district inherits them.
+      interpatch_distances = TRUE
     ),
     chilcotin = list(
       key = "chilcotin",
       district_name = "Cariboo-Chilcotin Natural Resource District",
       label = "Cariboo-Chilcotin",
-      agg_factors = 3
+      agg_factors = 3,
+      interpatch_distances = FALSE
     ),
     hundred_mile = list(
       key = "hundred_mile",
       district_name = "100 Mile House Natural Resource District",
       label = "100 Mile House",
-      agg_factors = 3
+      agg_factors = 3,
+      interpatch_distances = FALSE
     )
   )
 }
@@ -108,4 +112,30 @@ district_agg_factors <- function(district) {
   }
 
   spec$agg_factors
+}
+
+#' Interpatch-distance quantiles the Omniscape radii are pinned to
+#'
+#' Measured on Quesnel and held fixed for every district. The radius is a property of the
+#' connectivity question rather than of an administrative boundary, so pinning it keeps runs
+#' comparable between districts and epochs -- and it removes the single most expensive step in the
+#' pipeline from every district that is not the reference. Quesnel's interpatch distances took
+#' 97.8 h over 2.33 billion pairs, and pair count grows with the SQUARE of patch count, so a
+#' district 2.4x the area would be several times that again.
+#'
+#' Values are from the corrected 2026-08-26 Quesnel build, NOT the published pre-2026-08-25 one --
+#' the patch-construction fix moved both. Only the two quantiles the configurations actually read
+#' are recorded, because `write_omniscape_config()` indexes `patch_distances[[paste0(q, "%")]]`:
+#'
+#' | series                     | q    | distance   | px @30 m | px @90 m |
+#' | -------------------------- | ---- | ---------- | -------- | -------- |
+#' | all-pairs (regional)       | 25%  | 42,857 m   | 1429     | 477      |
+#' | nearest-neighbour (local)  | 100% |  2,567 m   |   86     |  29      |
+#'
+#' @returns named list of named numeric vectors, in metres
+reference_distances <- function() {
+  list(
+    all_dists = c("25%" = 42857),
+    nn_dists = c("100%" = 2566.803)
+  )
 }

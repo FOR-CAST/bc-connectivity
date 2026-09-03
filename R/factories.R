@@ -155,6 +155,10 @@ plot_hist_dists_district <- function(dists, type, district) {
 }
 
 dataprep_targets <- function() {
+  ## resolved when the project script is sourced, so it can shape the GRAPH (which targets
+  ## exist), not just values -- the `district` target below carries the same spec to commands
+  spec <- active_district()
+
   list(
     ## The single source of district truth: read from the active project name, so a project cannot
     ## be run against the wrong district's data.
@@ -661,66 +665,85 @@ dataprep_targets <- function() {
       format = "file"
     ),
 
-    ## interpatch assesments ------------------------------------------------------------------------
-    tar_terra_vect(
-      name = patches_matold,
-      command = calc_matold(forest_patches_final)
-    ),
+    ## Interpatch distances ------------------------------------------------------------------------
+    ##
+    ## Only the reference district measures these. Everything downstream reads two numbers out of
+    ## them -- the 25% all-pairs quantile and the 100% nearest-neighbour one -- and those are pinned
+    ## across districts (see `reference_distances()`), so for every other district the whole chain is
+    ## replaced by the constants it would have produced.
+    ##
+    ## This is the expensive half of the pipeline: 97.8 h over 2.33 billion pairs on Quesnel, and
+    ## pair count grows with the square of patch count. The seam is unchanged either way -- the two
+    ## CSVs are written the same, so the Omniscape project cannot tell the difference.
+    if (isTRUE(spec$interpatch_distances)) {
+      list(
+        ## interpatch assesments ------------------------------------------------------------------------
+        tar_terra_vect(
+          name = patches_matold,
+          command = calc_matold(forest_patches_final)
+        ),
 
-    ## Chunks are index ranges, not pre-split copies of the layer: every branch needs the whole layer
-    ## to find neighbours anyway, and shipping a list of 255 pre-split chunks alongside it is what
-    ## drove the ~350 GB of resident memory this step used to need.
-    tar_target(
-      name = forest_patches_chunks_nn_dists,
-      command = make_chunks(terra::nrow(patches_matold), n_chunks = n_chunks_nn),
-      iteration = "group"
-    ),
-    tar_target(
-      name = nn_interpatch_distances_chunks,
-      command = calc_nn_dists(
-        patches_matold,
-        forest_patches_chunks_nn_dists,
-        n_chunks = n_chunks_nn
-      ),
-      pattern = map(forest_patches_chunks_nn_dists),
-      iteration = "list"
-    ),
-    tar_target(
-      name = nn_interpatch_distances_combined,
-      command = calc_nn_dists_combine(nn_interpatch_distances_chunks)
-    ),
-    tar_target(
-      name = quantiles_nn_dists,
-      command = quantile(nn_interpatch_distances_combined, seq(0, 1, 0.01))
-    ),
-    tar_target(
-      name = nn_interpatch_distances_png,
-      command = plot_hist_dists_district(nn_interpatch_distances_combined, "nn", district),
-      format = "file"
-    ),
+        ## Chunks are index ranges, not pre-split copies of the layer: every branch needs the whole layer
+        ## to find neighbours anyway, and shipping a list of 255 pre-split chunks alongside it is what
+        ## drove the ~350 GB of resident memory this step used to need.
+        tar_target(
+          name = forest_patches_chunks_nn_dists,
+          command = make_chunks(terra::nrow(patches_matold), n_chunks = n_chunks_nn),
+          iteration = "group"
+        ),
+        tar_target(
+          name = nn_interpatch_distances_chunks,
+          command = calc_nn_dists(
+            patches_matold,
+            forest_patches_chunks_nn_dists,
+            n_chunks = n_chunks_nn
+          ),
+          pattern = map(forest_patches_chunks_nn_dists),
+          iteration = "list"
+        ),
+        tar_target(
+          name = nn_interpatch_distances_combined,
+          command = calc_nn_dists_combine(nn_interpatch_distances_chunks)
+        ),
+        tar_target(
+          name = quantiles_nn_dists,
+          command = quantile(nn_interpatch_distances_combined, seq(0, 1, 0.01))
+        ),
+        tar_target(
+          name = nn_interpatch_distances_png,
+          command = plot_hist_dists_district(nn_interpatch_distances_combined, "nn", district),
+          format = "file"
+        ),
 
-    ## all pairwise distances: one branch per chunk pair, written straight to a parquet dataset
-    tar_target(
-      name = all_interpatch_distances_grid,
-      command = calc_all_dists_grid(n_chunks_all),
-      iteration = "group",
-      deployment = "main" ## trivial to compute
-    ),
-    tar_target(
-      name = all_interpatch_distances_parquet,
-      command = calc_all_dists(
-        patches_matold,
-        all_interpatch_distances_grid,
-        n_chunks = n_chunks_all,
-        ds_dir = file.path(district_path("inputs", district), "all-distances")
-      ),
-      pattern = map(all_interpatch_distances_grid),
-      format = "file"
-    ),
-    tar_target(
-      name = quantiles_all_dists,
-      command = calc_all_dists_quantiles(all_interpatch_distances_parquet)
-    ),
+        ## all pairwise distances: one branch per chunk pair, written straight to a parquet dataset
+        tar_target(
+          name = all_interpatch_distances_grid,
+          command = calc_all_dists_grid(n_chunks_all),
+          iteration = "group",
+          deployment = "main" ## trivial to compute
+        ),
+        tar_target(
+          name = all_interpatch_distances_parquet,
+          command = calc_all_dists(
+            patches_matold,
+            all_interpatch_distances_grid,
+            n_chunks = n_chunks_all,
+            ds_dir = file.path(district_path("inputs", district), "all-distances")
+          ),
+          pattern = map(all_interpatch_distances_grid),
+          format = "file"
+        ),
+        tar_target(
+          name = quantiles_all_dists,
+          command = calc_all_dists_quantiles(all_interpatch_distances_parquet)
+        )
+      )
+    } else {
+      list(
+        tar_target(name = quantiles_nn_dists, command = reference_distances()$nn_dists),
+        tar_target(name = quantiles_all_dists, command = reference_distances()$all_dists)
+      )
+    },
 
     ## create resistance and sourcewt rasters
     tar_target(
@@ -1171,12 +1194,22 @@ omniscape_targets <- function() {
 
 #' @export
 save_csv <- function(x, dst) {
-  utils::write.csv(x, dst, row.names = FALSE)
+  ## Write the NAMES as a column. `write.csv(row.names = FALSE)` discards them, and the names are
+  ## the payload here: `write_omniscape_config()` selects its radius with
+  ## `patch_distances[[paste0(q, "%")]]`, so a nameless vector makes the radius unreachable.
+  utils::write.csv(
+    data.frame(quantile = names(x), value = as.numeric(x)),
+    dst,
+    row.names = FALSE
+  )
 
   dst
 }
 
 #' @export
 read_csv_file <- function(path) {
-  utils::read.csv(path)
+  ## `check.names = FALSE` keeps "25%" and "100%" intact; make.names() would mangle them to "X25."
+  df <- utils::read.csv(path, check.names = FALSE)
+
+  stats::setNames(df$value, df$quantile)
 }
