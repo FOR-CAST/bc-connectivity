@@ -150,6 +150,45 @@ get_quesnel_NRD_boundary <- function(file, buffer = FALSE) {
   }
 }
 
+#' Natural Resource District boundary, for any district
+#'
+#' The generic form of [get_quesnel_NRD_boundary()], used by the multi-district factories.
+#'
+#' `get_quesnel_NRD_boundary()` is deliberately left untouched rather than reimplemented in terms
+#' of this: `targets` hashes function bodies, so editing it would invalidate `Quesnel_TSA` and
+#' every target downstream of it -- 280 h of stored work at the time of writing.
+#'
+#' @param file path to the BCGW `ADM_NR_DISTRICTS_SP` shapefile; falls back to [bcmaps::nr_districts()]
+#' @param district_name character, a value of `DSTRCT_NM` (e.g. "Cariboo-Chilcotin Natural Resource District")
+#' @param buffer if `TRUE`, add the 500-pixel (15 km) edge-effect buffer
+#'
+#' @returns `sf` polygon with a single `DIST_NAME` column
+#'
+#' @export
+get_NRD_boundary <- function(file, district_name, buffer = FALSE) {
+  if (file.exists(file)) {
+    boundary <- sf::st_read(file, quiet = TRUE) |>
+      dplyr::filter(.data$DSTRCT_NM == district_name) |>
+      dplyr::select("DSTRCT_NM") |>
+      dplyr::rename(DIST_NAME = "DSTRCT_NM")
+  } else {
+    boundary <- bcmaps::nr_districts() |>
+      dplyr::filter(.data$DISTRICT_NAME == district_name) |>
+      dplyr::select("DISTRICT_NAME") |>
+      dplyr::rename(DIST_NAME = "DISTRICT_NAME")
+  }
+
+  if (nrow(boundary) == 0L) {
+    stop("no district matched \"", district_name, "\" in ", file)
+  }
+
+  if (isTRUE(buffer)) {
+    sf::st_buffer(boundary, 500 * 30) ## 500-pixel buffer to mitigate edge-effects
+  } else {
+    boundary
+  }
+}
+
 # Landcover -----------------------------------------------------------------------------------
 
 ## load in the 2020 Canada Landcover Classification layer (30m) to be used as a base raster

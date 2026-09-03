@@ -1,0 +1,37 @@
+# Multi-project layout: one pair of projects per Natural Resource District.
+#
+# Project names and store paths both follow `_targets_dataprep_<district>` and
+# `_targets_omniscape_<district>`, so the store on disk is named for the project that owns it.
+#
+# Select with TAR_PROJECT, e.g.
+#   TAR_PROJECT=_targets_dataprep_chilcotin Rscript -e 'targets::tar_make()'
+#
+# `main` is the legacy single-district Quesnel pipeline and its existing store. It keeps that name
+# deliberately: `main` is what `targets` uses when TAR_PROJECT is unset, so the existing pipeline
+# runs unchanged. That store holds ~280 h of computed results, and `targets` hashes target names
+# and command text, so running Quesnel through the factories would rebuild it from scratch.
+# Migrating Quesnel is a separate, deliberate decision -- see _tmp/HANDOFF.md.
+main:
+  script: _targets.R
+  store: _targets
+
+_targets_dataprep_quesnel:
+  script: _targets_dataprep.R
+  store: _targets_dataprep_quesnel
+_targets_omniscape_quesnel:
+  script: _targets_omniscape.R
+  store: _targets_omniscape_quesnel
+
+_targets_dataprep_chilcotin:
+  script: _targets_dataprep.R
+  store: _targets_dataprep_chilcotin
+_targets_omniscape_chilcotin:
+  script: _targets_omniscape.R
+  store: _targets_omniscape_chilcotin
+
+_targets_dataprep_hundred_mile:
+  script: _targets_dataprep.R
+  store: _targets_dataprep_hundred_mile
+_targets_omniscape_hundred_mile:
+  script: _targets_omniscape.R
+  store: _targets_omniscape_hundred_mile
