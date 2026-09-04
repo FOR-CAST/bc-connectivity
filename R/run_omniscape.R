@@ -751,7 +751,7 @@ omniscape_memory_max <- function(spec = Sys.getenv("BC_CONN_OMNISCAPE_MEMMAX", "
 #' @returns integer number of Julia threads
 #'
 #' @export
-omniscape_threads <- function(config_file, max_threads = 40L) {
+omniscape_threads <- function(config_file, max_threads = 64L) {
   radius <- as.numeric(read_omniscape_option(config_file, "radius"))
   window_cells <- (2 * radius + 1)^2
 
@@ -762,7 +762,27 @@ omniscape_threads <- function(config_file, max_threads = 40L) {
   } else if (window_cells < 2e5) {
     16L ## interpolated
   } else {
-    40L ## compute-bound; measured working point (2.00x over 16), not a proven ceiling
+    ## Compute-bound. An 8-point sweep on this study area (radius 477, block_size 75, 1323 targets,
+    ## tsuga) puts 64 at the top and still improving -- solve-phase seconds:
+    ##
+    ##   16    24    32    40    48    64
+    ## 7616  5528  5054  4345  3980  3317      (64 is 2.30x over 16, and 1.31x over 40)
+    ##
+    ## Do NOT pin to a NUMA node here. Pinning gained 11% at 32 threads (5054 -> 4497 s) and LOST
+    ## 54% at 64 (3317 -> 5123 s): one socket's memory controllers saturate before 64 threads are
+    ## fed, and the default placement spreads across both.
+    ##
+    ## MEMORY, not speed, is what usually picks the thread count. It is linear in threads with a
+    ## near-zero intercept -- per-thread solve workspace dominates, not the accumulator -- and the
+    ## per-thread constant scales with WINDOW size, so it must be re-anchored per configuration:
+    ##
+    ##   radius  477, block_size  75   2.32 GB/thread   (8-point sweep, 16-64 threads)
+    ##   radius 1429, block_size 143   9.57 GB/thread   (191.4 GB at 20 threads, 1970 samples)
+    ##
+    ## Both measured on this study area. The 30 m regional at 40 threads was predicted at 383 GB
+    ## from the second row and peaked at 381.8 GB, so the model holds across a 2x thread
+    ## extrapolation. Size the cap from it, and set the cap AT LAUNCH -- see `systemd_scope()`.
+    64L
   }
 
   as.integer(min(threads, max_threads))
