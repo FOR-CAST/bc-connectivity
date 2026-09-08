@@ -400,7 +400,18 @@ To create a composite source weight raster used inverse logic, all feature layer
 
 Used Omniscape to produce connectivity maps.
 
-**NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now. <https://github.com/Circuitscape/Omniscape.jl/issues/160>
+**NOTE:** Omniscape is pinned to 0.6.2 and Julia to 1.11.7, and both pins are deliberate.
+Omniscape 0.6.2 does not run on Julia 1.12 ([#160](https://github.com/Circuitscape/Omniscape.jl/issues/160), [#165](https://github.com/Circuitscape/Omniscape.jl/issues/165)); both are fixed in the unreleased 0.7.0.
+
+**The forthcoming Omniscape 0.7.0 will not reproduce the results this pipeline currently produces.**
+[Omniscape.jl#171](https://github.com/Circuitscape/Omniscape.jl/pull/171) changes the artifact correction so that cells whose block-source current sits at solver-noise level get a correction factor of 1, instead of a factor derived from the ratio of two near-zero currents.
+That moves `flow_potential.tif` and `normalized_cum_currmap.tif` for any run with `correct_artifacts = true` and `block_size > 1` -- which is every configuration this pipeline writes.
+`cum_currmap.tif` is unaffected.
+Upstream's own test case moved by roughly two orders of magnitude; the magnitude on this study area is unmeasured.
+0.7.0 also requires Circuitscape 6, which replaces the iterative solver again.
+
+Upgrading is therefore a results change, not a version bump.
+It needs a measured before-and-after on this study area, recorded in the Corrections section below, and it should not be started while production runs are in flight.
 
 Omniscape runs are launched from the `targets` workflow, so the whole analysis is a single `tar_make()`.
 (This previously had to be done by hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled shared libraries, which any Julia subprocess inherits, so Julia resolved libraries such as `libcurl` against R's copies and segfaulted on `using Omniscape`.
@@ -433,7 +444,34 @@ Resource use is measured, not estimated: each run is executed under `time -v`, a
 
 Tiled variants exist to benchmark resource use against the untiled run rather than because the analysis needs them, so they are opt-in via `BC_CONN_OMNISCAPE_BENCH`.
 
-All configurations were run on a single AMD EPYC CPU using 64 threads (per below).
+Runs execute on a single machine, with the thread count chosen per configuration by default (see `BC_CONN_JULIA_THREADS`).
+
+#### Thread scaling
+
+Measured 2026-09-02 on a two-socket AMD EPYC 7702 (64 physical cores per socket), `performance` governor, Julia 1.11.7, at `r = 477` and `bs = 75` (1,323 targets).
+Times are for the solve phase only.
+Startup is a fixed serial cost, so including it would flatter the low thread counts.
+
+| threads | placement | solve | speedup | peak RSS |
+| ---: | --- | ---: | ---: | ---: |
+| 16 | default | 7,616 s | 1.00x | 32.7 GB |
+| 24 | default | 5,528 s | 1.38x | 49.9 GB |
+| 32 | default | 5,054 s | 1.51x | 72.0 GB |
+| 32 | one socket | 4,497 s | 1.69x | 67.5 GB |
+| 40 | default | 4,345 s | 1.75x | 88.3 GB |
+| 48 | default | 3,980 s | 1.91x | 107.5 GB |
+| 64 | default | 3,317 s | 2.30x | 144.1 GB |
+| 64 | one socket | 5,123 s | 1.49x | -- |
+
+There is no plateau: throughput keeps improving to 64 threads, but sublinearly, since four times the threads buys 2.30x.
+Memory is linear in thread count, as the accumulator allocation `2 * nrows * ncols * 8 * nthreads` requires, so in practice the thread count is set by available RAM rather than by diminishing returns.
+
+Binding to one socket with `numactl --cpunodebind=0` is worth 1.12x at 32 threads and costs 1.54x at 64, because one socket cannot supply 64 physical cores and the pinned run falls back onto SMT siblings.
+Pin at or below a socket's physical core count, never above it.
+
+The curve was measured at 90 m but it transfers.
+Two 30 m regional runs at `r = 1429`, identical apart from thread count, give 40 -> 64 = 1.30x against 1.31x here, so the scaling holds across a 9x change in window area and a 4.1x change in per-thread working set.
+Memory at 30 m came in at 10.4 GB per thread.
 
 Individual runs can still be launched by hand from a terminal if needed, e.g.,
 
@@ -589,11 +627,14 @@ Launch the Julia REPL:
 julia +1.11.7
 ```
 
-Install Omniscape:
+Install Omniscape, pinned to the version this project's results were produced with:
 
 ```julia
-import Pkg; Pkg.add("Omniscape")
+import Pkg; Pkg.add(name = "Omniscape", version = "0.6.2")
 ```
+
+The pin is deliberate -- see the note in the *Omniscape runs* section above on 0.7.0 changing results.
+An unpinned `Pkg.add("Omniscape")` will silently pick up 0.7.0 once it is released.
 
 # Contributing
 
