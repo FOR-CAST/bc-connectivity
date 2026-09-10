@@ -413,7 +413,7 @@ Runs execute on a single machine, with the thread count chosen per configuration
 
 #### Thread scaling
 
-Measured 2026-09-02 on a two-socket AMD EPYC 7702 (64 physical cores per socket), `performance` governor, Julia 1.11.7, at `r = 477` and `bs = 75` (1,323 targets).
+Measured 2026-09-02 on a two-socket AMD EPYC 7702 (64 physical cores per socket), `performance` governor, Julia 1.11.7, at `r` = 477 and `bs = 75` (1,323 targets).
 Times are for the solve phase only.
 Startup is a fixed serial cost, so including it would flatter the low thread counts.
 
@@ -435,7 +435,7 @@ Binding to one socket with `numactl --cpunodebind=0` is worth 1.12x at 32 thread
 Pin at or below a socket's physical core count, never above it.
 
 The curve was measured at 90 m but it transfers.
-Two 30 m regional runs at `r = 1429`, identical apart from thread count, give 40 -> 64 = 1.30x against 1.31x here, so the scaling holds across a 9x change in window area and a 4.1x change in per-thread working set.
+Two 30 m regional runs at `r` = 1429, identical apart from thread count, give 40 -> 64 = 1.30x against 1.31x here, so the scaling holds across a 9x change in window area and a 4.1x change in per-thread working set.
 Memory at 30 m came in at 10.4 GB per thread.
 
 Individual runs can still be launched by hand from a terminal if needed, e.g.,

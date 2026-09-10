@@ -81,6 +81,34 @@ Two things to do rather than quoting an early ETA:
 
 Do not relay an early ETA as a projection without saying it is unsettled.
 
+## Validate every project after touching the pipeline
+
+There are seven `targets` projects (see `_targets.yaml`): `main`, plus a dataprep and an omniscape project per district.
+They share `R/`, they share `README.Rmd`, and the two factories in `R/factories.R` generate most of them, so a change in one file can break projects you were not thinking about.
+
+**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` target points at -- validate all seven, not just the one you were working on.**
+
+```bash
+Rscript -e 'targets::tar_validate()'   # main
+for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
+         _targets_dataprep_chilcotin _targets_omniscape_chilcotin \
+         _targets_dataprep_hundred_mile _targets_omniscape_hundred_mile; do
+  TAR_PROJECT=$p Rscript -e 'cat(nrow(targets::tar_manifest()), "targets\n")'
+done
+```
+
+`tar_manifest()` is the check for the district projects: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 116 for Quesnel and 109 for the others (the difference is the interpatch-distance chain, which only the reference district computes), and each omniscape project is 13.
+
+Two real failures that only a full sweep would have caught:
+
+- Editing `README.Rmd` broke `main` **and** both omniscape projects, because `omniscape_targets()` renders the same README.
+  `_targets_dataprep.R` was fine, so validating the project being worked on reported everything healthy.
+- A code span written as `` `r = 477` `` is knitr *inline R code*, not formatting: knitr tangles it to `= 477`, which does not parse, and `tar_render()`'s dependency scan fails with `Could not parse knitr report README.Rmd`.
+  Write `` `r` = 477 `` instead.
+  Any code span starting with `` `r `` followed by a space is an R expression, so this applies to every `.Rmd` here.
+
+Validation is cheap -- seconds per project -- and it runs no targets, so there is no reason to skip it.
+
 ## Tests
 
 ```r
