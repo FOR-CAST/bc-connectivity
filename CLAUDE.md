@@ -207,6 +207,19 @@ When working on a package:
 - **Use `usethis` for package plumbing** rather than editing files by hand -- `use_version()`, `use_package()`, `use_test()`, and friends.
   They do more than the one edit you were thinking of.
 
+### Updating packages while a pipeline is running
+
+**Do not `renv::install()` or `renv::restore()` in a project that has a pipeline running in it.**
+The project library is what the live R sessions load from, and replacing an entry underneath them risks a lazy-load failure partway through a target -- hours or days in, with an error that points at the package rather than at what caused it.
+Wait for the run, or work in a separate clone.
+
+The renv cache is shared between machines here (`RENV_PATHS_CACHE`), and project libraries symlink into it by default, so a library entry is not private to the project that installed it.
+`renv::isolate()` copies the cached packages into the project library instead, decoupling that project from the cache so later cache activity cannot reach it; `options(renv.config.cache.symlinks = FALSE)` makes future installs and restores copy rather than symlink.
+Use it to stage an updated library in a second clone while the first keeps running.
+
+Installing on one machine is safe for the others on its own: it writes a new cache entry, and another machine's library keeps pointing at the old one until that project runs `restore()` itself.
+The dangerous step is the `restore()`, not the `install()`.
+
 ### Bumping the version
 
 `usethis::use_version("dev")` is the way to do it, but it **refuses on a dirty tree** (`challenge_uncommitted_changes()`), and in a non-interactive session that is a hard stop rather than a prompt.
