@@ -64,7 +64,22 @@ tar_option_set(
   controller = crew::crew_controller_local(
     workers = n_workers,
     seconds_idle = 600,
-    crashes_max = 20L
+    crashes_max = 20L,
+    ## Keep the workers' stdout/stderr. crew's default DISCARDS it, and a worker that dies mid-task
+    ## then takes its only diagnostic with it: the Chilcotin dataprep lost
+    ## `patches_interior_forest_*` eleven times each over six days with no error recorded anywhere,
+    ## because of this.
+    ##
+    ## They go under `Outputs/log/crew/`, which is shared storage, so a run on one machine can be diagnosed
+    ## from any of the others -- the failure that needs the log is usually not on the host you are
+    ## logged in to. `log_join = FALSE` gives one file per worker rather than one interleaved file,
+    ## so a crashed worker's output is not tangled with that of its replacement.
+    options_local = crew::crew_options_local(
+      log_directory = fs::dir_create(
+        file.path("Outputs", "log", "crew", Sys.getenv("TAR_PROJECT", "main"))
+      ),
+      log_join = FALSE
+    )
   ),
   storage = "worker",
   retrieval = "worker",
