@@ -131,6 +131,16 @@ as old interior forest was not forest at all, and a further large block of genui
 modelled at the wrong resistance.
 The Omniscape runs therefore need to be repeated; they cannot be patched.
 
+A second strand of work, in the runtime section below, retooled the two largest spatial overlays.
+Tiling the final resultant took it from 5 h 52 m to 18 m, and tiling the interior-forest overlay
+takes it from 3 h 08 m to 6 m; both reproduce their outputs exactly.
+That matters here because the corrections below had to be applied, checked and re-applied several
+times over, and a step measured in hours is one that cannot be retried casually.
+It matters more for what comes next: the workflow is intended to cover the wider Cariboo, and
+Cariboo-Chilcotin alone is roughly 2.4 times Quesnel's area, with these costs growing faster than
+area rather than in step with it.
+The retooling is a prerequisite for that extension rather than a refinement of it.
+
 ```{r headline}
 data.frame(
   Item = c(
@@ -571,6 +581,75 @@ Before the dissolve the two layers agree to **0.000000 ha**; after it, the *seri
 gained 0.798 ha, which a dissolve cannot do.
 `terra::aggregate()` is simply not exact on a layer of this size -- the same layers self-overlap by
 about 10 ha out of 2.47 Mha in both builds.
+
+## Tiling the interior-forest overlay
+
+The final resultant was not the only overlay of this shape.
+`patches_interior_forest_old` and `patches_interior_forest_mature_old` erase a buffer mask from the
+old and mature+old patch layers, and between them they cost **8.1 CPU hours** in the corrected run --
+3 h 07 m and 5 h 00 m respectively.
+They were the largest remaining single-target costs once the resultant was tiled.
+
+The cause is structural rather than incidental.
+`patches_create_erase_mask()` rbinds the four buffer layers and dissolves them with
+`terra::aggregate()`, which leaves the mask as a **single multipolygon covering 2,401,307.9 ha** --
+the whole study area.
+The cost of a difference is superlinear in the complexity of the layer being subtracted, so each of
+the 42,764 patches was differenced against study-area-wide geometry no matter how small the patch
+itself was.
+
+Cropping both sides to a tile first shrinks the mask each difference sees to tile size.
+It reuses the same 49-tile grid as the resultant, for the same reason given above.
+
+```{r interior-tiling-cost, results = "asis"}
+data.frame(
+  Quantity = c("Runtime", "Tiles", "Slowest tile", "Features", "Planar area"),
+  Untiled = c("3 h 07 m 34 s", "1", "--", "10,263", "167,496.729062 ha"),
+  Tiled = c("6 m 08 s", "49, all succeeding", "1 m 27 s", "10,263", "167,496.729059 ha"),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Building the old interior-forest layer, untiled against tiled.",
+    "Sequential in both cases, so the tiled column is compute, not parallelism."
+  ), booktabs = TRUE, row.names = FALSE, label = "interior-tiling-cost") |>
+  cat(sep = "\n")
+```
+
+**30.5x faster, with the same 10,263 features and the area agreeing to 1.5e-11 relative** -- three
+parts in a hundred billion, which is floating-point noise rather than a difference.
+Unlike the resultant, the feature count does not change: the layer is dissolved after the tiles are
+combined rather than per tile, so halves split at a seam are rejoined before anything downstream
+sees them.
+
+Tiling is only valid because this overlay is *local*: which part of a patch survives depends solely
+on mask geometry near that patch.
+The same treatment would be wrong for the dissolve or the interpatch distances, where a feature's
+result depends on the whole layer.
+
+The per-tile spread is the useful diagnostic: 0.2 s at the fastest, 2.8 s median, 87.5 s at the
+slowest.
+A factor of 31 between median and worst says cost is driven by local mask complexity rather than by
+patch count, which is what makes the untiled form scale so badly -- every patch pays the worst case.
+
+### Why this matters beyond Quesnel
+
+Quesnel is the smallest of the Cariboo districts this workflow is intended to cover.
+Cariboo-Chilcotin is roughly **2.4 times** its area, and the costs above do not scale with area:
+the mask for a larger district is both larger and more intricate, and the superlinearity is in mask
+complexity, not in patch count.
+At the untiled cost profile, the interior-forest pair alone would plausibly dominate an entire
+district build, and it is not the only overlay of this shape in the workflow.
+
+This retooling is therefore a **prerequisite** for extending the analysis beyond Quesnel rather
+than an optimisation of it.
+The arithmetic is unforgiving in the other direction too: a step that takes a day is not merely slow,
+it is a step that cannot be retried casually when something downstream needs changing, and this
+report exists because several things did need changing.
+
+One caveat on reading the runtime table above against this section: the stored Quesnel results were
+built with the untiled code, so the table reports what that build actually cost.
+The figures here are measured on the same inputs and verified to reproduce the stored output exactly,
+but they are not what produced the numbers elsewhere in this report.
 
 ## Memory
 
