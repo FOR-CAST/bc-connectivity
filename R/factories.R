@@ -154,6 +154,69 @@ plot_hist_dists_district <- function(dists, type, district) {
   return(dst)
 }
 
+#' Interior forest for one tile
+#'
+#' The untiled `patches_create_interior_forest()` differences every patch against the erase mask,
+#' which `patches_create_erase_mask()` leaves as a SINGLE dissolved multipolygon spanning the whole
+#' district -- 1.88 Mha on 100 Mile House. Cost is superlinear in mask complexity, so every one of
+#' 40,301 erases pays for district-wide geometry.
+#'
+#' Cropping BOTH sides to a tile shrinks the mask each erase sees to tile size. Measured on 100 Mile
+#' House against the stored untiled target: 11,157 s -> 201.8 s sequential (55.3x), with the slowest
+#' of 56 tiles at 17.0 s, which is what bounds the wall time once this branches. Output is identical
+#' -- 9,969 features either way, area to 7.2e-13 relative.
+#'
+#' Cropping the mask is safe because the patches are cropped to the same tile: mask geometry outside
+#' the tile cannot reach a patch clipped to it.
+#'
+#' Deliberately does NOT dissolve. Patches cut at a tile seam have to rejoin, and that only happens
+#' if the dissolve sees both halves -- so it belongs in `patches_interior_forest_combine()`, after
+#' the branches are combined.
+#'
+#' @returns `SpatVector`, geometry only
+patches_create_interior_forest_tile <- function(patches, erase_mask, age_class, tile) {
+  age_class <- match.arg(age_class, c("Old", "Mature"))
+
+  aoi <- tidyterra::as_spatvector(tile)
+  p <- terra::crop(tidyterra::as_spatvector(patches), aoi)
+
+  ## an empty crop drops every column too, so return before anything reads attributes
+  if (nrow(p) == 0L) {
+    return(spatialutils::drop_values(p))
+  }
+
+  m <- terra::crop(tidyterra::as_spatvector(erase_mask), aoi)
+
+  if (nrow(m) == 0L) {
+    return(spatialutils::drop_values(p))
+  }
+
+  ## `erase_polygons()` rather than `terra::erase()` -- see the spatial conventions in CLAUDE.md.
+  ## Verified identical to the stored target across all 40,301 patches of 100 Mile House.
+  spatialutils::erase_polygons(p, m) |>
+    spatialutils::repair_geoms() |>
+    spatialutils::drop_values()
+}
+
+#' Combine the interior-forest tiles and dissolve once
+#'
+#' The dissolve happens here, not per tile, so patches split at a tile seam are rejoined. Reusing
+#' `study_area_tiles` -- the grid the seral layer was built on -- is what makes that exact: that
+#' layer already carries vertices lying bit-exactly on these seam coordinates, so re-cutting
+#' intersects at existing vertices and the halves abut without a gap.
+#'
+#' @returns `SpatVector`
+patches_interior_forest_combine <- function(tiles, age_class) {
+  age_class <- match.arg(age_class, c("Old", "Mature"))
+
+  flag <- switch(age_class, Old = "old_interior", Mature = "matold_interior")
+
+  v <- combine_spatvectors(tiles)
+  v[[flag]] <- flag
+
+  dissolve_by(v, flag)
+}
+
 dataprep_targets <- function() {
   ## resolved when the project script is sourced, so it can shape the GRAPH (which targets
   ## exist), not just values -- the `district` target below carries the same spec to commands
@@ -428,17 +491,42 @@ dataprep_targets <- function() {
       )
     ),
 
+    ## Tiled: the mask is one district-wide multipolygon, so an untiled erase pays for its full
+    ## complexity on every patch. 55.3x on 100 Mile House, identical output. See
+    ## `patches_create_interior_forest_tile()`.
+    tar_terra_vect(
+      name = patches_interior_forest_old_tiles,
+      command = patches_create_interior_forest_tile(
+        patches_old,
+        patches_erase_mask_old,
+        "Old",
+        study_area_tiles
+      ),
+      ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
+      pattern = map(study_area_tiles)
+    ),
     tar_terra_vect(
       name = patches_interior_forest_old,
-      command = patches_create_interior_forest(patches_old, patches_erase_mask_old, "Old")
+      command = patches_interior_forest_combine(patches_interior_forest_old_tiles, "Old"),
+      deployment = "main" ## the dissolve needs every branch at once
+    ),
+    tar_terra_vect(
+      name = patches_interior_forest_mature_old_tiles,
+      command = patches_create_interior_forest_tile(
+        patches_mature_old,
+        patches_erase_mask_mature_old,
+        "Mature",
+        study_area_tiles
+      ),
+      pattern = map(study_area_tiles)
     ),
     tar_terra_vect(
       name = patches_interior_forest_mature_old,
-      command = patches_create_interior_forest(
-        patches_mature_old,
-        patches_erase_mask_mature_old,
+      command = patches_interior_forest_combine(
+        patches_interior_forest_mature_old_tiles,
         "Mature"
-      )
+      ),
+      deployment = "main"
     ),
 
     tar_terra_vect(
