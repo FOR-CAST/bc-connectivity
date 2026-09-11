@@ -1261,16 +1261,20 @@ omniscape_targets <- function() {
       format = "file"
     ),
 
-    ## render README
-    tar_render(
-      name = readme,
-      path = "README.Rmd"
-    ),
+    ## No README target here, deliberately. `README.Rmd` is a REPOSITORY-level document, not a
+    ## per-district output: three districts rendering it would race on one path on shared storage,
+    ## and whichever finished last would win. It was copied in from `_targets.R` when this factory
+    ## was written. `main` renders it; that is the only place it belongs.
 
-    ## write reproducibility receipt
+    ## The receipt IS per-district -- it records the environment a district's runs were produced in,
+    ## which differs by machine and by when the district was built. Same reasoning as the README
+    ## applies to the path: writing every district's receipt to one repo-root `INFO.md` would have
+    ## them overwrite each other.
     tar_target(
       name = reproducibility_receipt,
-      command = write_reproducibility_receipt("INFO.md"),
+      command = write_reproducibility_receipt(
+        file.path(district_path("outputs", district), "INFO.md")
+      ),
       format = "file"
     )
     ## TODO: add julia and omniscape info?
