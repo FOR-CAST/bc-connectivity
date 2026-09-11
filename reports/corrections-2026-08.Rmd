@@ -131,9 +131,10 @@ as old interior forest was not forest at all, and a further large block of genui
 modelled at the wrong resistance.
 The Omniscape runs therefore need to be repeated; they cannot be patched.
 
-A second strand of work, in the runtime section below, retooled the two largest spatial overlays.
-Tiling the final resultant took it from 5 h 52 m to 18 m, and tiling the interior-forest overlay
-takes it from 3 h 08 m to 6 m; both reproduce their outputs exactly.
+A second strand of work, in the runtime section below, addressed the two largest spatial overlays.
+Tiling the final resultant is done and took it from 5 h 52 m to 18 m.
+The interior-forest overlay is the remaining one: tiling it measures 3 h 08 m down to 6 m on a
+prototype, reproducing the stored output exactly, but that change is not in this branch.
 That matters here because the corrections below had to be applied, checked and re-applied several
 times over, and a step measured in hours is one that cannot be retried casually.
 It matters more for what comes next: the workflow is intended to cover the wider Cariboo, and
@@ -582,7 +583,7 @@ gained 0.798 ha, which a dissolve cannot do.
 `terra::aggregate()` is simply not exact on a layer of this size -- the same layers self-overlap by
 about 10 ha out of 2.47 Mha in both builds.
 
-## Tiling the interior-forest overlay
+## The interior-forest overlay, and what tiling it would save
 
 The final resultant was not the only overlay of this shape.
 `patches_interior_forest_old` and `patches_interior_forest_mature_old` erase a buffer mask from the
@@ -599,17 +600,21 @@ the 42,764 patches was differenced against study-area-wide geometry no matter ho
 itself was.
 
 Cropping both sides to a tile first shrinks the mask each difference sees to tile size.
-It reuses the same 49-tile grid as the resultant, for the same reason given above.
+Measured on Quesnel's own inputs, reusing the same 49-tile grid as the resultant and for the same
+reason given above.
+This has **not** been applied to the pipeline in this branch; the figures below are from a prototype
+run against the stored inputs, kept here because they establish the size of the remaining cost and
+the shape of the fix.
 
 ```{r interior-tiling-cost, results = "asis"}
 data.frame(
   Quantity = c("Runtime", "Tiles", "Slowest tile", "Features", "Planar area"),
-  Untiled = c("3 h 07 m 34 s", "1", "--", "10,263", "167,496.729062 ha"),
-  Tiled = c("6 m 08 s", "49, all succeeding", "1 m 27 s", "10,263", "167,496.729059 ha"),
+  `As built` = c("3 h 07 m 34 s", "1", "--", "10,263", "167,496.729062 ha"),
+  Prototype = c("6 m 08 s", "49, all succeeding", "1 m 27 s", "10,263", "167,496.729059 ha"),
   check.names = FALSE
 ) |>
   styled(caption = paste(
-    "Building the old interior-forest layer, untiled against tiled.",
+    "Building the old interior-forest layer as built, against a tiled prototype.",
     "Sequential in both cases, so the tiled column is compute, not parallelism."
   ), booktabs = TRUE, row.names = FALSE, label = "interior-tiling-cost") |>
   cat(sep = "\n")
@@ -646,10 +651,16 @@ The arithmetic is unforgiving in the other direction too: a step that takes a da
 it is a step that cannot be retried casually when something downstream needs changing, and this
 report exists because several things did need changing.
 
-One caveat on reading the runtime table above against this section: the stored Quesnel results were
-built with the untiled code, so the table reports what that build actually cost.
-The figures here are measured on the same inputs and verified to reproduce the stored output exactly,
-but they are not what produced the numbers elsewhere in this report.
+To be unambiguous about what is and is not in this branch: every number reported elsewhere in this
+document was produced by the pipeline as it stands, with this overlay untiled.
+The prototype above reproduces the stored output exactly -- same 10,263 features, area agreeing to
+1.5e-11 -- but it is a measurement, not a build.
+
+The mechanism is available rather than hypothetical: `spatialutils` 0.0.1, which this branch pins,
+provides `erase_polygons_tiled()` along with the guards `erase_polygons()` already carried.
+What remains is to route this overlay through it, which is a change to
+`patches_create_interior_forest()` and therefore invalidates every stored target downstream of it --
+a deliberate decision to take on its own rather than a side effect of a performance change.
 
 ## Memory
 
