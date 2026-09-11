@@ -2091,14 +2091,14 @@
     },
     "spatialutils": {
       "Package": "spatialutils",
-      "Version": "0.0.0.9018",
+      "Version": "0.0.1",
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
       "RemoteUsername": "FOR-CAST",
       "RemoteRepo": "spatialutils",
       "RemoteRef": "main",
-      "RemoteSha": "f460a10de2392177fa3fed53ced032b1c10bc147",
+      "RemoteSha": "1d1dc46ed95e8b8a7a4ffeb773802b02a6c83170",
       "Requirements": [
         "R",
         "dplyr",
@@ -2106,7 +2106,7 @@
         "sf",
         "terra"
       ],
-      "Hash": "44f2b212937dec23a298b19f84a4ef92"
+      "Hash": "7bdd4a1720639b3a1d7466dd4da71cba"
     },
     "stringi": {
       "Package": "stringi",
