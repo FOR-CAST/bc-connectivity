@@ -231,6 +231,37 @@ district_receipt_path <- function(district) {
   file.path("Outputs", district$key, "INFO.md")
 }
 
+#' District-aware `plot_bec_ndt()`
+#'
+#' The original writes `Quesnel_TSA_NDT-BEC.png` into the shared `Outputs/figures/`, so every
+#' district would overwrite the previous one's figure -- which is exactly what happened before this
+#' existed. Added rather than edited: `plot_bec_ndt()` is called by `_targets.R`, and `targets`
+#' hashes function bodies.
+#'
+#' @returns character path to the written png
+plot_bec_ndt_district <- function(BECNDT, studyArea, district) {
+  dst <- file.path(district_path("figures", district), "NDT-BEC.png")
+
+  gg_bec_ndt <- ggplot2::ggplot(BECNDT) +
+    ggplot2::geom_sf(ggplot2::aes(fill = NDT_BEC)) +
+    ggplot2::geom_sf(data = studyArea, color = "black", fill = NA) +
+    ggplot2::theme_bw() +
+    ggspatial::annotation_north_arrow(
+      location = "bl",
+      which_north = "true",
+      pad_x = ggplot2::unit(0.25, "in"),
+      pad_y = ggplot2::unit(0.25, "in"),
+      style = ggspatial::north_arrow_fancy_orienteering
+    ) +
+    ggplot2::xlab("Longitude") +
+    ggplot2::ylab("Latitude") +
+    ggplot2::ggtitle(district$label)
+
+  ggplot2::ggsave(dst, gg_bec_ndt, width = 16, height = 12)
+
+  return(dst)
+}
+
 dataprep_targets <- function() {
   ## resolved when the project script is sourced, so it can shape the GRAPH (which targets
   ## exist), not just values -- the `district` target below carries the same spec to commands
@@ -338,7 +369,7 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = BECNDT_png,
-      command = plot_bec_ndt(BECNDT, study_area),
+      command = plot_bec_ndt_district(BECNDT, study_area, district),
       format = "file"
     ),
 
@@ -434,7 +465,8 @@ dataprep_targets <- function() {
       command = plot_forest_disturbance_seral(
         forest_disturbance_seral,
         study_area,
-        "study_area_for_dist_seral.png"
+        "study_area_for_dist_seral.png",
+        outdir = district_path("figures", district)
       ),
       format = "file"
     ),
@@ -607,7 +639,8 @@ dataprep_targets <- function() {
       command = plot_forest_disturbance_seral(
         forest_patches_final,
         study_area,
-        "study_area_for_dist_seral_patches.png"
+        "study_area_for_dist_seral_patches.png",
+        outdir = district_path("figures", district)
       ),
       format = "file"
     ),
