@@ -217,6 +217,20 @@ patches_interior_forest_combine <- function(tiles, age_class) {
   dissolve_by(v, flag)
 }
 
+#' Where a district's reproducibility receipt goes
+#'
+#' `workflowtools::reproducibilityReceipt()` resolves `writeTo` RELATIVE to the project directory
+#' and prepends it, so an absolute path comes back doubled -- `<proj>/<proj>/Outputs/...` -- and
+#' fails with "cannot open the connection", which says nothing about the cause. Returns the relative
+#' path, having created the directory it names.
+#'
+#' @returns character, relative to the project root
+district_receipt_path <- function(district) {
+  district_path("outputs", district) ## side effect: creates the directory
+
+  file.path("Outputs", district$key, "INFO.md")
+}
+
 dataprep_targets <- function() {
   ## resolved when the project script is sourced, so it can shape the GRAPH (which targets
   ## exist), not just values -- the `district` target below carries the same spec to commands
@@ -1124,21 +1138,35 @@ omniscape_targets <- function() {
     ## Inputs from the prep project, by path. `district_agg_factors()` decides how many
     ## resolutions exist, so a 90 m-only district simply has fewer branches here -- which is the
     ## whole of the 30 m conditional.
+    ## Branches over `agg_fact_lcc`, not a stem returning several paths. The configuration targets
+    ## below map over these, and `targets` refuses to branch over a `format = "file"` stem:
+    ## "Patterns must only branch over explicitly declared targets... if you branch over a target
+    ## with format = 'file', then that target must also be a pattern."
+    ##
+    ## The dataprep factory produces these the same way, one branch per aggregation factor, so the
+    ## two sides of the seam agree on how many there are: two for the reference district (30 m and
+    ## 90 m), one for the rest.
+    tar_target(
+      name = agg_fact_lcc,
+      command = district_agg_factors(district)
+    ),
     tar_target(
       name = resistance_composite,
       command = file.path(
         district_path("rasters", district),
-        paste0("resistance_composite_", 30 * district_agg_factors(district), ".tif")
+        paste0("resistance_composite_", 30 * agg_fact_lcc, ".tif")
       ),
-      format = "file"
+      format = "file",
+      pattern = map(agg_fact_lcc)
     ),
     tar_target(
       name = sourcewt_composite,
       command = file.path(
         district_path("rasters", district),
-        paste0("sourcewt_composite_", 30 * district_agg_factors(district), ".tif")
+        paste0("sourcewt_composite_", 30 * agg_fact_lcc, ".tif")
       ),
-      format = "file"
+      format = "file",
+      pattern = map(agg_fact_lcc)
     ),
     tar_target(
       name = quantiles_nn_dists,
@@ -1165,7 +1193,13 @@ omniscape_targets <- function() {
         srcwt = sourcewt_composite,
         patch_distances = quantiles_all_dists,
         q = 25, ## ~45 km
-        run_name = OMNISCAPE_VINTAGE,
+        ## District-qualified, because the run name is ALL that separates one district's
+        ## configuration from another's. `write_omniscape_config()` derives both the config
+        ## directory and Omniscape's `project_name` from it, and neither is district-aware.
+        ## The radii are pinned across districts (see `reference_distances()`), so without this
+        ## every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49` -- and
+        ## silently overwrites the previous district's config and output directory.
+        run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
         ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
         ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
         ntiles = omniscape_tiles()
@@ -1182,7 +1216,13 @@ omniscape_targets <- function() {
         srcwt = sourcewt_composite,
         patch_distances = quantiles_nn_dists,
         q = 100, ## could reasonably use e.g., 90, 95, 99, 100
-        run_name = OMNISCAPE_VINTAGE,
+        ## District-qualified, because the run name is ALL that separates one district's
+        ## configuration from another's. `write_omniscape_config()` derives both the config
+        ## directory and Omniscape's `project_name` from it, and neither is district-aware.
+        ## The radii are pinned across districts (see `reference_distances()`), so without this
+        ## every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49` -- and
+        ## silently overwrites the previous district's config and output directory.
+        run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
         ntiles = omniscape_tiles()
       ),
       format = "file",
@@ -1272,9 +1312,7 @@ omniscape_targets <- function() {
     ## them overwrite each other.
     tar_target(
       name = reproducibility_receipt,
-      command = write_reproducibility_receipt(
-        file.path(district_path("outputs", district), "INFO.md")
-      ),
+      command = write_reproducibility_receipt(district_receipt_path(district)),
       format = "file"
     )
     ## TODO: add julia and omniscape info?
