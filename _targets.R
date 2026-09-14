@@ -93,8 +93,10 @@ tar_option_set(
     crashes_max = 20L,
     ## Keep the workers' stdout/stderr. crew's default DISCARDS it, and a worker that dies mid-task
     ## then takes its only diagnostic with it: the Chilcotin dataprep lost
-    ## `patches_interior_forest_*` eleven times each over six days with no error recorded anywhere,
-    ## because of this.
+    ## `patches_interior_forest_*` eleven times each over six days leaving nothing behind -- no
+    ## error in the pipeline log, no R condition, no cgroup OOM, no kernel record -- on an idle
+    ## machine with hundreds of GB free. The retries show up only as more "dispatched" lines,
+    ## which read exactly like progress.
     ##
     ## They go under `Outputs/log/crew/`, which is shared storage, so a run on one machine can be diagnosed
     ## from any of the others -- the failure that needs the log is usually not on the host you are

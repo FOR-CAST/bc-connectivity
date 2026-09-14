@@ -1,5 +1,16 @@
 # Helpers -------------------------------------------------------------------------------------
 
+## The Natural Resource District this pipeline builds.
+##
+## Inputs and results are filed under the district's key rather than flat, so that a second
+## district can be added beside this one without either overwriting the other -- the layers are
+## named for what they are (`VRI.gpkg`, `resistance_composite_30.tif`), not for the district, so
+## flat directories collide the moment there is more than one.
+##
+## `Data/raw` is deliberately NOT under the key: the provincial layers it holds are
+## district-independent, and downloading them once is the point.
+DISTRICT <- "quesnel"
+
 ## paths
 get_path <- function(type) {
   project_dir <- workflowtools::findProjectPath()
@@ -7,12 +18,13 @@ get_path <- function(type) {
   switch(
     type,
     download = file.path(project_dir, "Data", "raw") |> fs::dir_create(),
-    inputs = file.path(project_dir, "Data", "processed") |> fs::dir_create(),
-    rasters = file.path(project_dir, "Data", "processed", "rasters") |> fs::dir_create(),
-    omniscape = file.path(project_dir, "Omniscape") |> fs::dir_create(),
-    outputs = file.path(project_dir, "Outputs") |> fs::dir_create(),
+    inputs = file.path(project_dir, "Data", "processed", DISTRICT) |> fs::dir_create(),
+    rasters = file.path(project_dir, "Data", "processed", "rasters", DISTRICT) |>
+      fs::dir_create(),
+    omniscape = file.path(project_dir, "Omniscape", DISTRICT) |> fs::dir_create(),
+    outputs = file.path(project_dir, "Outputs", DISTRICT) |> fs::dir_create(),
     project = fs::path(project_dir),
-    figures = file.path(project_dir, "Outputs", "figures") |> fs::dir_create(),
+    figures = file.path(project_dir, "Outputs", DISTRICT, "figures") |> fs::dir_create(),
   )
 }
 
@@ -267,7 +279,7 @@ seral_stages_long <- function(max_age) {
       values_to = "Age_Min"
     ) |>
     dplyr::group_by(NDT_BEC) |>
-    dplyr::arrange(match(Seral, c("Early", "Mid", "Mature", "Old")), .by_group = TRUE) |>
+    dplyr::arrange(match(Seral, SERAL_LEVELS), .by_group = TRUE) |>
     dplyr::mutate(
       Age_Max = dplyr::lead(Age_Min, default = max_age + 1)
     ) |>
