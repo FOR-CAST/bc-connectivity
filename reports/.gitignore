@@ -1,0 +1,10 @@
+/.quarto/
+**/*.quarto_ipynb
+
+## Quarto leaves its LaTeX intermediates behind when a render FAILS; a successful one cleans up
+## after itself. They are build artefacts either way.
+*.aux
+*.log
+*.rmarkdown
+*.tex
+*.toc

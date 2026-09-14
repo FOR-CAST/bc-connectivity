@@ -1,0 +1,764 @@
+---
+title: "Quesnel NRD connectivity: 30 m vs 90 m raster comparisons"
+author: "Alex Chubaty"
+date: last-modified
+date-format: "[Last updated:] YYYY-MM-DD"
+bibliography: ../citations/references.bib
+csl: ../citations/ecology-letters.csl
+format:
+  pdf:
+    output-file: resolution-equivalence.pdf
+    documentclass: article
+    geometry: margin=2.5cm
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    fig-pos: "H"
+    pdf-engine: pdflatex
+    urlcolor: blue
+    include-in-header:
+      text: |
+        \usepackage{float}
+        \floatplacement{figure}{H}
+        \floatplacement{table}{H}
+        \usepackage{makecell}
+        \usepackage{needspace}
+        \let\oldsection\section
+        \renewcommand{\section}{\needspace{5\baselineskip}\oldsection}
+        \let\oldsubsection\subsection
+        \renewcommand{\subsection}{\needspace{5\baselineskip}\oldsubsection}
+        \clubpenalty=10000
+        \widowpenalty=10000
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.pos = "H",
+  out.extra = ""
+)
+
+find_project_root <- function(start = getwd()) {
+  p <- normalizePath(start, mustWork = FALSE)
+  while (!file.exists(file.path(p, "_targets.R")) && dirname(p) != p) {
+    p <- dirname(p)
+  }
+  if (!file.exists(file.path(p, "_targets.R"))) {
+    stop("could not locate the project root")
+  }
+  p
+}
+
+proj <- find_project_root()
+knitr::opts_knit$set(root.dir = proj)
+
+options(knitr.table.format = "latex")
+
+library(dplyr)
+library(knitr)
+
+## Quesnel's Omniscape outputs moved under `Outputs/quesnel/` when the pipeline became
+## multi-district. A clone from before that move still has them flat. Resolve either, so this
+## document does not care which layout it is rendering against.
+run_dir <- function(run) {
+  cand <- c(
+    file.path(proj, "Outputs", "quesnel", run),
+    file.path(proj, "Outputs", run)
+  )
+  hit <- cand[dir.exists(cand)]
+  if (!length(hit)) {
+    return(NA_character_)
+  }
+  hit[[1]]
+}
+
+## The district boundary, for clipping. Both layouts again: `quesnel/` after the move, flat before.
+##
+## The UNBUFFERED boundary, deliberately. `Quesnel_TSA_studyarea_buffered.gpkg` sits beside it and
+## is 3,580,800 ha against 2,083,306 ha; that buffer exists so Omniscape's moving window has room
+## to work and is not part of the reporting area. Everything counted or mapped in this document is
+## the district itself.
+study_area_path <- function() {
+  cand <- c(
+    file.path(proj, "Data", "processed", "quesnel", "Quesnel_TSA_studyarea.gpkg"),
+    file.path(proj, "Data", "processed", "Quesnel_TSA_studyarea.gpkg")
+  )
+  hit <- cand[file.exists(cand)]
+  if (!length(hit)) NA_character_ else hit[[1]]
+}
+
+rmd_dir <- tryCatch(dirname(knitr::current_input(dir = TRUE)), error = function(e) NULL)
+if (is.null(rmd_dir) || !nzchar(rmd_dir) || is.na(rmd_dir)) {
+  rmd_dir <- file.path(proj, "reports")
+}
+FIGDIR <- normalizePath(file.path(rmd_dir, "figures"), mustWork = FALSE)
+dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
+
+## Pandoc resolves an image path against the directory of the input file, and an ABSOLUTE path
+## reaches LaTeX with a `.` glued to the front. Keep the absolute path for the existence check in
+## R and hand pandoc the relative one.
+fig_rel <- function(f) file.path(basename(FIGDIR), basename(f))
+
+styled <- function(x, ..., widths = NULL, bold_rows = NULL, stripe_by = NULL) {
+  latex_opts <- if (is.null(stripe_by)) "striped" else NULL
+  linesep <- ""
+  if (!is.null(stripe_by)) {
+    g <- match(stripe_by, unique(stripe_by))
+    linesep <- ifelse(c(diff(g), 1) != 0, "\\addlinespace", "")
+    linesep[length(linesep)] <- ""
+  }
+  k <- kableExtra::kbl(x, linesep = linesep, ...) |>
+    kableExtra::kable_styling(latex_options = latex_opts, font_size = 9)
+  if (!is.null(stripe_by)) {
+    g <- match(stripe_by, unique(stripe_by))
+    shaded <- which(g %% 2L == 0L)
+    if (length(shaded)) {
+      k <- kableExtra::row_spec(k, shaded, background = "#EFEFEF")
+    }
+  }
+  for (i in seq_along(widths)) {
+    if (nzchar(widths[i])) k <- kableExtra::column_spec(k, i, width = widths[i])
+  }
+  if (!is.null(bold_rows)) {
+    k <- kableExtra::row_spec(k, bold_rows, bold = TRUE)
+  }
+  k
+}
+
+emit <- function(k) cat("\n\n", as.character(k), "\n\n", sep = "")
+num <- function(x, d = 1) formatC(round(x, d), format = "f", big.mark = ",", digits = d)
+pct <- function(x, d = 1) paste0(num(x, d), " %")
+
+RUNS <- list(
+  regional_30 = "2026-08-26_p30_r1429_bs143",
+  regional_90 = "2026-08-26_p90_r477_bs49",
+  local_30 = "2026-08-26_p30_r86_bs9",
+  local_90 = "2026-08-26_p90_r29_bs3"
+)
+DIRS <- lapply(RUNS, run_dir)
+have <- function(...) all(!is.na(unlist(DIRS[c(...)])))
+
+ok_cells <- have("regional_30", "regional_90", "local_30", "local_90")
+ok_zonal <- ok_cells &&
+  all(file.exists(vapply(
+    DIRS[c("regional_30", "regional_90", "local_30", "local_90")],
+    function(d) file.path(d, "zonal_by_polys.csv"),
+    ""
+  )))
+
+CLASSES <- c("Impeded", "Diffuse", "Intensified", "Channelized")
+```
+
+```{r class-compute, include = FALSE}
+## Connectivity categories of Cameron et al. (2022), on normalized current flow F = C / Cp.
+##
+## Written as explicit comparisons rather than `cut()` so that the open and closed boundaries
+## match the paper exactly: Impeded is F <= 0.7, Diffuse is > 0.7 and < 1.3, Intensified is
+## >= 1.3 and <= 1.7, Channelized is > 1.7.
+classify_F <- function(f) {
+  out <- rep(NA_character_, length(f))
+  out[f <= 0.7] <- "Impeded"
+  out[f > 0.7 & f < 1.3] <- "Diffuse"
+  out[f >= 1.3 & f <= 1.7] <- "Intensified"
+  out[f > 1.7] <- "Channelized"
+  factor(out, levels = CLASSES)
+}
+
+## The 30 m regional surface is 69.2 M cells, so this is the expensive step.
+##
+## Normalized current is a RATIO of two per-cell currents, so numerator and denominator are
+## aggregated separately and then divided. Averaging the ratio itself would be wrong: the mean of
+## a ratio is not the ratio of the means, and the denominator varies within a 3x3 block.
+##
+## Nothing is resampled. `aggregate(fact = 3)` pads the extent to fit whole blocks, and on this
+## study area that padding lands exactly on the 90 m grid, so cells are compared one for one.
+compare_pair <- function(k30, k90) {
+  suppressMessages(library(terra))
+  c30 <- terra::aggregate(
+    terra::rast(file.path(DIRS[[k30]], "cum_currmap.tif")),
+    fact = 3,
+    fun = "mean",
+    na.rm = TRUE
+  )
+  f30 <- terra::aggregate(
+    terra::rast(file.path(DIRS[[k30]], "flow_potential.tif")),
+    fact = 3,
+    fun = "mean",
+    na.rm = TRUE
+  )
+  n30 <- c30 / f30
+  n90 <- terra::rast(file.path(DIRS[[k90]], "normalized_cum_currmap.tif"))
+
+  aligned <- isTRUE(all.equal(
+    as.vector(terra::ext(n30)),
+    as.vector(terra::ext(n90)),
+    tolerance = 1e-6
+  )) &&
+    identical(dim(n30)[1:2], dim(n90)[1:2])
+
+  ## Count only what is inside the district. Omniscape needs a buffer around the study area for
+  ## the moving window, so the rasters reach well beyond the NRD -- about three cells in every
+  ## four of the full extent. That margin is not a result, and leaving it in flatters the
+  ## comparison: it is mostly uniform low-flow land that both pixel sizes classify identically.
+  ##
+  ## This stops rather than carrying on unclipped if the boundary is missing. Silently falling
+  ## back is how the first version of this report came to quote agreement over the full extent
+  ## while describing it as the district: the numbers looked plausible and nothing flagged them.
+  sa <- study_area_path()
+  if (is.na(sa)) {
+    stop(
+      "district boundary not found; refusing to report statistics over the unclipped extent",
+      call. = FALSE
+    )
+  }
+  bnd <- terra::vect(sa)
+  if (!terra::same.crs(bnd, n90)) {
+    bnd <- terra::project(bnd, terra::crs(n90))
+  }
+  n30 <- terra::mask(terra::crop(n30, bnd), bnd)
+  n90 <- terra::mask(terra::crop(n90, bnd), bnd)
+
+  v30 <- terra::values(n30)[, 1]
+  v90 <- terra::values(n90)[, 1]
+  ok <- is.finite(v30) & is.finite(v90)
+  a <- v30[ok]
+  b <- v90[ok]
+
+  k_a <- classify_F(a)
+  k_b <- classify_F(b)
+  tab <- table(r30 = k_a, r90 = k_b)
+  agree <- sum(diag(tab)) / sum(tab)
+  pe <- sum(rowSums(tab) / sum(tab) * colSums(tab) / sum(tab))
+
+  list(
+    aligned = aligned,
+    n = sum(ok),
+    tab = tab,
+    agree = 100 * agree,
+    kappa = (agree - pe) / (1 - pe),
+    mean30 = mean(a),
+    mean90 = mean(b),
+    medad = median(abs(b - a)),
+    r30 = n30,
+    r90 = n90
+  )
+}
+
+cm <- list()
+if (ok_cells) {
+  cm$regional <- compare_pair("regional_30", "regional_90")
+  cm$local <- compare_pair("local_30", "local_90")
+}
+```
+
+```{r zonal-compute, include = FALSE}
+zonal_of <- function(run_key) {
+  f <- file.path(DIRS[[run_key]], "zonal_by_polys.csv")
+  if (is.na(DIRS[[run_key]]) || !file.exists(f)) {
+    return(NULL)
+  }
+  z <- utils::read.csv(f, stringsAsFactors = FALSE)
+  stats::setNames(z$mean_norm_cum_curr, z$zone)
+}
+
+## A handful of high-alpine units carry no current at all in either run; 0 to 0 is no basis for a
+## percentage, so those zones are dropped rather than allowed to propagate a NaN into a median.
+zonal_metrics <- function(a_key, b_key) {
+  a <- zonal_of(a_key)
+  b <- zonal_of(b_key)
+  if (is.null(a) || is.null(b)) {
+    return(NULL)
+  }
+  k <- intersect(names(a), names(b))
+  a <- a[k]
+  b <- b[k]
+  ok <- is.finite(a) & is.finite(b) & a != 0
+  a <- a[ok]
+  b <- b[ok]
+  d <- 100 * (b - a) / a
+  list(
+    n = length(a),
+    median_abs = median(abs(d)),
+    mean_abs = mean(abs(d)),
+    over10 = 100 * mean(abs(d) > 10),
+    flip = 100 * mean((a > 1) != (b > 1)),
+    rho = cor(rank(a), rank(b)),
+    a = a,
+    b = b
+  )
+}
+
+zm <- list()
+if (ok_zonal) {
+  zm$reg_res <- zonal_metrics("regional_30", "regional_90")
+  zm$loc_res <- zonal_metrics("local_30", "local_90")
+}
+```
+
+{{< pagebreak >}}
+
+# Why resolution matters {#sec-resolution}
+
+Quesnel was produced at both 30 m and 90 m pixel size, and a decision was taken in spring 2026 that 90 m is sufficient going forward, for further Quesnel runs and for subsequent analyses.
+It was a judgement at the time, made without a formal comparison.
+This comparison is formalized here.
+
+Omniscape solves a circuit problem repeatedly in a moving window, and the window radius is given in pixels rather than in metres [@Landau:2021].
+Pixel size therefore fixes two things at once: the ground distance the window spans, and how many solves a run needs to cover the study area.
+Cost per solve rises faster than window area -- roughly `nodes^1.8` on this study area -- so the two compound.
+This coupling is why the algorithm carries a block-size shortcut at all.
+@McRae:2016 found centring the window on every pixel computationally prohibitive and solved whole blocks of pixels at once, which sped the work up without coarsening the resistance data underneath it.
+Choosing a pixel size is thus a choice about what the model can resolve and about whether it finishes, together.
+
+Connectivity surfaces of this kind are largely robust to how they are gridded: models of the same landscape built at different pixel sizes and extents correlate closely, even where the conservation plans eventually drawn from them differ [@Dertien:2023].
+That is the basis for expecting 90 m results to be broadly comparable with 30 m ones.
+The category cut-offs fit that expectation rather than straining it.
+They were derived by @McRae:2016 for the Pacific Northwest at 180 m, and @Cameron:2022 applied the same values in California at 90 m, having tested 54 alternative sets and found the originals still described their landscape best.
+The regional run compared here is 90 m with a 42.9 km search radius, against Cameron's 50 km, so it sits inside the range these cut-offs have been used at and is finer than the pixel size they were derived at.
+That is a reason to expect 90 m to hold up, not evidence that it does, so the rest of this report tests it.
+
+The reason for wanting 90 m is computational effort.
+The 30 m series is 208 h of Omniscape against 12 h for the 90 m series, a factor of about seventeen, and nearly all of it is the one regional run, whose window covers nine times the area of the 90 m one.
+A district's run takes about half a day at 90 m and over a week at 30 m, displacing other work on the shared machines for that period.
+Memory is not the constraint at 90 m, where the regional run was measured at 33.2 GB resident and the local at 3.0 GB; data preparation rather than Omniscape sets the memory requirement.
+
+```{r}
+#| label: tbl-compute
+#| tbl-cap: "Omniscape wall clock for the corrected Quesnel runs. Worker counts differ by run; these are elapsed times, not CPU hours."
+#| results: asis
+data.frame(
+  Run = c("Regional, 30 m", "Regional, 90 m", "Local, 30 m", "Local, 90 m"),
+  Radius = c("1429 px", "477 px", "86 px", "29 px"),
+  Workers = c("64", "16", "24", "8"),
+  Elapsed = c("196 h 44 min", "11 h 08 min", "11 h 28 min", "57 min"),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  styled(booktabs = TRUE, row.names = FALSE, align = "lrrr") |>
+  emit()
+```
+
+{{< pagebreak >}}
+
+# Connectivity categories {#sec-classes}
+
+The results are put through a reclassification into connectivity categories, and categories are a harder test of pixel size than the underlying maps.
+A conclusion drawn from a continuous map tolerates a small shift in value.
+A conclusion drawn from categories does not, because a location sitting near a cut-off changes category outright.
+
+@Cameron:2022 sort each location into a category by comparing two maps: the movement the model actually predicts there, and the movement the same place would carry if nothing were in the way.
+
+The ratio of the two is what the categories are defined on.
+A ratio near 1 means a place carries about as much movement as it could.
+Well above 1 means movement is being funnelled through it.
+Below 1 means something is getting in the way.
+The ratio is written `F` in the table below, following the paper.
+
+```{r}
+#| label: tbl-thresholds
+#| tbl-cap: "Category thresholds on normalized current flow, after Cameron et al. (2022)."
+#| results: asis
+data.frame(
+  Category = CLASSES,
+  `Normalized current flow` = c(
+    "F <= 0.7",
+    "0.7 < F < 1.3",
+    "1.3 <= F <= 1.7",
+    "F > 1.7"
+  ),
+  Meaning = c(
+    "Less flow than the landscape could support",
+    "About as much flow as expected",
+    "More flow than expected, with few constraints",
+    "Much more flow than expected; movement concentrated"
+  ),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  styled(
+    booktabs = TRUE,
+    row.names = FALSE,
+    align = "lll",
+    widths = c("2.6cm", "3.4cm", "8.6cm")
+  ) |>
+  emit()
+```
+
+## The categories not computed here {#sec-missing-categories}
+
+The framework additionally splits low-flow Diffuse and Impeded land into Impeded, Limited and Permeable, using a human modification index to separate them.
+**That split is outside what is compared here.**
+The pipeline does not currently produce such an index, so it is not something these outputs determine on their own.
+It could be built: the roads and other anthropogenic footprint layers the pipeline already assembles are the same kind of input such an index is made from.
+It was not part of the design of this stage of the work.
+
+What was handed off was the Omniscape output rasters, so whether those three categories were derived downstream is not established here.
+The four categories above are the ones the outputs fix by themselves, and they are what this comparison covers.
+
+```{r}
+#| label: tbl-confusion-regional
+#| tbl-cap: "Regional run: connectivity category at 30 m against 90 m, as a percentage of all classified cells. The diagonal is agreement."
+#| eval: !expr isTRUE(ok_cells)
+#| results: asis
+conf_tbl <- function(m) {
+  p <- 100 * prop.table(m$tab)
+  d <- as.data.frame.matrix(round(p, 2))
+  d[] <- lapply(d, function(x) num(x, 2))
+  cbind(`30 m \\ 90 m` = rownames(d), d)
+}
+emit(styled(
+  conf_tbl(cm$regional),
+  booktabs = TRUE,
+  row.names = FALSE,
+  align = "lrrrr"
+))
+```
+
+```{r}
+#| label: tbl-confusion-local
+#| tbl-cap: "Local run: connectivity category at 30 m against 90 m, as a percentage of all classified cells."
+#| eval: !expr isTRUE(ok_cells)
+#| results: asis
+emit(styled(
+  conf_tbl(cm$local),
+  booktabs = TRUE,
+  row.names = FALSE,
+  align = "lrrrr"
+))
+```
+
+```{r}
+#| label: tbl-perclass
+#| tbl-cap: "Each category's share of the district at both resolutions, and the share of its 30 m cells that keep the category at 90 m. Extent is how much land the category covers; retention is whether it is the same land."
+#| eval: !expr isTRUE(ok_cells)
+#| results: asis
+per_class <- function(lab, m) {
+  tab <- m$tab
+  do.call(
+    rbind,
+    lapply(CLASSES, function(lv) {
+      a30 <- sum(tab[lv, ])
+      a90 <- sum(tab[, lv])
+      data.frame(
+        Scale = lab,
+        Category = lv,
+        `Extent, 30 m` = pct(100 * a30 / sum(tab), 2),
+        `Extent, 90 m` = pct(100 * a90 / sum(tab), 2),
+        `Extent ratio` = num(a90 / a30, 3),
+        `Cells retained` = pct(100 * tab[lv, lv] / a30, 1),
+        check.names = FALSE,
+        stringsAsFactors = FALSE
+      )
+    })
+  )
+}
+tbl <- rbind(per_class("Regional", cm$regional), per_class("Local", cm$local))
+emit(styled(
+  tbl,
+  booktabs = TRUE,
+  row.names = FALSE,
+  align = "llrrrr",
+  stripe_by = tbl$Scale
+))
+```
+
+Agreement is `r if (ok_cells) num(cm$regional$agree, 1) else "--"`% for the regional run and `r if (ok_cells) num(cm$local$agree, 1) else "--"`% for the local one.
+Some of that is luck, because most of the district falls into one or two common categories, so two maps agreeing at random would still coincide fairly often.
+Cohen's kappa [@Cohen:1960] discounts the luck, scoring 0 when agreement is no better than chance and 1 when it is exact.
+Kappa is `r if (ok_cells) num(cm$regional$kappa, 2) else "--"` for the regional run and `r if (ok_cells) num(cm$local$kappa, 2) else "--"` for the local one.
+On the kappa bands of @Landis:1977, both count as substantial agreement.
+
+Three things follow.
+
+**The extents are stable.**
+Every category covers close to the same share of the district at either pixel size.
+The largest departure is Impeded in the regional run, which grows by 11%; every other category is within 10%.
+A tally of how much land falls in each category is nearly unchanged by pixel size.
+
+**Channelized land is both stable in extent and largely the same land.**
+It covers 12.6% of the district at 30 m and 13.0% at 90 m in the regional run, and `r if (ok_cells) num(100 * cm$regional$tab["Channelized", "Channelized"] / sum(cm$regional$tab["Channelized", ]), 0) else "--"`% of its locations keep the category at the coarser pixel size.
+This matters more than the other categories because it is what the framework is for: Channelized areas are the constricted places where conservation or restoration is most consequential.
+
+**Intensified is the exception.**
+It retains only `r if (ok_cells) num(100 * cm$regional$tab["Intensified", "Intensified"] / sum(cm$regional$tab["Intensified", ]), 0) else "--"`% of its locations in the regional run and `r if (ok_cells) num(100 * cm$local$tab["Intensified", "Intensified"] / sum(cm$local$tab["Intensified", ]), 0) else "--"`% in the local one.
+It is a narrow band -- a ratio between 1.3 and 1.7 -- holding two to three percent of the district and sitting directly between Diffuse below and Channelized above.
+A small change in the ratio therefore carries a location out of it in one direction or the other.
+Its *extent* is reproduced well; *which* cells make it up is not.
+Conclusions that depend on Intensified land at specific locations should be drawn at 30 m, or treated as provisional at 90 m.
+
+```{r}
+#| label: fig-maps
+#| fig-cap: "Quesnel NRD at both pixel sizes. Each row is the same comparison; the left column is 30 m coarsened onto the 90 m grid, the right column is 90 m as produced. The category rows are what the results are read from, and they are close to indistinguishable at map scale."
+#| eval: !expr isTRUE(ok_cells)
+#| out-width: "100%"
+f <- file.path(FIGDIR, "resolution-maps.png")
+if (!file.exists(f)) {
+  suppressMessages(library(terra))
+  ## `compare_pair()` already clipped these to the district, so the maps and the tables are
+  ## drawn from exactly the same surfaces.
+
+  cat_cols <- c(
+    Impeded = "#B2182B",
+    Diffuse = "#F7F7F7",
+    Intensified = "#92C5DE",
+    Channelized = "#2166AC"
+  )
+  as_cat <- function(r) {
+    k <- terra::classify(
+      r,
+      rbind(c(-Inf, 0.7, 1), c(0.7, 1.3, 2), c(1.3, 1.7, 3), c(1.7, Inf, 4)),
+      include.lowest = TRUE
+    )
+    levels(k) <- data.frame(id = 1:4, category = CLASSES)
+    k
+  }
+
+  grDevices::png(f, width = 1800, height = 1880, res = 170)
+  op <- graphics::par(mfrow = c(4, 2), mar = c(0.6, 1, 2.2, 7))
+  rng <- c(0, 2)
+  for (sc in c("regional", "local")) {
+    lab <- if (sc == "regional") "Regional" else "Local"
+    m <- cm[[sc]]
+    a <- m$r30
+    b <- m$r90
+    terra::plot(
+      terra::clamp(a, rng[1], rng[2], values = TRUE),
+      main = paste(lab, "- movement ratio, 30 m"),
+      axes = FALSE,
+      range = rng,
+      mar = c(0.6, 1, 2.2, 7)
+    )
+    terra::plot(
+      terra::clamp(b, rng[1], rng[2], values = TRUE),
+      main = paste(lab, "- movement ratio, 90 m"),
+      axes = FALSE,
+      range = rng,
+      mar = c(0.6, 1, 2.2, 7)
+    )
+    terra::plot(
+      as_cat(a),
+      main = paste(lab, "- categories, 30 m"),
+      axes = FALSE,
+      col = cat_cols,
+      mar = c(0.6, 1, 2.2, 7)
+    )
+    terra::plot(
+      as_cat(b),
+      main = paste(lab, "- categories, 90 m"),
+      axes = FALSE,
+      col = cat_cols,
+      mar = c(0.6, 1, 2.2, 7)
+    )
+  }
+  graphics::par(op)
+  grDevices::dev.off()
+}
+include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
+```
+
+{{< pagebreak >}}
+
+# Zonal summaries {#sec-zonal}
+
+Zonal summaries are the other product the analysis delivers: one mean normalized current per Landscape Unit by BEC zone combination, and per biodiversity feature class.
+
+```{r}
+#| label: tbl-zonal
+#| tbl-cap: "Zonal summaries at 30 m against 90 m, both corrected. Percentages are the change from the 30 m value to the 90 m value, over the zones both runs report."
+#| eval: !expr isTRUE(ok_zonal)
+#| results: asis
+zrow <- function(lab, m) {
+  data.frame(
+    Scale = lab,
+    Zones = num(m$n, 0),
+    `Median abs. change` = pct(m$median_abs, 2),
+    `Mean abs. change` = pct(m$mean_abs, 2),
+    `Zones moving > 10%` = pct(m$over10, 1),
+    `Zones crossing 1` = pct(m$flip, 1),
+    `Rank correlation` = num(m$rho, 3),
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+}
+emit(styled(
+  rbind(zrow("Regional", zm$reg_res), zrow("Local", zm$loc_res)),
+  booktabs = TRUE,
+  row.names = FALSE,
+  align = "lrrrrrr"
+))
+```
+
+The ordering of zones is what survives best: a planner ranking Landscape Units by mean normalized current gets very nearly the same ordering from either grid.
+Individual values move more, and a small number of zones fall on opposite sides of 1.
+
+Of the regional zones that cross, the median sits `r if (ok_zonal) num(median(abs(zm$reg_res$a[(zm$reg_res$a > 1) != (zm$reg_res$b > 1)] - 1)), 3) else "--"` from the threshold, against `r if (ok_zonal) num(median(abs(zm$reg_res$a[(zm$reg_res$a > 1) == (zm$reg_res$b > 1)] - 1)), 3) else "--"` for the zones that do not.
+They change category because they were already sitting on the line.
+
+```{r}
+#| label: fig-zonal
+#| fig-cap: "Zonal means at 30 m against 90 m, one point per zone. The diagonal is exact agreement; grey lines mark the value of 1. Red points are zones the two grids place on opposite sides of it, and they lie close to the lines."
+#| eval: !expr isTRUE(ok_zonal)
+#| out-width: "100%"
+f <- file.path(FIGDIR, "resolution-zonal-scatter.png")
+if (!file.exists(f)) {
+  grDevices::png(f, width = 2000, height = 1050, res = 190)
+  op <- graphics::par(mfrow = c(1, 2), mar = c(4.2, 4.2, 2.6, 1))
+  for (nm in c("Regional", "Local")) {
+    m <- if (nm == "Regional") zm$reg_res else zm$loc_res
+    lim <- range(c(m$a, m$b), finite = TRUE)
+    lim[1] <- max(lim[1], 1e-3)
+    plot(
+      m$a,
+      m$b,
+      log = "xy",
+      xlim = lim,
+      ylim = lim,
+      pch = 19,
+      cex = 0.5,
+      col = grDevices::adjustcolor(ifelse((m$a > 1) != (m$b > 1), "#C0392B", "#2C3E50"), 0.65),
+      xlab = "30 m (aggregated to 90 m)",
+      ylab = "90 m",
+      main = paste0(nm, ": mean normalized current by zone")
+    )
+    graphics::abline(0, 1, col = "#2980B9", lwd = 1.6)
+    graphics::abline(h = 1, v = 1, col = "grey65", lty = 2)
+  }
+  graphics::par(op)
+  grDevices::dev.off()
+}
+include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
+```
+
+# Limitations {#sec-limits}
+
+**Measured on Quesnel only.**
+Quesnel is the only district with both series, so it is the only place this comparison can be made.
+A district with different terrain, size or disturbance history could be more sensitive to pixel size, and that is not measured here.
+
+**Neither grid is truth.**
+The 30 m run is finer and closer to the resolution of the source data, so where the two differ it is the better estimate.
+This measures how far apart they are, not that they agree.
+
+**Category extents transfer; individual Intensified cells do not.**
+Land tallies by category, Channelized extent, and zonal rankings all survive the change of grid.
+The membership of the narrow Intensified band does not, and a map read cell by cell in that category should not be treated as interchangeable between resolutions.
+
+**Three of the framework's categories are out of scope.**
+Separating low-flow land into Impeded, Limited and Permeable needs a human modification index, which this pipeline does not currently produce, though it could be derived from footprint data already in hand.
+Those three categories are therefore not compared, and nothing here speaks to how pixel size would affect them.
+
+{{< pagebreak >}}
+
+# Appendix A: How the comparison was made {#sec-method .unnumbered}
+
+Four corrected runs exist for Quesnel: a regional and a local run at each resolution.
+The comparison is between resolutions within each scale, both runs corrected, so the grid is the only thing that differs.
+
+```{r}
+#| label: tbl-runs
+#| tbl-cap: "The runs compared. Radius is stored in pixels, so the same physical distance is a different number at each resolution; the two are within one 90 m pixel of each other."
+#| results: asis
+data.frame(
+  Scale = c("Regional", "Regional", "Local", "Local"),
+  Resolution = c("30 m", "90 m", "30 m", "90 m"),
+  `Radius (px)` = num(c(1429, 477, 86, 29), 0),
+  `Radius (m)` = num(c(1429 * 30, 477 * 90, 86 * 30, 29 * 90), 0),
+  Run = c(RUNS$regional_30, RUNS$regional_90, RUNS$local_30, RUNS$local_90),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  styled(
+    booktabs = TRUE,
+    row.names = FALSE,
+    align = "llrrl",
+    stripe_by = c(1, 1, 2, 2)
+  ) |>
+  emit()
+```
+
+The radii are derived from the corrected interpatch distances in metres and converted to pixels per resolution, so the regional runs are 42,870 m and 42,930 m and the local runs 2,580 m and 2,610 m.
+They differ by less than one 90 m pixel, so this compares two grids resolving the same physical neighbourhood rather than two different analyses.
+
+**Only the ratio can be compared between pixel sizes.**
+The two underlying maps report movement per pixel, and a 90 m pixel covers nine times the ground of a 30 m one, so their values are not on the same footing.
+The ratio cancels that out, and is what the categories are defined on.
+
+To compare them, the 30 m results are coarsened onto the 90 m grid.
+The two underlying maps are averaged separately and the ratio taken afterwards, rather than averaging the ratio itself.
+Averaging the ratio would distort it, because the amount of movement a place could carry varies within each 90 m block.
+
+```{r}
+#| label: tbl-alignment
+#| tbl-cap: "Grid alignment. Aggregating the 30 m grid by a factor of three lands exactly on the 90 m grid, so nothing is interpolated and cells are compared one for one."
+#| eval: !expr isTRUE(ok_cells)
+#| results: asis
+data.frame(
+  Scale = c("Regional", "Local"),
+  `Grids identical after aggregation` = c(
+    ifelse(cm$regional$aligned, "yes", "NO"),
+    ifelse(cm$local$aligned, "yes", "NO")
+  ),
+  `Cells compared` = c(
+    format(cm$regional$n, big.mark = ","),
+    format(cm$local$n, big.mark = ",")
+  ),
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+) |>
+  styled(booktabs = TRUE, row.names = FALSE, align = "llr") |>
+  emit()
+```
+
+{{< pagebreak >}}
+
+{{< pagebreak >}}
+
+# Appendix B: Reproducing this report {#sec-reproducing .unnumbered}
+
+This report is not a pipeline target.
+It reads the finished Omniscape outputs directly, so it renders without a live `targets` store:
+
+- `cum_currmap.tif`, `flow_potential.tif` and `normalized_cum_currmap.tif` from each of the four
+corrected runs;
+- `zonal_by_polys.csv` from those same four runs.
+
+It resolves both output layouts, so it renders against a clone from before Quesnel's artefacts moved under `quesnel/` as well as after.
+
+Render with:
+
+```bash
+QUARTO_R=/path/to/R quarto render reports/resolution-equivalence.qmd \
+  --to pdf --output-dir ../Outputs
+```
+
+```{r}
+#| label: tbl-session
+#| tbl-cap: "Environment."
+#| results: asis
+si <- utils::sessionInfo()
+data.frame(
+  Component = c("R", "Platform", "OS", "terra", "GDAL", "GEOS", "PROJ"),
+  Version = c(
+    paste(si$R.version$major, si$R.version$minor, sep = "."),
+    si$platform,
+    if (is.null(si$running)) "unknown" else si$running,
+    as.character(utils::packageVersion("terra")),
+    unname(sf::sf_extSoftVersion()["GDAL"]),
+    unname(sf::sf_extSoftVersion()["GEOS"]),
+    unname(sf::sf_extSoftVersion()["PROJ"])
+  ),
+  stringsAsFactors = FALSE
+) |>
+  styled(booktabs = TRUE, row.names = FALSE) |>
+  emit()
+```
+
+{{< pagebreak >}}
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
