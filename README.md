@@ -1043,9 +1043,10 @@ Source Software*, 6, 2829.
 
 <div id="ref-McRae:2008" class="csl-entry">
 
-McRae, B.H., Dickson, B.G., Keitt, T.H. & Shah, V.B. (2008). Using
+McRae, B.H., Dickson, B.G., Keitt, T.H. & Shah, V.B. (2008). [Using
 circuit theory to model connectivity in ecology, evolution, and
-conservation. *Ecology*, 89, 2712–2724.
+conservation](https://doi.org/10.1890/07-1861.1). *Ecology*, 89,
+2712–2724.
 
 </div>
 
