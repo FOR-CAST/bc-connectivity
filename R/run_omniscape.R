@@ -464,10 +464,26 @@ run_omniscape <- function(
     add = TRUE
   )
 
+  ## Run against the pinned, project-local Julia environment in `Omniscape/`, never the global one.
+  ## The registered Omniscape 0.6.2 declares `Circuitscape = "5.13.1-5"`, so a bare global
+  ## `Pkg.add("Omniscape")` resolves Circuitscape to the newest 5.x -- 5.17.1 today, not the 5.15.0
+  ## these results were produced with. 5.16/5.17 replaced the iterative solver and inflates the
+  ## artifact-correction factors behind `flow_potential.tif` and `normalized_cum_currmap.tif`, so it
+  ## changes the numbers without failing. See `Omniscape/install.jl` and CLAUDE.md ("Environment").
+  julia_project <- file.path(project_dir, "Omniscape")
+
+  if (!file.exists(file.path(julia_project, "Manifest.toml"))) {
+    stop(glue::glue(
+      "no pinned Julia environment at {julia_project}.\n",
+      "Create it with:  julia +{julia_version} Omniscape/install.jl"
+    ))
+  }
+
   ## processx does NOT go through a shell, so each argument must be its own element; passing these
   ## space-joined (as this did until 2026-08-25) hands julia one nonsense argument.
   julia_args <- c(
     glue::glue("+{julia_version}"),
+    glue::glue("--project={fs::path_rel(julia_project, project_dir)}"),
     "-t",
     as.character(julia_threads),
     fs::path_rel(julia_script, project_dir)

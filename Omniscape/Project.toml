@@ -1,0 +1,21 @@
+# Pinned Julia environment for this project's Omniscape runs.
+#
+# Why this exists: the *registered* Omniscape 0.6.2 declares `Circuitscape = "5.13.1-5"`, so a bare
+# `Pkg.add("Omniscape")` resolves to the newest 5.x -- today 5.17.1, not the 5.15.0 this project's
+# results were produced with. Circuitscape 5.16/5.17 replaced the iterative solver and inflates the
+# artifact-correction factors feeding flow_potential.tif and normalized_cum_currmap.tif, so that
+# swap changes results silently. The Manifest beside this file is the actual pin; the exact-version
+# compat bounds below state the intent and stop `Pkg.update()` from drifting off it.
+#
+# Install with `julia +1.11.7 --project=Omniscape Omniscape/install.jl`, and note that the runs
+# themselves pass `--project=Omniscape` (see `run_omniscape()` in R/run_omniscape.R). Upgrading any
+# of these is a deliberate, tested decision -- see the Environment section of CLAUDE.md.
+
+[deps]
+Circuitscape = "2b7a1792-8151-5239-925d-e2b8fdfa3201"
+Omniscape = "a38d70fc-99f5-11e9-1e3d-cbca093024c3"
+
+[compat]
+Circuitscape = "=5.15.0"
+Omniscape = "=0.6.2"
+julia = "~1.11"
