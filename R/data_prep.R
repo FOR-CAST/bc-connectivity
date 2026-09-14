@@ -240,7 +240,7 @@ seral_stages_long <- function(max_age) {
       values_to = "Age_Min"
     ) |>
     dplyr::group_by(NDT_BEC) |>
-    dplyr::arrange(match(Seral, c("Early", "Mid", "Mature", "Old")), .by_group = TRUE) |>
+    dplyr::arrange(match(Seral, SERAL_LEVELS), .by_group = TRUE) |>
     dplyr::mutate(
       Age_Max = dplyr::lead(Age_Min, default = max_age + 1)
     ) |>
@@ -1168,6 +1168,11 @@ define_forest_seral_patch_conn_vals <- function(for_dist_seral_agg) {
 ## represent "covered by a polygon, but with no seral class". Not a value `Seral` ever takes.
 SERAL_UNCLASSIFIED <- "<unclassified>"
 
+## Seral stages in stand-development order, which is the order they belong in on a plot or in a
+## table. Alphabetical puts Mature before Mid, which reads as an error to anyone who knows the
+## sequence.
+SERAL_LEVELS <- c("Early", "Mid", "Mature", "Old")
+
 ## Rasterise the seral layer for display.
 ##
 ## The layer is millions of polygons, and `geom_sf()` strokes every one of them individually:
@@ -1212,10 +1217,14 @@ plot_forest_disturbance_seral <- function(
   names(d)[3] <- "Seral"
   d$Seral <- as.character(d$Seral)
   d$Seral[d$Seral == SERAL_UNCLASSIFIED] <- NA_character_
-  ## `rasterize()` returns the classes as a factor in its own level order; sort them so the facets
-  ## and the legend come out in the same order as the character column they were plotted from.
+  ## `rasterize()` returns the classes as a factor in its own level order; put them back in
+  ## stand-development order so the facets and the legend read the way the sequence runs.
+  ## `intersect()` keeps a district that is missing a stage from getting an empty facet.
   ## Unclassified stands stay NA, so they get their own facet and the grey NA fill, as before.
-  d$Seral <- factor(d$Seral, levels = sort(unique(stats::na.omit(d$Seral))))
+  d$Seral <- factor(
+    d$Seral,
+    levels = intersect(SERAL_LEVELS, unique(stats::na.omit(d$Seral)))
+  )
 
   gg_for_dist_seral <- ggplot2::ggplot(d) +
     ggplot2::geom_tile(ggplot2::aes(x = .data$x, y = .data$y, fill = .data$Seral)) +
