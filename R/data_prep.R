@@ -9,22 +9,25 @@
 ##
 ## `Data/raw` is deliberately NOT under the key: the provincial layers it holds are
 ## district-independent, and downloading them once is the point.
-DISTRICT <- "quesnel"
-
 ## paths
+##
+## DISTRICT-BLIND, deliberately, and it must stay that way on this branch. The writers compose
+## `file.path(get_path(<type>), dst)`, and `district_dst()` supplies `dst` as a RELATIVE subpath
+## beginning with the district key. Baking a district into the base here composes it twice --
+## `Data/processed/quesnel/chilcotin/...` -- whose parent no one creates, so every district writer
+## fails at run time with "Creation failed." while the pipeline definition still validates.
 get_path <- function(type) {
   project_dir <- workflowtools::findProjectPath()
 
   switch(
     type,
     download = file.path(project_dir, "Data", "raw") |> fs::dir_create(),
-    inputs = file.path(project_dir, "Data", "processed", DISTRICT) |> fs::dir_create(),
-    rasters = file.path(project_dir, "Data", "processed", "rasters", DISTRICT) |>
-      fs::dir_create(),
-    omniscape = file.path(project_dir, "Omniscape", DISTRICT) |> fs::dir_create(),
-    outputs = file.path(project_dir, "Outputs", DISTRICT) |> fs::dir_create(),
+    inputs = file.path(project_dir, "Data", "processed") |> fs::dir_create(),
+    rasters = file.path(project_dir, "Data", "processed", "rasters") |> fs::dir_create(),
+    omniscape = file.path(project_dir, "Omniscape") |> fs::dir_create(),
+    outputs = file.path(project_dir, "Outputs") |> fs::dir_create(),
     project = fs::path(project_dir),
-    figures = file.path(project_dir, "Outputs", DISTRICT, "figures") |> fs::dir_create(),
+    figures = file.path(project_dir, "Outputs", "figures") |> fs::dir_create(),
   )
 }
 
