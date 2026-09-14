@@ -40,9 +40,16 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
 
 ## Running the pipeline
 
-```r
-targets::tar_make()
+Every project needs `TAR_PROJECT`; there is no default.
+
+```bash
+TAR_PROJECT=_targets_dataprep_quesnel  Rscript -e 'targets::tar_make()'
+TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'
 ```
+
+A bare `targets::tar_make()` resolves to `_targets.R` -- the retired Quesnel pipeline -- which refuses to run.
+`_targets.yaml` has no `main:` entry, but that alone is not protection: with no entry `targets` falls back to its built-in defaults, which are exactly that script and the `_targets/` store.
+Hence the guard at the top of the file.
 
 Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_OMNISCAPE`.
 Omniscape runs are opt-in because a single one can take days and hundreds of GB of RAM.
@@ -83,13 +90,12 @@ Do not relay an early ETA as a projection without saying it is unsettled.
 
 ## Validate every project after touching the pipeline
 
-There are seven `targets` projects (see `_targets.yaml`): `main`, plus a dataprep and an omniscape project per district.
-They share `R/`, they share `README.Rmd`, and the two factories in `R/factories.R` generate most of them, so a change in one file can break projects you were not thinking about.
+There are six `targets` projects (see `_targets.yaml`): a dataprep and an omniscape project per district.
+They share `R/`, they share `README.Rmd`, and the two factories in `R/factories.R` generate all of them, so a change in one file can break projects you were not thinking about.
 
-**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` target points at -- validate all seven, not just the one you were working on.**
+**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` target points at -- validate all six, not just the one you were working on.**
 
 ```bash
-Rscript -e 'targets::tar_validate()'   # main
 for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
          _targets_dataprep_chilcotin _targets_omniscape_chilcotin \
          _targets_dataprep_hundred_mile _targets_omniscape_hundred_mile; do
@@ -97,7 +103,9 @@ for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
 done
 ```
 
-`tar_manifest()` is the check for the district projects: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 116 for Quesnel and 109 for the others (the difference is the interpatch-distance chain, which only the reference district computes), and each omniscape project is 13.
+`tar_manifest()` is the check: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 118 for Quesnel and 111 for the others (the difference is the interpatch-distance chain, which only the reference district computes), and each omniscape project is 13.
+
+The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.
 
 Two real failures that only a full sweep would have caught:
 
@@ -108,6 +116,22 @@ Two real failures that only a full sweep would have caught:
   Any code span starting with `` `r `` followed by a space is an R expression, so this applies to every `.Rmd` here.
 
 Validation is cheap -- seconds per project -- and it runs no targets, so there is no reason to skip it.
+
+## The retired `main` project
+
+`main` was the single-district Quesnel pipeline, from before the factories existed.
+Quesnel now runs through `_targets_dataprep_quesnel` / `_targets_omniscape_quesnel` like every other district, and its artefacts live under `quesnel/` alongside theirs.
+
+**`_targets/` is a frozen archive, not a live store.**
+It holds 204 h of recorded compute and is the provenance behind the published results and the corrections report.
+When Quesnel's artefacts moved under `quesnel/`, the paths recorded in `_targets/meta/meta` were rewritten to match, so `tar_meta()` and `tar_read()` still resolve against it -- 2,175 recorded file paths, all of which exist.
+
+**Do not run it.**
+`_targets.R` still resolves paths through `get_path()`, which is district-blind, so a `tar_make()` there would write a second, flat copy of Quesnel's outputs beside the moved ones.
+It is deliberately absent from `_targets.yaml` for that reason; reading the archive needs no entry there.
+`_targets.R` and the writers in `R/data_prep.R` and `R/rasters.R` are kept as they were -- editing them would buy nothing, since nothing runs them, and `targets` hashes function bodies, so a change there would invalidate the two district stores that *are* live.
+
+Anything that reads Quesnel's artefacts directly rather than through `targets` should resolve both layouts, the way `pick_layout()` does in `reports/corrections-2026-08.Rmd`: a clone from before the move still has them flat, and a report should not care which one it is rendering against.
 
 ## Tests
 

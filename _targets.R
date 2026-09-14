@@ -1,3 +1,29 @@
+# RETIRED -- the single-district Quesnel pipeline, kept for provenance. See CLAUDE.md,
+# "The retired `main` project".
+#
+# Quesnel runs through `_targets_dataprep_quesnel` / `_targets_omniscape_quesnel` now, and its
+# artefacts live under `quesnel/` with the other districts'. Everything below still resolves paths
+# through `get_path()`, which is district-blind, so running it would write a second, FLAT copy of
+# Quesnel's outputs beside the moved ones and leave two divergent sets on disk.
+#
+# `main` is absent from `_targets.yaml`, but absence is not protection: with no entry, `targets`
+# falls back to its built-in defaults, which are exactly this script and the `_targets/` store. A
+# bare `tar_make()` would therefore run this. Hence the guard.
+#
+# Reading the archive -- `tar_meta()`, `tar_read()` -- does not source this file and is unaffected.
+if (!nzchar(Sys.getenv("BC_CONN_ALLOW_RETIRED_MAIN"))) {
+  stop(
+    "`_targets.R` is the RETIRED single-district Quesnel pipeline and must not be run.\n",
+    "Quesnel now builds through the district projects:\n",
+    "  TAR_PROJECT=_targets_dataprep_quesnel  Rscript -e 'targets::tar_make()'\n",
+    "  TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'\n",
+    "Reading the frozen archive needs no override: tar_meta()/tar_read() work as they are.\n",
+    "If you really do mean to run this, set BC_CONN_ALLOW_RETIRED_MAIN=1 -- and read\n",
+    "CLAUDE.md, \"The retired `main` project\", first.",
+    call. = FALSE
+  )
+}
+
 # Created by use_targets().
 # Follow the comments below to fill in this target script.
 # Then follow the manual to check and run the pipeline:

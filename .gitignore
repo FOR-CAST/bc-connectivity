@@ -21,6 +21,9 @@ _tmp/
 # One-off corrections report: the Rmd is tracked, its rendered output and figures are not.
 reports/*.pdf
 reports/figures/
+## knitr/quarto build artefacts: `<name>_files/` holds the figures a render extracts, and a
+## `quarto preview` recreates it on every pass.
+reports/*_files/
 
 # stray device output from a test that accidentally called graphics::box()
 Rplots.pdf

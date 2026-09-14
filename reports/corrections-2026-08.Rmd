@@ -58,9 +58,26 @@ library(dplyr)
 library(knitr)
 library(targets)
 
+## Quesnel's artefacts moved under `quesnel/` when the pipeline became multi-district -- see
+## `district_path()` in `R/factories.R`. A clone from before that move still has them flat, and a
+## rendered-from-the-archive check should not depend on which layout is on disk, so take whichever
+## exists. Preferring the districted path when NEITHER exists makes the failure message name the
+## location things are supposed to be in.
+pick_layout <- function(districted, flat) {
+  if (file.exists(districted) || !file.exists(flat)) districted else flat
+}
+
+QUESNEL_OUT <- pick_layout(
+  file.path(proj, "Outputs", "quesnel"),
+  file.path(proj, "Outputs")
+)
+
 ## Artefacts of the published (pre-correction) run, copied out of the way before the rerun
 ## overwrote them. See section "Reproducing this report".
-PUBLISHED <- file.path(proj, "Data", "processed", "published-2026-01-27")
+PUBLISHED <- pick_layout(
+  file.path(proj, "Data", "processed", "quesnel", "published-2026-01-27"),
+  file.path(proj, "Data", "processed", "published-2026-01-27")
+)
 ## Derived from wherever `_targets` actually resolves to (it is usually a symlink to bulk storage),
 ## so no site-specific absolute path is baked into the repo. Override with the environment variable.
 PUB_META <- Sys.getenv(
@@ -909,9 +926,14 @@ written from.
 
 ```{r omniscape-summary-setup}
 RAST_PUB <- file.path(PUBLISHED, "rasters")
-RAST_CUR <- file.path(proj, "Data", "processed", "rasters")
-RUN_PUB <- file.path(proj, "Outputs", "2026-01-23_p30_r1507_bs151")
-RUN_COR <- file.path(proj, "Outputs", "2026-08-26_p30_r1429_bs143")
+## Note the asymmetry: the per-district raster directory is `rasters/quesnel`, not
+## `quesnel/rasters` -- `district_path()` keys rasters off the shared `rasters` parent.
+RAST_CUR <- pick_layout(
+  file.path(proj, "Data", "processed", "rasters", "quesnel"),
+  file.path(proj, "Data", "processed", "rasters")
+)
+RUN_PUB <- file.path(QUESNEL_OUT, "2026-01-23_p30_r1507_bs151")
+RUN_COR <- file.path(QUESNEL_OUT, "2026-08-26_p30_r1429_bs143")
 
 ok_summary <- dir.exists(RAST_PUB) &&
   is_rebuilt("resistance_composite") &&
@@ -1058,7 +1080,7 @@ This report is deliberately **not** a pipeline target: it compares two runs, one
 exists as a live `targets` store.
 It reads:
 
-- `Data/processed/published-2026-01-27/` -- the published patches layer, composite rasters and map,
+- `Data/processed/quesnel/published-2026-01-27/` -- the published patches layer, composite rasters and map,
   copied aside before the rerun overwrote them;
 - the `targets` metadata snapshot of the published run;
 - the live `_targets` store for the corrected values.

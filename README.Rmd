@@ -31,13 +31,29 @@ After originally following a human disturbance-based connectivity modelling appr
 
 This project uses a [`targets`](https://docs.ropensci.org/targets/) workflow.
 
-```r
-## Run the workflow:
-targets::tar_make()
+The pipeline runs once per Natural Resource District, as a pair of projects -- a `dataprep` project
+ending at the Omniscape inputs, and an `omniscape` project that consumes them.
+`_targets.yaml` names them; `TAR_PROJECT` selects one.
 
-## Visualize the target dependencies:
-targets::tar_visnetwork()
+```bash
+## Prepare one district's inputs:
+TAR_PROJECT=_targets_dataprep_quesnel Rscript -e 'targets::tar_make()'
+
+## Then run Omniscape for it (opt-in; see BC_CONN_OMNISCAPE below):
+TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'
+
+## Visualize the target dependencies for a project:
+TAR_PROJECT=_targets_dataprep_quesnel Rscript -e 'targets::tar_visnetwork()'
 ```
+
+Substitute `chilcotin` or `hundred_mile` for `quesnel` to run another district.
+Each district's inputs and results live under its own key -- `Data/processed/<district>/`,
+`Data/processed/rasters/<district>/`, `Outputs/<district>/` -- so districts never overwrite one
+another.
+
+There is no default project: `TAR_PROJECT` is required.
+A bare `targets::tar_make()` resolves to `_targets.R`, which is the retired single-district Quesnel
+pipeline and refuses to run.
 
 Long runs should be started detached, so they survive an SSH or IDE disconnect from the compute node:
 
@@ -64,7 +80,7 @@ Environment variables control how much of the machine the run takes:
 | `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
 | `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
 
-By default a full `tar_make()` prepares every Omniscape input and stops short of launching the runs themselves, which take hours to days each.
+By default the `dataprep` project prepares every Omniscape input, and the `omniscape` project stops short of launching the runs themselves, which take hours to days each.
 
 ### Debugging
 
@@ -372,7 +388,7 @@ Upstream's own test case moved by roughly two orders of magnitude; the magnitude
 Upgrading is therefore a results change, not a version bump.
 It needs a measured before-and-after on this study area, recorded in the Corrections section below, and it should not be started while production runs are in flight.
 
-Omniscape runs are launched from the `targets` workflow, so the whole analysis is a single `tar_make()`.
+Omniscape runs are launched from the `targets` workflow, so a district's whole analysis is two `tar_make()` calls.
 (This previously had to be done by hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled shared libraries, which any Julia subprocess inherits, so Julia resolved libraries such as `libcurl` against R's copies and segfaulted on `using Omniscape`.
 Dropping that variable from the child environment -- see `julia_env()` in `R/run_omniscape.R` -- is all that was needed.)
 

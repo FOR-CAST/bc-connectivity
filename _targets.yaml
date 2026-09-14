@@ -6,14 +6,17 @@
 # Select with TAR_PROJECT, e.g.
 #   TAR_PROJECT=_targets_dataprep_chilcotin Rscript -e 'targets::tar_make()'
 #
-# `main` is the legacy single-district Quesnel pipeline and its existing store. It keeps that name
-# deliberately: `main` is what `targets` uses when TAR_PROJECT is unset, so the existing pipeline
-# runs unchanged. That store holds ~280 h of computed results, and `targets` hashes target names
-# and command text, so running Quesnel through the factories would rebuild it from scratch.
-# Migrating Quesnel is a separate, deliberate decision -- see _tmp/HANDOFF.md.
-main:
-  script: _targets.R
-  store: _targets
+# `main` -- the legacy single-district Quesnel pipeline -- is RETIRED. Quesnel now runs through
+# the factory pair below, like every other district, and its artefacts live under `quesnel/`
+# alongside theirs.
+#
+# `_targets/` is kept as a frozen archive of the corrected rerun: 204 h of recorded compute, and
+# the provenance behind the published results and the corrections report. Its recorded paths were
+# rewritten when the artefacts moved, so `tar_meta()` and `tar_read()` still resolve against it.
+#
+# Do not run it. `_targets.R` still resolves paths through `get_path()`, which is district-blind,
+# so a `tar_make()` there would write a second, flat copy of Quesnel's outputs beside the moved
+# ones. It is deliberately absent from this file; reading the archive needs no entry here.
 
 _targets_dataprep_quesnel:
   script: _targets_dataprep.R
