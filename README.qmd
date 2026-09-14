@@ -51,13 +51,13 @@ ending at the Omniscape inputs, and an `omniscape` project that consumes them.
 
 ```bash
 ## Prepare one district's inputs:
-TAR_PROJECT=_targets_dataprep_quesnel Rscript -e 'targets::tar_make()'
+TAR_PROJECT=_targets_dataprep_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
 
 ## Then run Omniscape for it (opt-in; see BC_CONN_OMNISCAPE below):
-TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'
+TAR_PROJECT=_targets_omniscape_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
 
 ## Visualize the target dependencies for a project:
-TAR_PROJECT=_targets_dataprep_quesnel Rscript -e 'targets::tar_visnetwork()'
+TAR_PROJECT=_targets_dataprep_quesnel Rscript-4.5.3 -e 'targets::tar_visnetwork()'
 ```
 
 Substitute `chilcotin` or `hundred_mile` for `quesnel` to run another district.
@@ -590,6 +590,11 @@ Install R 4.5.3:
 ```shell
 rig add 4.5.3
 ```
+
+This also puts a version-suffixed `Rscript-4.5.3` on the path, which is what the commands above use.
+A bare `Rscript` resolves to whichever R comes first on the path, and `renv/library/` is per R minor
+version, so under a different one the project library looks completely empty and every command fails
+as though the project itself were broken.
 
 ### R packages
 
