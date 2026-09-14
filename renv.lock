@@ -1742,6 +1742,30 @@
       ],
       "Hash": "5150f0e38b8150315ac853acade2740e"
     },
+    "quarto": {
+      "Package": "quarto",
+      "Version": "1.5.1",
+      "Source": "Repository",
+      "Repository": "https://packagemanager.posit.co/cran/__linux__/noble/latest",
+      "Requirements": [
+        "R",
+        "cli",
+        "fs",
+        "htmltools",
+        "jsonlite",
+        "later",
+        "lifecycle",
+        "processx",
+        "rlang",
+        "rmarkdown",
+        "rstudioapi",
+        "tools",
+        "utils",
+        "xfun",
+        "yaml"
+      ],
+      "Hash": "c948476ae43811c74888f0d4534832a3"
+    },
     "quickPlot": {
       "Package": "quickPlot",
       "Version": "1.0.4.9000",

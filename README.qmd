@@ -1,15 +1,30 @@
 ---
 title: "Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes"
-date: "Last updated: `r Sys.Date()`"
-output:
-  html_document:
-    keep_md: true
+date: last-modified
+date-format: "[Last updated:] YYYY-MM-DD"
+# GitHub-flavoured markdown, which is what this document is FOR. The previous setup rendered an
+# `html_document` and kept knitr's intermediate markdown as `README.md`, so the file GitHub shows
+# was the one pandoc had never processed: every citation appeared on the front page as a raw
+# `[@key]`, the reference list was never generated at all, and this YAML block was printed above
+# the title. `gfm` writes the markdown directly, through citeproc, so what is committed is what
+# was rendered.
+format:
+  gfm:
+    toc: false
 bibliography: citations/references.bib
-citation-style: citations/ecology-letters.csl
+# `csl:`, not `citation-style:` -- the latter is not a field pandoc or rmarkdown reads, so this
+# stylesheet had never been applied to anything.
+csl: citations/ecology-letters.csl
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+## Load the project's functions. As a `tar_quarto()` target this document inherits a session where
+## `tar_source()` has already run, so the chunk calling `get_path()` below worked by inheritance.
+## Rendering it directly -- which is how `README.md` gets refreshed in practice -- has no such
+## context, and the chunk fails with "could not find function".
+targets::tar_source()
 ```
 
 This repository contains code to produce a connectivity map for the intactness of old forests to inform biodiversity management for the Quesnel Natural Resource District (NRD).
@@ -590,4 +605,5 @@ If you use this software or the analyses it produces, please cite it using the m
 
 # References
 
-<!-- references automatically generated from references.bib -->
+::: {#refs}
+:::

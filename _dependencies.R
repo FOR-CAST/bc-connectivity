@@ -3,6 +3,7 @@
 if (FALSE) {
   library(DiagrammeRsvg) ## used by `DiagrammeR`
   library(duckdb) ## used by `arrow`
+  library(quarto) ## used by `tarchetypes::tar_quarto()` to render the README
   library(rsvg) ## used by `DiagrammeR`
   library(shiny) ## used by `targets`
   library(V8) ## used by `DiagrammeR`

@@ -1033,10 +1033,12 @@ list(
     format = "file"
   ),
 
-  ## render README
-  tar_render(
+  ## Render the README. `tar_quarto()` rather than `tar_render()` since the document is a .qmd:
+  ## it renders to GitHub-flavoured markdown, so `README.md` is produced by pandoc rather than
+  ## being knitr's unprocessed intermediate.
+  tar_quarto(
     name = readme,
-    path = "README.Rmd"
+    path = "README.qmd"
   ),
 
   ## write reproducibility receipt
