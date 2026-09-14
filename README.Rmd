@@ -385,7 +385,11 @@ Omniscape configurations produced by the data preparation workflow:
 ```{r omniscape-benchmarks, echo = FALSE, message = FALSE}
 ## Measured resource use, written by `omniscape_benchmark_table()` from the `time -v` figures each
 ## run records. Falls back to a note when no runs have been made in this store.
-bench <- file.path("Outputs", "omniscape_benchmarks.csv")
+##
+## Resolved through `get_path()` rather than written out: the writer uses it too, and it now files
+## outputs under the district key. A literal `Outputs/` here would look in the wrong place and show
+## the fallback note for ever, which is indistinguishable from having made no runs.
+bench <- file.path(get_path("outputs"), "omniscape_benchmarks.csv")
 if (file.exists(bench)) {
   knitr::kable(read.csv(bench))
 } else {
