@@ -1330,6 +1330,45 @@ omniscape_targets <- function() {
       format = "file"
     ),
 
+    ## Connectivity categories, and maps of them for presentations.
+    ##
+    ## The categorical map is what the results are read and presented from: each location sorted by
+    ## how much movement it carries against how much it could. Producing it here means every
+    ## district gets the same categories, from the same cut-offs, on the same palette, rather than
+    ## each being reclassified by hand downstream.
+    ##
+    ## Clipped to the UNBUFFERED boundary. Omniscape's moving window needs a buffer, so the run
+    ## rasters reach well past the district; that margin is not a result, and counting it changes
+    ## the category shares substantially.
+    ##
+    ## Deliberately NOT branched over `omniscape_run`. With `BC_CONN_OMNISCAPE` unset -- the usual
+    ## `tar_make()` -- no runs exist, and `targets` fails with "cannot branch over empty target";
+    ## the functions take the whole vector and return `character(0)` when it is empty.
+    tar_target(
+      name = study_area_boundary,
+      command = district_study_area(district),
+      format = "file"
+    ),
+    tar_target(
+      name = connectivity_categories,
+      command = connectivity_category_rasters(
+        omniscape_run,
+        study_area = study_area_boundary,
+        dest_dir = district_path("outputs", district)
+      ),
+      format = "file"
+    ),
+    tar_target(
+      name = connectivity_category_pngs,
+      command = connectivity_category_maps(
+        omniscape_run,
+        study_area = study_area_boundary,
+        dest_dir = district_path("figures", district),
+        label = district$label
+      ),
+      format = "file"
+    ),
+
     tar_target(
       name = omniscape_summary,
       command = zonal_summaries(
