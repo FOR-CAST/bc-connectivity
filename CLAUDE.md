@@ -27,7 +27,22 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
   Several R versions are installed side by side via [rig](https://github.com/r-lib/rig); use the version `renv.lock` names, not whatever `R` resolves to on `PATH`.
   `renv/library/` is per R minor version, so running under the wrong one looks like a completely empty library.
 - **Julia** is managed by [juliaup](https://github.com/JuliaLang/juliaup).
-  Omniscape does not work on Julia 1.12 ([Omniscape.jl#160](https://github.com/Circuitscape/Omniscape.jl/issues/160)) -- use 1.11.x, which `run_omniscape()` selects explicitly via a `+version` channel argument.
+  Use **1.11.x**, which `run_omniscape()` selects explicitly via a `+version` channel argument.
+  The Julia version, the Omniscape version, and the Circuitscape version are **one coupled decision**, and the current one is to stay put: Julia 1.11.7, Omniscape 0.6.2, Circuitscape 5.15.0.
+  Do not upgrade any of the three until the pipeline has been re-run and checked against the current results; see "When results change" below, because the upgrade moves numbers that end up in reports.
+
+  The reason for the pin is **not** the one this file used to give.
+  [Omniscape.jl#160](https://github.com/Circuitscape/Omniscape.jl/issues/160) (method dispatch on 1.12) and [#165](https://github.com/Circuitscape/Omniscape.jl/issues/165) (accumulators indexed by `threadid()`) were both fixed upstream in [#171](https://github.com/Circuitscape/Omniscape.jl/pull/171), merged 2026-09-13.
+  But that fix ships in 0.7.0, whose `Project.toml` declares `julia = "1.12"` and `Circuitscape = "6.1"` -- so 0.7.0 cannot be installed on 1.11 at all, and taking it means taking all three moves at once.
+  0.7.0 is **not yet registered**; the General registry still tops out at 0.6.2.
+
+- **Pin Circuitscape explicitly when installing the Julia side.**
+  `Omniscape/install.jl` is a bare `using Pkg; Pkg.add("Omniscape")` into the global environment, and nothing about the Julia environment is tracked in git.
+  The registered Omniscape 0.6.2 declares `Circuitscape = "5.13.1-5"`, so that command resolves to whatever 5.x is newest -- **today that is 5.17.1, not the 5.15.0 this project is built against**.
+  Circuitscape 5.16/5.17 replaced the iterative solver: it is what turned upstream CI red in April 2026, and it inflates the artifact-correction factors that feed `flow_potential.tif` and `normalized_cum_currmap.tif`.
+  The `~5.15` bound that fixed upstream CI lives on their `main` under the *same* 0.6.2 version number, so it was never registered and does **not** protect a fresh install here.
+  A fresh clone, a new machine, or a stray `Pkg.update()` will therefore produce a silently different answer unless Circuitscape is pinned by hand.
+  The Julia side of this needs a committed project-local `Project.toml` / `Manifest.toml`; until then, install with an explicit `Pkg.add(name="Circuitscape", version="5.15.0")` and check `Pkg.status()` before a production run.
 - **Never attach packages in `.Rprofile`.**
   It runs *before* R attaches the default packages, so anything attached there lands **below** `stats` on the search path -- and `library()` on an already-attached package is a no-op, so a later `library(dplyr)` cannot lift it back up.
   A bare `filter()` then silently resolves to `stats::filter()` and fails with an unrelated-looking error (`'list' object cannot be coerced to type 'double'`).
