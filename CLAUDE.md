@@ -110,9 +110,9 @@ Do not relay an early ETA as a projection without saying it is unsettled.
 ## Validate every project after touching the pipeline
 
 There are six `targets` projects (see `_targets.yaml`): a dataprep and an omniscape project per district.
-They share `R/`, they share `README.Rmd`, and the two factories in `R/factories.R` generate all of them, so a change in one file can break projects you were not thinking about.
+They share `R/`, and the two factories in `R/factories.R` generate all of them, so a change in one file can break projects you were not thinking about.
 
-**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` target points at -- validate all six, not just the one you were working on.**
+**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` / `tar_quarto()` target points at -- validate all six, not just the one you were working on.**
 
 ```bash
 for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
@@ -128,11 +128,12 @@ The legacy `main` project is retired and deliberately absent from `_targets.yaml
 
 Two real failures that only a full sweep would have caught:
 
-- Editing `README.Rmd` broke `main` **and** both omniscape projects, because `omniscape_targets()` renders the same README.
+- Editing the README once broke `main` **and** both omniscape projects, because `omniscape_targets()` rendered the same repository-level document in every district.
   `_targets_dataprep.R` was fine, so validating the project being worked on reported everything healthy.
-- A code span written as `` `r = 477` `` is knitr *inline R code*, not formatting: knitr tangles it to `= 477`, which does not parse, and `tar_render()`'s dependency scan fails with `Could not parse knitr report README.Rmd`.
+  That target has since been removed from the factory -- see the note in `omniscape_targets()` -- so the README is no longer shared, but the shape of the failure is what to watch for.
+- A code span written as `` `r = 477` `` is knitr *inline R code*, not formatting: knitr tangles it to `= 477`, which does not parse, and the dependency scan fails with `Could not parse knitr report`.
   Write `` `r` = 477 `` instead.
-  Any code span starting with `` `r `` followed by a space is an R expression, so this applies to every `.Rmd` here.
+  Any code span starting with `` `r `` followed by a space is an R expression, so this applies to every `.Rmd` and `.qmd` here.
 
 Validation is cheap -- seconds per project -- and it runs no targets, so there is no reason to skip it.
 

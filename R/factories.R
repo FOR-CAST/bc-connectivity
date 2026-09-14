@@ -1319,7 +1319,7 @@ omniscape_targets <- function() {
     ## The destination is passed rather than left to the function's default, which resolves through
     ## `get_path()` and is district-blind: every district's omniscape project would write the same
     ## repo-level `Outputs/omniscape_benchmarks.csv` and race for it on shared storage, whichever
-    ## finished last winning. That is the failure the note about `README.Rmd` below describes, and
+    ## finished last winning. That is the failure the note about the README below describes, and
     ## it applied here too.
     tar_target(
       name = omniscape_benchmarks_csv,
@@ -1348,10 +1348,11 @@ omniscape_targets <- function() {
       format = "file"
     ),
 
-    ## No README target here, deliberately. `README.Rmd` is a REPOSITORY-level document, not a
+    ## No README target here, deliberately. `README.qmd` is a REPOSITORY-level document, not a
     ## per-district output: three districts rendering it would race on one path on shared storage,
     ## and whichever finished last would win. It was copied in from `_targets.R` when this factory
-    ## was written. `main` renders it; that is the only place it belongs.
+    ## was written. The only `tar_quarto()` for it is in the retired `main`, which does not run, so
+    ## nothing renders it automatically: `quarto render README.qmd` by hand.
 
     ## The receipt IS per-district -- it records the environment a district's runs were produced in,
     ## which differs by machine and by when the district was built. Same reasoning as the README

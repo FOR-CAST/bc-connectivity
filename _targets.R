@@ -1059,10 +1059,18 @@ list(
     format = "file"
   ),
 
-  ## render README
-  tar_render(
+  ## Render the README. `tar_quarto()` rather than `tar_render()` since the document is a .qmd:
+  ## it renders to GitHub-flavoured markdown, so `README.md` is produced by pandoc rather than
+  ## being knitr's unprocessed intermediate.
+  ##
+  ## This is the only README target in the repository, and this pipeline is retired, so nothing
+  ## renders it automatically any more. It is kept here for provenance and correctness rather than
+  ## because it runs; render by hand with `quarto render README.qmd`. The per-district factories
+  ## deliberately have no README target -- see the note in `omniscape_targets()`: the README is a
+  ## repository-level document, and three districts rendering it would race on one path.
+  tar_quarto(
     name = readme,
-    path = "README.Rmd"
+    path = "README.qmd"
   ),
 
   ## write reproducibility receipt
