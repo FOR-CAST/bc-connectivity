@@ -18,9 +18,13 @@ districts <- function() {
       key = "quesnel",
       district_name = "Quesnel Natural Resource District",
       label = "Quesnel",
-      ## 30 m AND 90 m: Quesnel is the reference landscape for the resolution-equivalence study,
-      ## which is the only thing the 30 m series exists for.
-      agg_factors = c(1, 3),
+      ## 90 m, like every other district. Quesnel is the reference landscape for the
+      ## resolution-equivalence study, which is the only thing the 30 m series ever existed for,
+      ## and that study is written and settled (`reports/resolution-equivalence.qmd`).
+      ## `study_agg_factors` keeps the pair on record so re-enabling the comparison does not
+      ## require reconstructing which resolutions it compared.
+      agg_factors = 3,
+      study_agg_factors = c(1, 3),
       ## Quesnel is where the radii are measured; every other district inherits them.
       interpatch_distances = TRUE
     ),
@@ -83,19 +87,50 @@ active_district <- function(project = Sys.getenv("TAR_PROJECT", "main")) {
   district_spec(key)
 }
 
+#' Is the resolution-equivalence study enabled?
+#'
+#' The 30 m series exists only to support the 30 m against 90 m comparison, and it is the most
+#' expensive thing this pipeline can be asked to do. The 30 m regional Omniscape configuration
+#' (radius 1429, block size 143) took **196.7 h -- 8.2 days -- at 64 threads**, finishing
+#' 2026-09-12; the same configuration at 90 m (radius 477, block size 49) took 11 h 07 m at 16
+#' threads and peaked at 33.2 GB. The comparison has been made and written up
+#' (`reports/resolution-equivalence.qmd`), so the series is off unless it is asked for.
+#'
+#' Kept as a gate rather than deleted because the question can reopen -- a district unlike Quesnel,
+#' or a change to the category cut-offs, would need the comparison redone rather than cited.
+#'
+#' @param flag character; defaults to `BC_CONN_RESOLUTION_STUDY`. `"1"`, `"true"` or `"yes"`,
+#'   case-insensitive, enables it; anything else, including unset, does not.
+#'
+#' @returns `TRUE` if a district's `study_agg_factors` should be built instead of its production
+#'   resolutions
+#'
+#' @export
+resolution_study_enabled <- function(flag = Sys.getenv("BC_CONN_RESOLUTION_STUDY", "")) {
+  tolower(trimws(flag)) %in% c("1", "true", "yes")
+}
+
 #' Aggregation factors -- i.e. resolutions -- a district's rasters are built at
 #'
 #' The source landcover layer is 30 m, so factor 1 is 30 m and factor 3 is 90 m.
 #'
-#' **This is where the 30 m conditional lives, and it is the only place it needs to live.** Every
-#' raster target downstream branches over `agg_fact_lcc`, so dropping 30 m here removes it from the
-#' entire graph -- the resistance and source-weight rasters, the Omniscape configurations, and the
-#' runs. No `if` is needed in any project script, which is what stops the conditional drifting
-#' between districts.
+#' **This is where the resolution conditional lives, and it is the only place it needs to live.**
+#' Every raster target downstream branches over `agg_fact_lcc`, so what this returns decides the
+#' whole graph -- the aggregated landcover, the resistance and source-weight rasters, the Omniscape
+#' configurations, and the runs. No `if` is needed in any project script, which is what stops the
+#' conditional drifting between districts.
 #'
-#' Only Quesnel builds 30 m, and only for the resolution-equivalence study. The Quesnel historical
-#' comparison and every other district are 90 m. `BC_CONN_AGG_FACTORS` overrides, e.g. `"3"` to run
-#' Quesnel at 90 m only.
+#' **Every district is 90 m.** Two ways to ask for something else, in precedence order:
+#'
+#' - `BC_CONN_AGG_FACTORS` sets the factors directly and applies to whichever district is being
+#'   built, e.g. `"1 3"` for both resolutions or `"1"` for 30 m alone.
+#' - `BC_CONN_RESOLUTION_STUDY=1` builds each district's `study_agg_factors`, the pair the
+#'   resolution-equivalence study compared. Only Quesnel declares one; for every other district
+#'   this changes nothing, so the flag can be left set across a multi-district run.
+#'
+#' Neither is a target dependency, which is why `agg_fact_lcc` carries an always-cue in both
+#' factories: without it the flag would be read once and then ignored until something unrelated
+#' invalidated the target.
 #'
 #' @param district character district key, or a spec from [district_spec()]
 #'
@@ -109,6 +144,10 @@ district_agg_factors <- function(district) {
 
   if (nzchar(override)) {
     return(as.numeric(strsplit(override, "[ ,]+")[[1]]))
+  }
+
+  if (resolution_study_enabled() && !is.null(spec$study_agg_factors)) {
+    return(spec$study_agg_factors)
   }
 
   spec$agg_factors

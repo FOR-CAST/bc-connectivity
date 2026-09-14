@@ -319,7 +319,17 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = agg_fact_lcc,
-      command = district_agg_factors(district)
+      command = district_agg_factors(district),
+      ## `BC_CONN_AGG_FACTORS` and `BC_CONN_RESOLUTION_STUDY` are read at run time and are not
+      ## target dependencies, so without an always-cue a change to either stays invisible until
+      ## something unrelated happens to invalidate this target. The command returns a short numeric
+      ## vector, so re-running it every time costs nothing, and the branches downstream move only
+      ## if the value actually changes.
+      ##
+      ## Read on the main process: `crew.ssh` workers do not inherit this session's environment,
+      ## so a worker could otherwise resolve the flags differently from the process that set them.
+      cue = tar_cue(mode = "always"),
+      deployment = "main"
     ),
     tar_terra_rast(
       name = LCC,
@@ -1186,7 +1196,17 @@ omniscape_targets <- function() {
     ## 90 m), one for the rest.
     tar_target(
       name = agg_fact_lcc,
-      command = district_agg_factors(district)
+      command = district_agg_factors(district),
+      ## `BC_CONN_AGG_FACTORS` and `BC_CONN_RESOLUTION_STUDY` are read at run time and are not
+      ## target dependencies, so without an always-cue a change to either stays invisible until
+      ## something unrelated happens to invalidate this target. The command returns a short numeric
+      ## vector, so re-running it every time costs nothing, and the branches downstream move only
+      ## if the value actually changes.
+      ##
+      ## Read on the main process: `crew.ssh` workers do not inherit this session's environment,
+      ## so a worker could otherwise resolve the flags differently from the process that set them.
+      cue = tar_cue(mode = "always"),
+      deployment = "main"
     ),
     tar_target(
       name = resistance_composite,
