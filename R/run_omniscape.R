@@ -653,7 +653,7 @@ omniscape_tiles <- function(spec = Sys.getenv("BC_CONN_OMNISCAPE_BENCH", "")) {
 #' @returns path to the combined CSV, or `character(0)` when no runs have been made
 #'
 #' @export
-omniscape_benchmark_table <- function(omniscape_outputs) {
+omniscape_benchmark_table <- function(omniscape_outputs, dest_dir = get_path("outputs")) {
   metrics <- grep("omniscape_metrics[.]csv$", omniscape_outputs, value = TRUE)
 
   if (length(metrics) == 0L) {
@@ -668,7 +668,7 @@ omniscape_benchmark_table <- function(omniscape_outputs) {
       peak_rss_gb = round(.data$peak_rss_gb, 1)
     )
 
-  dst <- file.path(get_path("outputs"), "omniscape_benchmarks.csv")
+  dst <- file.path(dest_dir, "omniscape_benchmarks.csv")
   utils::write.csv(combined, dst, row.names = FALSE)
 
   return(dst)

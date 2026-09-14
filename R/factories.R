@@ -22,7 +22,8 @@
 #' and every existing target depends on `get_path()`, so changing it would invalidate the entire
 #' stored Quesnel pipeline.
 #'
-#' @param type one of "download", "inputs", "rasters", "omniscape", "outputs", "project", "figures"
+#' @param type one of "download", "inputs", "rasters", "omniscape", "outputs", "project",
+#'   "figures", "logs", "benchmarks"
 #' @param district district key or spec, as [district_spec()]
 #'
 #' @returns character path, created if it does not exist
@@ -43,7 +44,11 @@ district_path <- function(type, district) {
     rasters = file.path(project_dir, "Data", "processed", "rasters", key) |> fs::dir_create(),
     omniscape = file.path(project_dir, "Omniscape", key) |> fs::dir_create(),
     outputs = file.path(project_dir, "Outputs", key) |> fs::dir_create(),
-    figures = file.path(project_dir, "Outputs", key, "figures") |> fs::dir_create()
+    figures = file.path(project_dir, "Outputs", key, "figures") |> fs::dir_create(),
+    ## Run logs and benchmark tables are kept apart from results. They accumulate one file per run
+    ## and would otherwise bury the handful of outputs that matter in a directory listing.
+    logs = file.path(project_dir, "Outputs", key, "logs") |> fs::dir_create(),
+    benchmarks = file.path(project_dir, "Outputs", key, "benchmarks") |> fs::dir_create()
   )
 }
 
@@ -1309,10 +1314,19 @@ omniscape_targets <- function() {
       )
     },
 
-    ## Measured resource use for every run made, for the README table
+    ## Measured resource use for every run made.
+    ##
+    ## The destination is passed rather than left to the function's default, which resolves through
+    ## `get_path()` and is district-blind: every district's omniscape project would write the same
+    ## repo-level `Outputs/omniscape_benchmarks.csv` and race for it on shared storage, whichever
+    ## finished last winning. That is the failure the note about `README.Rmd` below describes, and
+    ## it applied here too.
     tar_target(
       name = omniscape_benchmarks_csv,
-      command = omniscape_benchmark_table(omniscape_run),
+      command = omniscape_benchmark_table(
+        omniscape_run,
+        dest_dir = district_path("benchmarks", district)
+      ),
       format = "file"
     ),
 

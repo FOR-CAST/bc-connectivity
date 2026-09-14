@@ -10,11 +10,21 @@
 
 library(ggplot2)
 
+## `district_path()` and `district_spec()` live in R/; this script is not part of the pipeline and
+## so does not get them for free.
+targets::tar_source()
+
 ## ---- configuration -------------------------------------------------------------------------
 
 gdb <- file.path("Data", "raw", "BC_CEF_Forest_Disturbance_2024.gdb")
 layer <- "BC_CEF_ForestDisturbance_2024"
-out_dir <- file.path("Outputs", "record-completeness")
+## Under the district key, like everything else this pipeline writes: a repo-level `Outputs/` path
+## would have a second district overwrite the first.
+##
+## Named here rather than taken from `active_district()`, which reads `TAR_PROJECT` and so only
+## works inside a pipeline run. Override with `BC_CONN_DISTRICT` to measure another district.
+district <- district_spec(Sys.getenv("BC_CONN_DISTRICT", "quesnel"))
+out_dir <- file.path(district_path("outputs", district), "record-completeness")
 
 ## Years to report. 1990-2010 brackets the FIDS-to-Province survey handover (post-1995), the
 ## documented 1996-1999 inconsistency, and the 1999-2015 mountain pine beetle epidemic.
