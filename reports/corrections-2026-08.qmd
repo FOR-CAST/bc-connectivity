@@ -2,37 +2,48 @@
 title: "Quesnel NRD connectivity"
 subtitle: "Corrections and rerun, August 2026"
 author: "Alex Chubaty"
-date: "Last updated: `r Sys.Date()`"
-output:
-  pdf_document:
+date: last-modified
+date-format: "[Last updated:] YYYY-MM-DD"
+format:
+  pdf:
+    # Distinct from the Quesnel branch's `corrections-2026-08.pdf`. `Outputs/` is shared storage,
+    # not per-branch, so without this the two versions of this report overwrite each other
+    # depending on which was rendered last. Drop the suffix when the branches merge and there is
+    # only one.
+    output-file: corrections-2026-08-cariboo.pdf
+    documentclass: article
+    geometry: margin=2.5cm
     toc: true
-    toc_depth: 2
-    number_sections: true
-    fig_caption: true
-    latex_engine: pdflatex
-    keep_tex: true
-geometry: margin=2.5cm
-urlcolor: blue
-header-includes:
-  - \usepackage{float}
-  - \floatplacement{figure}{H}
-  ## `kableExtra::linebreak()` emits \makecell to wrap a column header onto two rows
-  - \usepackage{makecell}
-  ## Keep a heading with the beginning of the text under it. LaTeX already refuses to break
-  ## immediately after a heading, but nothing stops it breaking after the first line or two, which
-  ## strands the heading at the foot of a page and reads as though the section were empty.
-  ## `\needspace` reserves room for the heading plus a few lines and breaks the page first if it
-  ## is not there.
-  - \usepackage{needspace}
-  - \let\oldsection\section
-  - \renewcommand{\section}{\needspace{5\baselineskip}\oldsection}
-  - \let\oldsubsection\subsection
-  - \renewcommand{\subsection}{\needspace{5\baselineskip}\oldsubsection}
-  - \let\oldsubsubsection\subsubsection
-  - \renewcommand{\subsubsection}{\needspace{5\baselineskip}\oldsubsubsection}
-  ## and no single line of a paragraph left alone at the foot or head of a page
-  - \clubpenalty=10000
-  - \widowpenalty=10000
+    toc-depth: 2
+    number-sections: true
+    fig-pos: "H"
+    pdf-engine: pdflatex
+    urlcolor: blue
+    include-in-header:
+      text: |
+        \usepackage{float}
+        \floatplacement{figure}{H}
+        %% Tables are floats too, and Quarto emits their `table` environment itself -- so
+        %% kableExtra's `HOLD_position` has nothing left to pin. Pin them here instead, or a
+        %% table drifts pages away from the paragraph that discusses it.
+        \floatplacement{table}{H}
+        %% kableExtra::linebreak() emits \makecell to wrap a column header onto two rows
+        \usepackage{makecell}
+        %% Keep a heading with the beginning of the text under it. LaTeX already refuses to break
+        %% immediately after a heading, but nothing stops it breaking after the first line or two,
+        %% which strands the heading at the foot of a page and reads as though the section were
+        %% empty. \needspace reserves room for the heading plus a few lines and breaks the page
+        %% first if it is not there.
+        \usepackage{needspace}
+        \let\oldsection\section
+        \renewcommand{\section}{\needspace{5\baselineskip}\oldsection}
+        \let\oldsubsection\subsection
+        \renewcommand{\subsection}{\needspace{5\baselineskip}\oldsubsection}
+        \let\oldsubsubsection\subsubsection
+        \renewcommand{\subsubsection}{\needspace{5\baselineskip}\oldsubsubsection}
+        %% and no single line of a paragraph left alone at the foot or head of a page
+        \clubpenalty=10000
+        \widowpenalty=10000
 ---
 
 ```{r setup, include = FALSE}
@@ -106,11 +117,24 @@ if (is.null(rmd_dir) || !nzchar(rmd_dir) || is.na(rmd_dir)) {
 FIGDIR <- normalizePath(file.path(rmd_dir, "figures"), mustWork = FALSE)
 dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
 
+## Pandoc resolves an image path against the directory of the input file, and an ABSOLUTE path
+## reaches LaTeX with a `.` glued to the front: `./home/achubaty/.../patches_delivered.png`, which
+## does not exist and fails the build. rmarkdown did not do this, so the .Rmd could hand it the
+## absolute path. Keep the absolute path for the existence check in R, which runs with the project
+## root as its working directory, and give pandoc the relative one.
+fig_rel <- function(f) file.path(basename(FIGDIR), basename(f))
+
 ## One place that decides how every table in this report is drawn.
 ##
-## `HOLD_position` keeps a table with the text discussing it instead of letting LaTeX float it
-## elsewhere; `striped` shades alternate rows, which is what makes a table of more than a few rows
-## readable across its full width.
+## It draws the table body only. The caption, the number and the label come from the chunk's
+## `#| tbl-cap` and `#| label: tbl-...` options, so that every table can be referred to as
+## `@tbl-...` and no number in the prose can go stale. This also removes a whole class of defect:
+## a caption written here was passed through to LaTeX unescaped, and a bare `%` in one silently
+## centred every paragraph from that table to the end of the document. Captions handled by pandoc
+## are escaped properly.
+##
+## `striped` shades alternate rows, which is what makes a table of more than a few rows readable
+## across its full width.
 ##
 ## `widths` is a per-column width, e.g. c("8cm", "7cm"). A column given one wraps inside it;
 ## without one, a long cell sets the column to its own length and pushes the table off the page.
@@ -121,21 +145,8 @@ dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
 ## `stripe_by` shades alternate *groups* of rows rather than alternate rows, for a table whose
 ## rows come in blocks: banding every second row across a block obscures the blocks, which are
 ## the thing the reader is trying to follow.
-styled <- function(x, caption = NULL, ..., widths = NULL, bold_rows = NULL, stripe_by = NULL) {
-  latex_opts <- c("HOLD_position", if (is.null(stripe_by)) "striped")
-
-  ## `kbl()` escapes the cells but NOT the caption, and an unescaped `%` there is a LaTeX comment:
-  ## it swallows the rest of the line, including the brace that closes `\caption{`. Pandoc then
-  ## cannot find the end of the table environment, gives up on reading it as raw LaTeX, and parses
-  ## the opening lines as an ordinary paragraph instead. That escapes `\begin{table}` into visible
-  ## text but leaves the `\centering` after it live, so every paragraph from there to the end of
-  ## the document comes out centred. Nothing errors and the table still draws, which is what made
-  ## it hard to find.
-  ## Captions here are plain prose, so escaping the seven characters TeX treats specially is
-  ## enough; a backslash in a caption would need handling before this line, not after it.
-  if (!is.null(caption)) {
-    caption <- gsub("([&%$#_{}])", "\\\\\\1", caption)
-  }
+styled <- function(x, ..., widths = NULL, bold_rows = NULL, stripe_by = NULL) {
+  latex_opts <- if (is.null(stripe_by)) "striped" else NULL
 
   ## `booktabs` inserts a gap after every fifth row by default, which lands wherever it lands: in
   ## a twelve-row table of four three-row blocks it fell inside the second and fourth blocks and
@@ -148,7 +159,7 @@ styled <- function(x, caption = NULL, ..., widths = NULL, bold_rows = NULL, stri
     linesep[length(linesep)] <- "" ## no gap between the last row and the bottom rule
   }
 
-  k <- kableExtra::kbl(x, caption = caption, linesep = linesep, ...) |>
+  k <- kableExtra::kbl(x, linesep = linesep, ...) |>
     kableExtra::kable_styling(latex_options = latex_opts, font_size = 9)
 
   if (!is.null(stripe_by)) {
@@ -170,13 +181,11 @@ styled <- function(x, caption = NULL, ..., widths = NULL, bold_rows = NULL, stri
   k
 }
 
-## Emit a table into a `results = "asis"` chunk.
+## Emit a table into a `results: asis` chunk.
 ##
-## The surrounding blank lines are load-bearing. Without them pandoc can read the table's LaTeX as
-## a continuation of the preceding paragraph: it escapes the opening `\begin{table}` and `\caption`
-## into literal text, but leaves the `\centering` that follows them as a live command. Nothing
-## errors, the table still draws, and every paragraph from that point to the end of the document
-## comes out centred. It happened to exactly one table here before this helper existed.
+## The surrounding blank lines are load-bearing: without them pandoc can read the table's LaTeX as
+## a continuation of the preceding paragraph and start escaping parts of it into visible text while
+## leaving others live.
 emit <- function(k) cat("\n\n", as.character(k), "\n\n", sep = "")
 
 ha <- function(x) sum(terra::expanse(x, unit = "ha", transform = FALSE))
@@ -229,9 +238,9 @@ is_rebuilt <- function(target) {
 }
 ```
 
-\clearpage
+{{< pagebreak >}}
 
-# Summary
+# Summary {#sec-summary}
 
 An issue found in the seral-patch construction (commit `145cffb`) turned out to be one of several, and together they invalidate the connectivity results delivered in January 2026.
 This report documents what was wrong, what the corrected numbers are, what the rerun cost, and why it needed to be rerun.
@@ -243,8 +252,7 @@ The Omniscape runs therefore had to be repeated rather than patched.
 
 A second strand of work addressed the two largest spatial overlays.
 Tiling the final resultant is done and took it from 5 h 52 min to 18 min.
-The interior-forest overlay is the remaining one: tiling it measures 3 h 08 min down to 6 min on a
-prototype, reproducing the stored output exactly, but that change is not in this branch.
+Tiling the interior-forest overlay took it from 3 h 08 min to 6 min, reproducing the stored output exactly.
 That matters here because the corrections below had to be applied, checked and re-applied several
 times over, and a step measured in hours is one that cannot be retried casually.
 It matters more for what comes next: the workflow is intended to cover the wider Cariboo, and
@@ -252,7 +260,9 @@ Cariboo-Chilcotin alone is roughly 2.4 times Quesnel's area, with these costs gr
 area rather than in step with it.
 The retooling is a prerequisite for that extension rather than a refinement of it.
 
-```{r summary-effects}
+```{r}
+#| label: tbl-summary-effects
+#| tbl-cap: "Principal effects of the corrections."
 data.frame(
   Item = c(
     "Seral layer, total area",
@@ -264,15 +274,17 @@ data.frame(
   Corrected = c("see Forest patches, below", "166,915.6 ha (10,348 polys)", "0.0 ha", "35.1 h of compute"),
   stringsAsFactors = FALSE
 ) |>
-  styled(caption = "Principal effects of the corrections.", booktabs = TRUE)
+  styled(booktabs = TRUE)
 ```
 
-# Issues found and corrected
+# Issues found and corrected {#sec-issues}
 
 None of these produced an error.
 Each produced numbers that looked reasonable, which is why they survived into the delivered results.
 
-```{r issues}
+```{r}
+#| label: tbl-issues
+#| tbl-cap: "Issues corrected in this rerun, in the order the pipeline applies them. The numbering is referred to by the subsections that follow."
 data.frame(
   `#` = seq_len(8),
   Issue = c(
@@ -299,10 +311,6 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Issues corrected in this rerun, in the order the pipeline applies them.",
-      "The numbering is referred to by the subsections that follow."
-    ),
     booktabs = TRUE,
     row.names = FALSE,
     widths = c("0.6cm", "7.2cm", "7.2cm")
@@ -310,9 +318,9 @@ data.frame(
 ```
 
 The rest of this section gives the detail behind each, and the area figures that follow from them.
-Issue 8 concerns how the Omniscape runs were tiled for benchmarking rather than the data itself, and is covered in Appendix B.
+Issue 8 concerns how the Omniscape runs were tiled for benchmarking rather than the data itself, and is covered in [Appendix B](#sec-appendix-timings).
 
-## Forest patches
+## Forest patches {#sec-forest-patches}
 
 *Issues 1, 2, 3, 4 and 6.*
 
@@ -323,7 +331,10 @@ ok_patches <- have(pub_gpkg) &&
   is_rebuilt("forest_patches_final")
 ```
 
-```{r patches-compare, eval = ok_patches}
+```{r}
+#| label: tbl-patches-compare
+#| tbl-cap: "Final resultant by seral stage. Resistance and source weight are assigned from the seral stage, so a stage that changes area moves that area between resistance classes."
+#| eval: !expr ok_patches
 tabulate_patches <- function(v) {
   v$ha <- terra::expanse(v, unit = "ha", transform = FALSE)
   as.data.frame(v) |>
@@ -357,10 +368,6 @@ cmp |>
     `Change (%)` = num(pct)
   ) |>
   styled(
-    caption = paste(
-      "Final resultant by seral stage. Resistance and source weight are assigned from the seral",
-      "stage, so a stage that changes area moves that area between resistance classes."
-    ),
     booktabs = TRUE
   )
 ```
@@ -369,10 +376,15 @@ cmp |>
 cat("_The corrected `forest_patches_final` was not available when this was rendered._\n")
 ```
 
-The three maps below are drawn by the same code from the same inputs, so any difference between
-them is a difference in the data rather than in how it was plotted.
+@fig-patches-delivered, @fig-patches-corrected and @fig-patches-change are drawn by the same code
+from the same inputs, so any difference between them is a difference in the data rather than in how
+it was plotted.
 
-```{r map-before, eval = ok_patches, fig.cap = "Delivered patches, January 2026. Old forest is thin and fragmented; mature forest is near-continuous.", out.width = "100%"}
+```{r}
+#| label: fig-patches-delivered
+#| fig-cap: "Delivered patches, January 2026. Old forest is thin and fragmented; mature forest is near-continuous."
+#| eval: !expr ok_patches
+#| out-width: "100%"
 targets::tar_source()
 f <- file.path(FIGDIR, "patches_delivered.png")
 ## the writers return the path they wrote; at the top level of a chunk an `if` whose condition
@@ -385,10 +397,14 @@ if (!file.exists(f)) {
     outdir = FIGDIR
   ))
 }
-include_graphics(f, rel_path = FALSE)
+include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
 ```
 
-```{r map-after, eval = ok_patches, fig.cap = "Corrected patches, August 2026.", out.width = "100%"}
+```{r}
+#| label: fig-patches-corrected
+#| fig-cap: "Corrected patches, August 2026."
+#| eval: !expr ok_patches
+#| out-width: "100%"
 f <- file.path(FIGDIR, "patches_corrected.png")
 if (!file.exists(f)) {
   invisible(plot_forest_disturbance_seral(
@@ -398,15 +414,19 @@ if (!file.exists(f)) {
     outdir = FIGDIR
   ))
 }
-include_graphics(f, rel_path = FALSE)
+include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
 ```
 
 Set side by side, the two maps show that the corrected old forest is less extensive, but not where
 the area went.
-The next map answers that: for each seral stage it separates the ground both runs agree on from the
-ground only one of them claims.
+@fig-patches-change answers that: for each seral stage it separates the ground both runs agree on
+from the ground only one of them claims.
 
-```{r map-change, eval = ok_patches, fig.cap = "Change in each seral stage. Grey is ground both runs assign to the stage; orange is ground only the delivered run assigned to it, and blue only the corrected run.", out.width = "100%"}
+```{r}
+#| label: fig-patches-change
+#| fig-cap: "Change in each seral stage. Grey is ground both runs assign to the stage; orange is ground only the delivered run assigned to it, and blue only the corrected run."
+#| eval: !expr ok_patches
+#| out-width: "100%"
 ## Both vintages have to land on ONE grid. `seral_display_raster()` builds its template from the
 ## extent of whatever it is handed, so rasterising the two separately would put them on grids that
 ## do not line up, and a cell-by-cell comparison of those means nothing.
@@ -490,10 +510,10 @@ f <- file.path(FIGDIR, "patches_change.png")
 if (!file.exists(f)) {
   invisible(seral_change_map(b, a, tar_read_raw("Quesnel_TSA"), f))
 }
-include_graphics(f, rel_path = FALSE)
+include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
 ```
 
-## Patch statistics
+## Patch statistics {#sec-patch-statistics}
 
 *Issue 7.*
 
@@ -509,7 +529,10 @@ smallest patch in every stage came out at a ten-billionth of a hectare or less, 
 fraction of a square millimetre across.
 The corrected smallest patch is exactly 1 ha in every stage, which is the floor doing its work.
 
-```{r patch-stats, results = "asis"}
+```{r}
+#| label: tbl-patch-stats
+#| tbl-cap: "Seral patch statistics, delivered against corrected, paired by stage. All areas are hectares, given to three significant figures. Only the statistics both runs recorded are shown."
+#| results: asis
 pub_stats <- file.path(DELIVERED_META, "Quesnel_TSA_seral_patch_stats.csv")
 cor_stats <- file.path(QUESNEL_OUT, "Quesnel_TSA_seral_patch_stats.csv")
 if (have(pub_stats, cor_stats)) {
@@ -545,11 +568,6 @@ if (have(pub_stats, cor_stats)) {
 
   out |>
     styled(
-      caption = paste(
-        "Seral patch statistics, delivered against corrected, paired by stage.",
-        "All areas are hectares, given to three significant figures.",
-        "Only the statistics both runs recorded are shown."
-      ),
       booktabs = TRUE,
       row.names = FALSE,
       align = c("l", "l", rep("r", length(area_cols))),
@@ -561,15 +579,15 @@ if (have(pub_stats, cor_stats)) {
 }
 ```
 
-## A note on the overlay tools
+## A note on the overlay tools {#sec-overlay-tools-note}
 
 Several of the issues above came from the tools used to combine map layers rather than from the data
 itself, and two of them turned out to be faults in a widely used spatial library rather than in this
 pipeline.
 That matters for anyone reusing the approach, but it does not change any area reported above, so the
-account is in Appendix A.
+account is in [Appendix A](#sec-appendix-overlay-tools).
 
-# Effect on the connectivity analysis
+# Effect on the connectivity analysis {#sec-effect}
 
 Omniscape consumes exactly two rasters: the composite resistance surface and the composite source
 weights.
@@ -578,9 +596,9 @@ classes, and the connectivity result changes with it.
 
 This section compares what Omniscape read and what it produced, before and after the corrections.
 Both sides are still on disk: the delivered inputs were copied aside before the rerun overwrote
-them, and the delivered runs survived because the corrections changed the run names (Appendix B).
+them, and the delivered runs survived because the corrections changed the run names ([Appendix B](#sec-run-naming)).
 
-## What changed in the inputs
+## What changed in the inputs {#sec-inputs-changed}
 
 ```{r omniscape-rasters}
 RAST_PUB <- file.path(DELIVERED, "rasters")
@@ -643,7 +661,11 @@ ca <- cb <- stats::setNames(rep(NA_real_, 6), c("1", "250", "500", "750", "1000"
 pair_pub <- pair_cor <- NA_real_
 ```
 
-```{r omniscape-input-diff, eval = ok_rast, results = "asis"}
+```{r}
+#| label: tbl-omniscape-input-diff
+#| tbl-cap: "Change in the rasters Omniscape reads. The forest layers are NA off-patch; the composites fill those cells with the matrix value and are complete over the study area. The mean is of the layer's own values, taken over cells present in both versions: a resistance score from 1 to 1000, or a source weight from 0 to 1, according to the layer. It is not an area."
+#| eval: !expr ok_rast
+#| results: asis
 inp <- do.call(
   rbind,
   lapply(c(30, 90), function(r) {
@@ -689,17 +711,9 @@ names(tab) <- kableExtra::linebreak(
 
 tab |>
   styled(
-    caption = paste(
-      "Change in the rasters Omniscape reads. The forest layers are NA off-patch; the composites",
-      "fill those cells with the matrix value and are complete over the study area.",
-      "The mean is of the layer's own values, taken over cells present in both versions: a",
-      "resistance score from 1 to 1000, or a source weight from 0 to 1, according to the layer.",
-      "It is not an area."
-    ),
     booktabs = TRUE,
     row.names = FALSE,
-    escape = FALSE,
-    label = "omniscape-inputs"
+    escape = FALSE
   ) |>
   emit()
 ```
@@ -712,7 +726,7 @@ The 30 m and 90 m rows are independent measurements of the same change on the gr
 agree to better than 0.1% on every layer.
 That is the check that this is a real difference in the patch set and not an artefact of one grid.
 
-Two things in that table need separating.
+Two things in @tbl-omniscape-input-diff need separating.
 
 **The composite means move in the direction of less connectivity**: mean resistance rises about
 1.4% and mean source weight falls about 4.8%.
@@ -723,7 +737,11 @@ The forest layer is NA wherever there is no patch, so it registers a change both
 resistance class moves and when the cell enters or leaves the patch set; in the composite the
 off-patch cells carry the matrix value instead, so only the first kind appears there as a change.
 
-```{r omniscape-extent, eval = ok_rast, results = "asis"}
+```{r}
+#| label: tbl-omniscape-extent
+#| tbl-cap: "Change in the extent of the forest patch layer, at 30 m."
+#| eval: !expr ok_rast
+#| results: asis
 fe <- subset(inp, layer == "resistance_forest" & res == 30)
 data.frame(
   Measure = c(
@@ -739,9 +757,7 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = "Change in the extent of the forest patch layer, at 30 m.",
-    booktabs = TRUE,
-    label = "omniscape-extent"
+    booktabs = TRUE
   ) |>
   emit()
 ```
@@ -749,11 +765,15 @@ data.frame(
 The loss is almost entirely one-directional, and it is the raster expression of the patch-area
 change reported under "Forest patches".
 
-### Where the land went
+### Where the land went {#sec-where-the-land-went}
 
 Resistance is assigned in discrete classes, so the composite can be compared class by class.
 
-```{r omniscape-classes, eval = ok_rast, results = "asis"}
+```{r}
+#| label: tbl-omniscape-classes
+#| tbl-cap: "Area in each resistance class of the composite at 30 m, with the source weight assigned from the same seral class. Mixed cells are those covered by more than one polygon, which rasterize averages."
+#| eval: !expr ok_rast
+#| results: asis
 cellha <- 30 * 30 / 1e4
 
 ## The nominal classes are what `Resistance` is assigned from. Everything else in the raster is a
@@ -796,14 +816,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Area in each resistance class of the composite at 30 m, with the source weight assigned",
-      "from the same seral class. Mixed cells are those covered by more than one polygon, which",
-      "rasterize averages."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-classes"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -834,7 +848,11 @@ The `r num(cb[["mixed"]], 0)` ha that remain are `r num(100 * cb[["mixed"]] / to
 study area; overlap has not been eliminated outright, but what is left is small enough not to move
 any figure in this report.
 
-```{r omniscape-transitions, eval = ok_rast, results = "asis"}
+```{r}
+#| label: tbl-omniscape-transitions
+#| tbl-cap: "The six largest resistance-class transitions in the composite at 30 m."
+#| eval: !expr ok_rast
+#| results: asis
 ## Tabulate only the cells that actually changed. A full cross-tabulation of both vectors would
 ## factor 69.2 M values against ~300 levels twice; restricted to the changed cells it is 18x
 ## smaller and the result is identical, because the diagonal is dropped anyway.
@@ -857,10 +875,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = "The six largest resistance-class transitions in the composite at 30 m.",
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-transitions"
+    row.names = FALSE
   ) |>
   emit()
 
@@ -875,7 +891,7 @@ a nearly equal area the delivered run scored as forest patch is not in a patch a
 The issue was not a uniform over- or under-count that a single correction factor could absorb; it
 misplaced habitat in both directions.
 
-## Radii
+## Radii {#sec-radii}
 
 The Omniscape `radius`, `block_size` and `buffer` are all in **pixels**, not map units.
 Radii are derived from quantiles of the interpatch distance distribution, so the corrected patches
@@ -887,12 +903,13 @@ The delivered values are recoverable independently of any stored quantile, becau
 `write_omniscape_config()` stamps the radius into the run directory name: the `2026-01-23` vintage
 wrote `p30_r1507_bs151` (regional) and `p30_r58_bs7` / `p90_r20_bs3` (local).
 
-```{r radii, results = "asis"}
+```{r radii-setup}
 ok_q <- is_rebuilt("quantiles_nn_dists") && is_rebuilt("quantiles_all_dists")
 qn <- try(tar_read_raw("quantiles_nn_dists"), silent = TRUE)
 qa <- try(tar_read_raw("quantiles_all_dists"), silent = TRUE)
+ok_q <- ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")
 
-if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
+if (ok_q) {
   ## `use_radius()` takes the quantile in METRES and returns pixels, so the pin is resolution-
   ## independent: the same distance gives a different pixel count at 30 m and at 90 m.
   px <- function(m, res) ceiling(m / res)
@@ -901,7 +918,7 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
   all25 <- as.numeric(qa[["25%"]])
 
   ## delivered metres, back-derived from the run names above (radius px * pixel size)
-  pub <- data.frame(
+  radii_tbl <- data.frame(
     Quantity = c("Regional (all-pairs q25)", "Local (nearest-neighbour q100)"),
     `Delivered m` = c(45202, 1726),
     `Corrected m` = c(all25, nn100),
@@ -909,16 +926,8 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
     `px at 90 m` = c(sprintf("503 -> %d", px(all25, 90)), sprintf("20 -> %d", px(nn100, 90))),
     check.names = FALSE
   )
-  pub$`Delivered m` <- num(pub$`Delivered m`, 0)
-  pub$`Corrected m` <- num(pub$`Corrected m`, 0)
-
-  emit(styled(
-    pub,
-    caption = "Radii before and after the corrections.",
-    booktabs = TRUE,
-    row.names = FALSE,
-    label = "radii-change"
-  ))
+  radii_tbl$`Delivered m` <- num(radii_tbl$`Delivered m`, 0)
+  radii_tbl$`Corrected m` <- num(radii_tbl$`Corrected m`, 0)
 
   ## The quantile labels are the row names of the vector, and `row.names = FALSE` would throw them
   ## away, leaving a column of distances against nothing. Promote them to a column instead.
@@ -927,8 +936,8 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
   ## column of its own. A delivered-against-corrected column is not possible here: the delivered
   ## store was kept as metadata only, with no objects, so the delivered distributions no longer
   ## exist. The two values that do survive are back-derived from the run directory names and are
-  ## in Table 9.
-  show_q <- function(x, cap, lbl, radius_q) {
+  ## in the radii table above.
+  quantile_tbl <- function(x, radius_q) {
     d <- data.frame(
       Quantile = names(x),
       `Distance (m)` = num(as.numeric(x), 3),
@@ -945,42 +954,59 @@ if (ok_q && !inherits(qn, "try-error") && !inherits(qa, "try-error")) {
     if (sum(d$Quantile %in% wanted) >= 5) {
       d <- d[d$Quantile %in% wanted, , drop = FALSE]
     }
-    hit <- which(d$Quantile == radius_q)
-    ## an explicit label per table: three tables come out of this one chunk, and knitr labels
-    ## them all with the chunk name otherwise, so every cross-reference resolves to the last one
-    emit(styled(
-      d,
-      caption = cap,
-      booktabs = TRUE,
-      row.names = FALSE,
-      label = lbl,
-      bold_rows = if (length(hit)) hit else NULL
-    ))
+    attr(d, "bold") <- which(d$Quantile == radius_q)
+    d
   }
-  show_q(
-    qn,
-    paste(
-      "Nearest-neighbour interpatch distance quantiles, corrected.",
-      "The bold row is the one the local radius is derived from."
-    ),
-    "quantiles-nn",
-    "100%"
-  )
-  show_q(
-    qa,
-    paste(
-      "All-pairs interpatch distance quantiles, corrected.",
-      "The bold row is the one the regional radius is derived from."
-    ),
-    "quantiles-all",
-    "25%"
-  )
-} else {
-  cat(
-    "_Distance quantiles had not been rebuilt when this was rendered;",
-    "the radii for the corrected runs are therefore not yet known._\n"
-  )
+
+  nn_tbl <- quantile_tbl(qn, "100%")
+  all_tbl <- quantile_tbl(qa, "25%")
 }
+```
+
+```{r}
+#| label: tbl-radii
+#| tbl-cap: "Radii before and after the corrections."
+#| eval: !expr ok_q
+#| results: asis
+emit(styled(radii_tbl, booktabs = TRUE, row.names = FALSE))
+```
+
+```{r}
+#| label: tbl-quantiles-nn
+#| tbl-cap: "Nearest-neighbour interpatch distance quantiles, corrected. The bold row is the one the local radius is derived from."
+#| eval: !expr ok_q
+#| results: asis
+emit(styled(
+  nn_tbl,
+  booktabs = TRUE,
+  row.names = FALSE,
+  bold_rows = if (length(attr(nn_tbl, "bold"))) attr(nn_tbl, "bold") else NULL
+))
+```
+
+```{r}
+#| label: tbl-quantiles-all
+#| tbl-cap: "All-pairs interpatch distance quantiles, corrected. The bold row is the one the regional radius is derived from."
+#| eval: !expr ok_q
+#| results: asis
+emit(styled(
+  all_tbl,
+  booktabs = TRUE,
+  row.names = FALSE,
+  bold_rows = if (length(attr(all_tbl, "bold"))) attr(all_tbl, "bold") else NULL
+))
+```
+
+```{r}
+#| label: radii-pending
+#| eval: !expr isFALSE(ok_q)
+#| results: asis
+## `isFALSE(ok_q)` rather than `!ok_q`: a YAML tag cannot be followed by `!`, and `!expr !ok_q`
+## reads as two tags in a row.
+cat(
+  "_Distance quantiles had not been rebuilt when this was rendered;",
+  "the radii for the corrected runs are therefore not yet known._\n"
+)
 ```
 
 The regional radius falls by 5.2% and the local one rises by 49%.
@@ -993,9 +1019,9 @@ nearest-neighbour q100 is a **maximum**, and maxima are sensitive to the patch-c
 in a way that interior quantiles are not.
 
 This is entirely a consequence of the corrections, not of tiling: the serial and tiled builds give
-q100 identical to the millimetre (Appendix B).
+q100 identical to the millimetre ([Appendix B](#sec-tiling-interior)).
 
-## What changed in the outputs
+## What changed in the outputs {#sec-outputs-changed}
 
 ```{r omniscape-outputs-setup}
 ## Delivered run -> corrected run, matched by scale and resolution. The radii differ because
@@ -1126,7 +1152,11 @@ the project's own summaries are built on.
 **Normalized current is the layer to read this comparison from.**
 
 
-```{r omniscape-outputs, eval = ok_runs, results = "asis"}
+```{r}
+#| label: tbl-omniscape-outputs
+#| tbl-cap: "Omniscape output before and after the corrections, over cells present in both runs. The raw current and flow potential also carry the change in radius; the normalized current largely does not."
+#| eval: !expr ok_runs
+#| results: asis
 outs <- do.call(
   rbind,
   unlist(
@@ -1164,14 +1194,8 @@ data.frame(
   styled(
     stripe_by = run_label,
     bold_rows = which(outs$layer == "normalized_cum_currmap"),
-    caption = paste(
-      "Omniscape output before and after the corrections, over cells present in both runs.",
-      "The raw current and flow potential also carry the change in radius; the normalized",
-      "current largely does not."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-outputs"
+    row.names = FALSE
   ) |>
   emit()
 
@@ -1221,7 +1245,11 @@ rearranged.**
 That is the same pattern as the issues themselves: a plausible-looking number standing in front of a
 wrong one.
 
-```{r omniscape-crossings, eval = ok_runs, results = "asis"}
+```{r}
+#| label: tbl-omniscape-crossings
+#| tbl-cap: "Cells crossing the normalized-current value of 1, where current equals flow potential. A cell above 1 is channelized, below it impeded, so crossing changes the interpretation of that location and not only its value."
+#| eval: !expr ok_runs
+#| results: asis
 nz <- subset(outs, layer == "normalized_cum_currmap")
 data.frame(
   Run = paste0(nz$scale, ", ", nz$res, " m"),
@@ -1232,14 +1260,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Cells crossing the normalized-current value of 1, where current equals flow potential.",
-      "A cell above 1 is channelized, below it impeded, so crossing changes the interpretation",
-      "of that location and not only its value."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-crossings"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1250,7 +1272,7 @@ The share of the district that is channelized barely moves, by at most
 **The correction moves connectivity around rather than raising or lowering it: the corrected run
 finds about as much channelized land as the delivered one did, in different places.**
 
-### Zonal summaries
+### Zonal summaries {#sec-zonal-summaries}
 
 `zonal_summaries()` reduces the normalized current map to a mean per biodiversity feature class and
 per Landscape Unit x BEC zone combination.
@@ -1294,9 +1316,34 @@ if (ok_zonal) {
   zz$dpct <- ifelse(zz$pub == 0, NA_real_, 100 * (zz$cor - zz$pub) / zz$pub)
 }
 n_dropped <- if (ok_zonal) sum(is.na(zz$dpct) & grepl("^LU_", zz$zone)) else NA
+
+## The caption for the Landscape Unit table is built here rather than beside the table, because
+## knitr evaluates a chunk's options before it evaluates its body: `#| tbl-cap: !expr lu_cap`
+## cannot see anything the chunk itself assigns.
+lu_cap <- paste(
+  "Change in mean normalized current across the Landscape Unit by BEC zone summaries.",
+  "The median zone barely moves; the spread around it is large."
+)
+## Say so in the caption rather than silently showing a smaller denominator than the reader expects.
+if (isTRUE(n_dropped > 0)) {
+  lu_cap <- paste(
+    lu_cap,
+    sprintf(
+      paste(
+        "%d zone-and-run combinations are excluded: a few high-alpine units carry no current at",
+        "all at the local radius, in both runs, and 0 to 0 is no basis for a percentage."
+      ),
+      n_dropped
+    )
+  )
+}
 ```
 
-```{r omniscape-zonal-features, eval = ok_zonal, results = "asis"}
+```{r}
+#| label: tbl-omniscape-zonal-features
+#| tbl-cap: "Mean normalized current within each biodiversity feature class, regional run at 30 m. A value above 1 means current concentrates there relative to flow potential."
+#| eval: !expr ok_zonal
+#| results: asis
 FEATURES <- c(
   parks = "Parks",
   ogma = "OGMA",
@@ -1316,13 +1363,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Mean normalized current within each biodiversity feature class, regional run at 30 m.",
-      "A value above 1 means current concentrates there relative to flow potential."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-zonal-features"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1339,7 +1381,11 @@ A `r num(abs(subset(zz, zone == "parks" & run == "Regional, 30 m")$dpct), 1)`% c
 normalized current of the protected-areas network is not a rounding correction, and it is the kind
 of number that gets quoted on its own.
 
-```{r omniscape-zonal-lu, eval = ok_zonal, results = "asis"}
+```{r}
+#| label: tbl-omniscape-zonal-lu
+#| tbl-cap: !expr lu_cap
+#| eval: !expr ok_zonal
+#| results: asis
 lz <- subset(zz, grepl("^LU_", zone) & !is.na(dpct))
 agg <- do.call(
   rbind,
@@ -1361,28 +1407,14 @@ agg <- do.call(
 )
 agg <- agg[match(vapply(RUN_PAIRS, function(p) paste0(p$scale, ", ", p$res, " m"), ""), agg$Run), ]
 
-cap <- paste(
-  "Change in mean normalized current across the Landscape Unit by BEC zone summaries.",
-  "The median zone barely moves; the spread around it is large."
-)
-## Say so in the caption rather than silently showing a smaller denominator than the reader expects.
-if (isTRUE(n_dropped > 0)) {
-  cap <- paste(
-    cap,
-    sprintf(
-      paste(
-        "%d zone-and-run combinations are excluded: a few high-alpine units carry no current at",
-        "all at the local radius, in both runs, and 0 to 0 is no basis for a percentage."
-      ),
-      n_dropped
-    )
-  )
-}
-
-emit(styled(agg, caption = cap, booktabs = TRUE, row.names = FALSE, label = "omniscape-zonal-lu"))
+emit(styled(agg, booktabs = TRUE, row.names = FALSE))
 ```
 
-```{r omniscape-zonal-extremes, eval = ok_zonal, results = "asis"}
+```{r}
+#| label: tbl-omniscape-zonal-extremes
+#| tbl-cap: "The six Landscape Unit by BEC zone summaries that move most, regional run at 30 m."
+#| eval: !expr ok_zonal
+#| results: asis
 ez <- subset(zz, grepl("^LU_", zone) & run == "Regional, 30 m" & !is.na(dpct))
 ez <- ez[order(-abs(ez$dpct)), ][1:6, ]
 
@@ -1396,12 +1428,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "The six Landscape Unit by BEC zone summaries that move most, regional run at 30 m."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "omniscape-zonal-extremes"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1417,9 +1445,9 @@ reason the corrected runs cannot be treated as a refinement of the delivered one
 The district-wide totals are close enough that they would not, on their own, have prompted a
 rerun; the zone-level conclusions drawn from the delivered maps do not survive it.
 
-# Compute cost
+# Compute cost {#sec-compute-cost}
 
-## Preparing the inputs
+## Preparing the inputs {#sec-preparing-inputs}
 
 Times in this section are **CPU hours**: processor time as recorded by `targets`, summed over all
 branches of a target.
@@ -1439,7 +1467,10 @@ eliminated work as though it still ran.
 Totals below are filtered against `tar_manifest()`, the targets that exist in the pipeline today.
 Removed targets are attributed to the stage they used to serve, so each row shows the net effect of the change rather than a deletion and an addition side by side.
 
-```{r runtime-stage, results = "asis"}
+```{r}
+#| label: tbl-runtime-stage
+#| tbl-cap: "Pipeline cost by workflow stage, delivered against corrected (CPU hours)."
+#| results: asis
 ## Group targets into workflow stages. Order matters: first match wins.
 stage_of <- function(x) {
   dplyr::case_when(
@@ -1466,7 +1497,23 @@ roll <- function(store) {
 }
 
 if (dir.exists(DELIVERED_META)) {
-  live <- tar_manifest()$name
+  ## "The targets that exist in the pipeline today" was a bare `tar_manifest()` when this report
+  ## was written, because there was one pipeline and it was the default. That pipeline is retired
+  ## and `_targets.R` refuses to run, so the call has to name the projects Quesnel builds through
+  ## now. Both of them: the retired script defined the Omniscape configuration and the reporting
+  ## targets alongside the dataprep ones, and those stages appear in the table below.
+  live <- unlist(
+    lapply(
+      c("_targets_dataprep_quesnel", "_targets_omniscape_quesnel"),
+      function(p) {
+        withr::with_envvar(
+          c(TAR_PROJECT = p),
+          tar_manifest(script = tar_config_get("script", project = p))$name
+        )
+      }
+    ),
+    use.names = FALSE
+  )
   o <- roll(DELIVERED_META) |> rename(pub = seconds)
   n <- roll(file.path(proj, "_targets")) |> filter(name %in% live) |> rename(cor = seconds)
 
@@ -1491,7 +1538,6 @@ if (dir.exists(DELIVERED_META)) {
       Change = ifelse(abs(chg) < 0.05, "none", sprintf("%+.1f h", chg))
     ) |>
     styled(
-      caption = "Pipeline cost by workflow stage, delivered against corrected (CPU hours).",
       booktabs = TRUE,
       row.names = FALSE,
       align = "lrrr",
@@ -1519,13 +1565,16 @@ That is the price of correctness: the arcpy LENGTH sliver rule is more expensive
 it replaced, and it now runs on more and smaller polygons because the seral layer no longer
 collapses duplicates.
 
-## Running Omniscape
+## Running Omniscape {#sec-running-omniscape}
 
 The saving above is real but it is not the cost of the analysis.
 Preparing the inputs is the smaller half of the work; running Omniscape over them is the larger,
 and none of the retooling above touches it.
 
-```{r omniscape-runtime, results = "asis"}
+```{r}
+#| label: tbl-omniscape-runtime
+#| tbl-cap: "Omniscape runs for the corrected inputs, elapsed wall clock. These are the runs themselves, not the preparation of their inputs, and they are unaffected by the retooling described above."
+#| results: asis
 data.frame(
   Run = c(
     "Regional, 30 m",
@@ -1540,11 +1589,6 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Omniscape runs for the corrected inputs, elapsed wall clock.",
-      "These are the runs themselves, not the preparation of their inputs, and they are",
-      "unaffected by the retooling described above."
-    ),
     booktabs = TRUE,
     row.names = FALSE,
     align = "lrrr"
@@ -1562,11 +1606,11 @@ runs only once at the end.
 
 
 
-\clearpage
+{{< pagebreak >}}
 
-# Appendix A: Why the overlay tools were replaced {.unnumbered}
+# Appendix A: Why the overlay tools were replaced {#sec-appendix-overlay-tools .unnumbered}
 
-## The VRI x NDT-BEC overlay {.unnumbered}
+## The VRI x NDT-BEC overlay {#sec-vri-becndt .unnumbered}
 
 *Issue 5.*
 
@@ -1579,7 +1623,9 @@ rather than obviously broken.
 
 `terra::intersect()` plus `terra::erase()` partitions the input exactly.
 
-```{r vri-becndt}
+```{r}
+#| label: tbl-vri-becndt
+#| tbl-cap: "VRI x NDT-BEC overlay, whole study area. In the corrected layer the parts sum exactly to the area they cover."
 data.frame(
   Measure = c("features", "sum of parts (ha)", "dissolved footprint (ha)", "double-counted (ha)"),
   Delivered = c("400,534", "3,534,286.2", "3,518,837.1", "15,449.2"),
@@ -1587,15 +1633,11 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = paste(
-      "VRI x NDT-BEC overlay, whole study area.",
-      "In the corrected layer the parts sum exactly to the area they cover."
-    ),
     booktabs = TRUE
   )
 ```
 
-## The `terra::union()` issue {.unnumbered}
+## The `terra::union()` issue {#sec-union-issue .unnumbered}
 
 *Issue 5, and the cause behind it.*
 
@@ -1607,7 +1649,9 @@ It fails in two directions at once, which is why the totals looked plausible rat
 Its output polygons overlap one another, so their areas sum to more ground than they cover, and the ground they cover is smaller than the inputs, so land goes missing.
 The two errors partly cancel.
 
-```{r union-defect}
+```{r}
+#| label: tbl-union-defect
+#| tbl-cap: "The same issue measured at three scales."
 data.frame(
   Where = c(
     "VRI x NDT-BEC overlay (study area)",
@@ -1620,7 +1664,7 @@ data.frame(
   check.names = FALSE,
   stringsAsFactors = FALSE
 ) |>
-  styled(caption = "The same issue measured at three scales.", booktabs = TRUE)
+  styled(booktabs = TRUE)
 ```
 
 Three things about it are worth recording, because each one delayed finding it.
@@ -1636,7 +1680,9 @@ Only real inventory geometry triggers it, so a passing test suite is no evidence
 It is a precision failure.
 Shifting the vertices by a single millimetre makes the answer come out right, to within 0.14 m² of 12.3 million:
 
-```{r union-precision}
+```{r}
+#| label: tbl-union-precision
+#| tbl-cap: "Simplifying the inputs before the union, on the minimal case. A millimetre is far below the precision of the source data."
 data.frame(
   Tolerance = c("none", "1 mm", "1 cm", "10 cm", "1 m", "10 m"),
   `Counted twice (m2)` = c("56,640.5", "0.0", "0.0", "0.0", "0.0", "299.1"),
@@ -1645,10 +1691,6 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Simplifying the inputs before the union, on the minimal case.",
-      "A millimetre is far below the precision of the source data."
-    ),
     booktabs = TRUE
   )
 ```
@@ -1660,7 +1702,7 @@ It partitions the input exactly by construction rather than by luck, it is faste
 The seven-polygon case, the figure above and the measurements are attached to [rspatial/terra#2175](https://github.com/rspatial/terra/issues/2175), which was **fixed upstream on 2026-08-29**.
 The project now runs terra 1.9-48, installed from GitHub and pinned by commit in `renv.lock`, and the fix is confirmed here: the minimal case goes from 56,640 m² of self-overlap to 0.000, and the study-area window from an 8,607 m² footprint error to 0.012 m².
 
-## A second issue, in `terra::erase()` {.unnumbered}
+## A second issue, in `terra::erase()` {#sec-erase-issue .unnumbered}
 
 *Encountered while correcting issue 5.*
 
@@ -1672,7 +1714,9 @@ Nothing reports it at the time, and whatever next reads the attributes fails ins
 It is a different problem from the first, and the fix for #2175 does not cover it: that fix moved `union()` onto `erase_agg()`, which is the function R's `erase()` was already calling.
 Reported as [rspatial/terra#2179](https://github.com/rspatial/terra/issues/2179), still open.
 
-```{r erase-defect}
+```{r}
+#| label: tbl-erase-defect
+#| tbl-cap: "Erasing with terra against erasing with sf, on the same 42 tiles. sf cannot desynchronise: its attributes are columns of the same data frame as the geometry."
 data.frame(
   Measure = c(
     "tiles where the overlay is consistent",
@@ -1684,10 +1728,6 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Erasing with terra against erasing with sf, on the same 42 tiles.",
-      "sf cannot desynchronise: its attributes are columns of the same data frame as the geometry."
-    ),
     booktabs = TRUE
   )
 ```
@@ -1703,7 +1743,7 @@ Hand-built degenerate polygons come back *invalid*, and terra handles those corr
 The failure is also silent by construction.
 That is why the check now sits inside `overlay_left_join()`, comparing geometry and attribute counts after every overlay so that a malformed object fails there rather than travelling on.
 
-### Fixed upstream, after this work {.unnumbered}
+### Fixed upstream, after this work {#sec-fixed-upstream .unnumbered}
 
 `terra::erase()` was fixed in [`12df7fbd`](https://github.com/rspatial/terra/commit/12df7fbd4f85eb01faa02c580a31ce7e34275c6a).
 That fix is **not** in the build this pipeline runs: `renv.lock` pins terra at `1a8843f`, which
@@ -1724,11 +1764,11 @@ Measured on one tile of the study area, one of 6,871 differences was such a line
 A guard testing only for `GEOMETRYCOLLECTION` misses it; `spatialutils::intersect_clean()` carried
 the same too-narrow guard and has been fixed in the same release.
 
-\clearpage
+{{< pagebreak >}}
 
-# Appendix B: Per-target timings and tiling {.unnumbered}
+# Appendix B: Per-target timings and tiling {#sec-appendix-timings .unnumbered}
 
-## Tiling the final resultant {.unnumbered}
+## Tiling the final resultant {#sec-tiling-resultant .unnumbered}
 
 `patches_union_final` is the arcpy step-6 overlay: the seral layer joined to both interior-forest
 layers.
@@ -1737,7 +1777,10 @@ It ran as a single process and took **5 h 51 min 58 s**.
 The overlay can be split across space without changing its result, so it now branches over `study_area_tiles`, the same 8x8 grid the seral layer itself was built on.
 It reads its base layer through GDAL rather than out of the `targets` store, so a worker materialises only the polygons inside its own tile.
 
-```{r tiling-cost, results = "asis"}
+```{r}
+#| label: tbl-tiling-cost
+#| tbl-cap: "Building the final resultant, serial against tiled."
+#| results: asis
 data.frame(
   Quantity = c("Runtime", "Branches", "Slowest branch", "Features", "Planar area"),
   Serial = c("5 h 51 min 58 s", "1", "n/a", "189,666", "2,473,003.272 ha"),
@@ -1745,10 +1788,8 @@ data.frame(
   check.names = FALSE
 ) |>
   styled(
-    caption = "Building the final resultant, serial against tiled.",
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "tiling-cost"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1768,7 +1809,10 @@ It does not propagate: `calc_matold()` dissolves before the interpatch distances
 The verification that matters is the distance distribution, since that is what sets the Omniscape
 radii:
 
-```{r tiling-quantiles, results = "asis"}
+```{r}
+#| label: tbl-tiling-quantiles
+#| tbl-cap: "Nearest-neighbour distance quantiles in metres, serial against tiled. The 100% row is the one the Omniscape radius is derived from."
+#| results: asis
 data.frame(
   Quantile = c("25%", "50%", "75%", "90%", "99%", "100%"),
   Serial = c(0.372, 12.500, 39.787, 91.901, 330.123, 2566.803),
@@ -1776,13 +1820,8 @@ data.frame(
 ) |>
   transform(Difference = sprintf("%+.3f", Tiled - Serial)) |>
   styled(
-    caption = paste(
-      "Nearest-neighbour distance quantiles in metres, serial against tiled.",
-      "The 100% row is the one the Omniscape radius is derived from."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "tiling-quantiles"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1798,7 +1837,7 @@ gained 0.798 ha, which a dissolve cannot do.
 `terra::aggregate()` is simply not exact on a layer of this size.
 The same layers self-overlap by about 10 ha out of 2.47 Mha in both builds.
 
-## The interior-forest overlay, and what tiling it would save {.unnumbered}
+## Tiling the interior-forest overlay {#sec-tiling-interior .unnumbered}
 
 The final resultant was not the only overlay of this shape.
 `patches_interior_forest_old` and `patches_interior_forest_mature_old` erase a buffer mask from the
@@ -1813,27 +1852,21 @@ the 42,764 patches was differenced against study-area-wide geometry no matter ho
 itself was.
 
 Cropping both sides to a tile first shrinks the mask each difference sees to tile size.
-Measured on Quesnel's own inputs, reusing the same 49-tile grid as the resultant and for the same
-reason given above.
-This has **not** been applied to the pipeline in this branch; the figures below are from a prototype
-run against the stored inputs, kept here because they establish the size of the remaining cost and
-the shape of the fix.
+It reuses the same 49-tile grid as the resultant, for the same reason given above.
 
-```{r interior-tiling-cost, results = "asis"}
+```{r}
+#| label: tbl-interior-tiling-cost
+#| tbl-cap: "Building the old interior-forest layer, untiled against tiled. Sequential in both cases, so the tiled column is compute, not parallelism."
+#| results: asis
 data.frame(
   Quantity = c("Runtime", "Tiles", "Slowest tile", "Features", "Planar area"),
-  `As built` = c("3 h 07 min 34 s", "1", "n/a", "10,263", "167,496.729062 ha"),
-  Prototype = c("6 min 08 s", "49, all succeeding", "1 min 27 s", "10,263", "167,496.729059 ha"),
+  Untiled = c("3 h 07 min 34 s", "1", "n/a", "10,263", "167,496.729062 ha"),
+  Tiled = c("6 min 08 s", "49, all succeeding", "1 min 27 s", "10,263", "167,496.729059 ha"),
   check.names = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Building the old interior-forest layer as built, against a tiled prototype.",
-      "Sequential in both cases, so the tiled column is compute, not parallelism."
-    ),
     booktabs = TRUE,
-    row.names = FALSE,
-    label = "interior-tiling-cost"
+    row.names = FALSE
   ) |>
   emit()
 ```
@@ -1853,7 +1886,7 @@ slowest.
 A factor of 31 between median and worst says cost is driven by local mask complexity rather than by
 patch count, which is what makes the untiled form scale so badly: every patch pays the worst case.
 
-### Why this matters beyond Quesnel {.unnumbered}
+### Why this matters beyond Quesnel {#sec-beyond-quesnel .unnumbered}
 
 Quesnel is not the largest of the Cariboo districts this workflow is intended to cover, nor the
 smallest: 100 Mile House is smaller, and Cariboo-Chilcotin is very much larger.
@@ -1867,22 +1900,21 @@ The arithmetic is unforgiving in the other direction too: a step that takes a da
 it is a step that cannot be retried casually when something downstream needs changing, and this
 report exists because several things did need changing.
 
-To be unambiguous about what is and is not in this branch: every number reported elsewhere in this
-document was produced by the pipeline as it stands, with this overlay untiled.
-The prototype above reproduces the stored output exactly, with the same 10,263 features and the same area, but it is a measurement rather than a build.
+One caveat on reading the runtime figures elsewhere in this report against this section.
+Quesnel's stored results were built before this overlay was tiled, so the costs reported there are
+what that build actually took.
+The figures above are measured on the same inputs and reproduce the stored output exactly, but they
+are not what produced the numbers elsewhere in this document.
+Districts built since carry the tiled form from the outset.
 
-The mechanism is available rather than hypothetical: `spatialutils` 0.0.1, which this branch pins,
-provides `erase_polygons_tiled()` along with the guards `erase_polygons()` already carried.
-What remains is to route this overlay through it, which is a change to
-`patches_create_interior_forest()` and therefore invalidates every stored target downstream of it.
-That is a deliberate decision to take on its own rather than a side effect of a performance change.
-
-## Memory {.unnumbered}
+## Memory {#sec-memory .unnumbered}
 
 Measured by sampling the resident set size of every project R process every 30 seconds across the
 rerun, rather than estimated.
 
-```{r memory}
+```{r}
+#| label: tbl-memory
+#| tbl-cap: "Memory use of the data-preparation pipeline with 8 workers. Omniscape is excluded: it is opt-in and needs hundreds of GB."
 data.frame(
   Measure = c(
     "Peak aggregate RSS",
@@ -1894,15 +1926,11 @@ data.frame(
   stringsAsFactors = FALSE
 ) |>
   styled(
-    caption = paste(
-      "Memory use of the data-preparation pipeline with 8 workers.",
-      "Omniscape is excluded: it is opt-in and needs hundreds of GB."
-    ),
     booktabs = TRUE
   )
 ```
 
-## Run naming {.unnumbered}
+## Run naming {#sec-run-naming .unnumbered}
 
 Omniscape run directories are stamped with `OMNISCAPE_VINTAGE`, set in `_targets.R`.
 It was previously a hardcoded `"2026-01-23"`, which is the vintage of the delivered runs.
@@ -1911,9 +1939,9 @@ radius matched a delivered one would have destroyed it, and there are 17 GB of d
 four of them under that prefix, including the run the report was written from.
 Corrected runs are stamped `2026-08-26`.
 
-\clearpage
+{{< pagebreak >}}
 
-# Appendix C: Reproducing this report {.unnumbered}
+# Appendix C: Reproducing this report {#sec-appendix-reproducing .unnumbered}
 
 This report is deliberately **not** a pipeline target: it compares two runs, one of which no longer
 exists as a live `targets` store.
@@ -1926,18 +1954,24 @@ It reads:
 
 Render with:
 
-The rendered PDF is written to `Outputs/`, not next to the source, so it lands on the shared volume
-alongside the other results rather than inside the clone:
-
-```{r render-cmd, echo = TRUE, eval = FALSE}
-rmarkdown::render(
-  "reports/corrections-2026-08.Rmd",
-  output_file = "corrections-2026-08.pdf",
-  output_dir = "Outputs"
-)
+```bash
+QUARTO_R=/path/to/R quarto render reports/corrections-2026-08.qmd \
+  --to pdf --output-dir ../Outputs
 ```
 
-```{r session}
+The rendered PDF is written to `Outputs/`, not next to the source, so it lands on the shared volume
+alongside the other results rather than inside the clone.
+`QUARTO_R` pins the render to the R version `renv.lock` names rather than whichever R is first on
+the path, since the project library is per R minor version.
+
+The output file is named in the document's front matter rather than on the command line.
+It carries a `-cariboo` suffix because `Outputs/` is shared storage rather than per-branch, and the
+Quesnel branch renders a report of the same name; without distinct names the two overwrite each
+other depending on which was rendered last.
+
+```{r}
+#| label: tbl-session
+#| tbl-cap: "Environment."
 ## GEOS and GDAL come from sf rather than being read separately: they are the versions sf is
 ## actually linked against, which is what determines the overlay behaviour this report describes.
 geos_ver <- sub(".*GEOS ([0-9.]+).*", "\\1", sf::sf_extSoftVersion()[["GEOS"]])
@@ -1963,5 +1997,5 @@ data.frame(
   ),
   stringsAsFactors = FALSE
 ) |>
-  styled(caption = "Environment.", booktabs = TRUE)
+  styled(booktabs = TRUE)
 ```

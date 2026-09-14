@@ -151,7 +151,9 @@ When Quesnel's artefacts moved under `quesnel/`, the paths recorded in `_targets
 It is deliberately absent from `_targets.yaml` for that reason; reading the archive needs no entry there.
 `_targets.R` and the writers in `R/data_prep.R` and `R/rasters.R` are kept as they were -- editing them would buy nothing, since nothing runs them, and `targets` hashes function bodies, so a change there would invalidate the two district stores that *are* live.
 
-Anything that reads Quesnel's artefacts directly rather than through `targets` should resolve both layouts, the way `pick_layout()` does in `reports/corrections-2026-08.Rmd`: a clone from before the move still has them flat, and a report should not care which one it is rendering against.
+Anything that reads Quesnel's artefacts directly rather than through `targets` has to decide which layout it expects, because a clone from before the move still has them flat.
+`reports/corrections-2026-08.qmd` assumes the district layout and nothing else: the artefacts moved before anyone outside this repository had run the pipeline, so there is no older clone for it to render against.
+A document that does need to work either way should resolve both rather than assume one.
 
 ## Tests
 
