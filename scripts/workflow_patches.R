@@ -62,7 +62,6 @@ DiagrammeR::grViz(
       x1_matold_200_erased [label = 'x1_matold_200_erased']
       x2_matold_100_erased [label = 'x2_matold_100_erased']
       x4_matold_50_erased [label = 'x4_matold_50_erased']
-      x5_matold_25_erased [label = 'x5_matold_25_erased']
       r1_matold_interior [label = 'r1_matold_interior']
     }
     
@@ -102,8 +101,10 @@ DiagrammeR::grViz(
     {r1_mature_old_1ha_eliminated, x3_200m_to_erase} -> x1_matold_200_erased
     {x1_matold_200_erased, x3_100m_to_erase} -> x2_matold_100_erased
     {x2_matold_100_erased, x3_50m_to_erase} -> x4_matold_50_erased
-    {x4_matold_50_erased, x3_25m_to_erase} -> x5_matold_25_erased
-    x5_matold_25_erased -> r1_matold_interior
+
+    // NOTE: the 25 m buffer is the edge influence of MATURE stands, so it is erased from OLD
+    // (steps 4a-d) but NOT from MATURE_OLD (steps 4e-h) -- mature stands are part of that patch.
+    x4_matold_50_erased -> r1_matold_interior
 
     seral -> x1_dissolved_on_seral_stage
 

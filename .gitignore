@@ -12,3 +12,11 @@ Teams/
 */.ipynb_checkpoints/*
 .Rproj.user
 _tmp.R
+_tmp/
+
+# One-off corrections report: the Rmd is tracked, its rendered output and figures are not.
+reports/*.pdf
+reports/figures/
+
+# stray device output from a test that accidentally called graphics::box()
+Rplots.pdf
