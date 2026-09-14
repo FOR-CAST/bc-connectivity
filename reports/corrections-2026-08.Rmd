@@ -687,39 +687,249 @@ weights.
 Both are assigned from `Seral`, so any area that changes seral stage moves between resistance
 classes, and the connectivity result changes with it.
 
+This section compares what Omniscape read and what it produced, before and after the corrections.
+Both sides are still on disk: the published inputs were copied aside before the rerun overwrote
+them, and the published runs survived because the corrections changed the run names (see
+"Run naming").
+
+## What changed in the inputs
+
 ```{r omniscape-rasters}
-pr <- file.path(PUBLISHED, "rasters", "resistance_composite_30.tif")
-cr <- file.path(proj, "Data", "processed", "rasters", "resistance_composite_30.tif")
+RAST_PUB <- file.path(PUBLISHED, "rasters")
+RAST_CUR <- file.path(proj, "Data", "processed", "rasters")
+
 ## The corrected composite is written by the `resistance_composite` target; until that has been
 ## rebuilt the file on disk is still the published one, and comparing it with its own backup would
 ## report no change at all.
-ok_rast <- have(pr, cr) && is_rebuilt("resistance_composite")
+ok_rast <- dir.exists(RAST_PUB) && is_rebuilt("resistance_composite")
+
+## Read each raster once into a plain vector and do the arithmetic in R. Repeated
+## `terra::global()` calls re-read the file for every statistic, which at 30 m -- 69.2 M cells --
+## turned this comparison from seconds into minutes.
+##
+## A cell counts as changed if its value differs OR its NA status differs. The second case is not
+## a detail here: the forest layers are NA off-patch, so a cell that leaves the patch set goes
+## from a number to NA, and a value-only comparison would miss it entirely.
+cmp_rast <- function(name, res) {
+  f <- sprintf("%s_%d.tif", name, res)
+  ra <- terra::rast(file.path(RAST_PUB, f))
+  rb <- terra::rast(file.path(RAST_CUR, f))
+  if (!terra::compareGeom(ra, rb, stopOnError = FALSE)) return(NULL)
+  va <- terra::values(ra, mat = FALSE)
+  vb <- terra::values(rb, mat = FALSE)
+  na_a <- is.na(va); na_b <- is.na(vb)
+  both <- !na_a & !na_b
+  cellha <- prod(terra::res(ra)) / 1e4
+  out <- data.frame(
+    layer = name, res = res,
+    ha_chg = (sum(na_a != na_b) + sum(both & va != vb)) * cellha,
+    ha_lost = sum(!na_a & na_b) * cellha,
+    ha_gained = sum(na_a & !na_b) * cellha,
+    mean_pub = mean(va[both]), mean_cor = mean(vb[both]),
+    stringsAsFactors = FALSE
+  )
+  rm(va, vb, na_a, na_b, both); gc(verbose = FALSE)
+  out
+}
+
+LAYERS <- c("resistance_forest", "resistance_composite",
+            "sourcewt_forest", "sourcewt_composite")
+LAYER_LABELS <- c(resistance_forest = "Resistance, forest",
+                  resistance_composite = "Resistance, composite",
+                  sourcewt_forest = "Source weight, forest",
+                  sourcewt_composite = "Source weight, composite")
+
+## Prose below quotes these inline. Without NA defaults a missing artefact would turn a chunk that
+## is merely skipped into a render that fails, several pages from the chunk that did not run.
+tot_ha <- NA_real_
+ca <- cb <- stats::setNames(rep(NA_real_, 6), c("1", "250", "500", "750", "1000", "mixed"))
+pair_pub <- pair_cor <- NA_real_
 ```
 
-```{r omniscape-diff, eval = ok_rast, results = "asis"}
-rb <- terra::rast(pr); rn <- terra::rast(cr)
-if (terra::compareGeom(rb, rn, stopOnError = FALSE)) {
-  d <- rn - rb
-  chg <- terra::global(d != 0, "sum", na.rm = TRUE)[[1]]
-  tot <- terra::global(!is.na(d), "sum", na.rm = TRUE)[[1]]
-  cellha <- prod(terra::res(rb)) / 1e4
-  data.frame(
-    Measure = c("cells compared", "cells changed", "share of study area changed",
-                "area changed (ha)", "mean resistance, published", "mean resistance, corrected"),
-    Value = c(num(tot, 0), num(chg, 0), paste0(num(100 * chg / tot, 2), " %"),
-              num(chg * cellha, 0),
-              num(terra::global(rb, "mean", na.rm = TRUE)[[1]], 2),
-              num(terra::global(rn, "mean", na.rm = TRUE)[[1]], 2)),
-    stringsAsFactors = FALSE
-  ) |>
-    styled(caption = "Change in the composite resistance surface at 30 m.", booktabs = TRUE) |>
-    cat(sep = "\n")
+```{r omniscape-input-diff, eval = ok_rast, results = "asis"}
+inp <- do.call(rbind, lapply(c(30, 90), function(r) {
+  do.call(rbind, lapply(LAYERS, cmp_rast, res = r))
+}))
+
+## Study-area total, for the share-changed column. Taken from the composite, which unlike the
+## forest layers is complete over the study area -- it has no NA cells at all.
+tot_ha <- {
+  r <- terra::rast(file.path(RAST_CUR, "resistance_composite_30.tif"))
+  sum(!is.na(terra::values(r, mat = FALSE))) * prod(terra::res(r)) / 1e4
 }
+
+dp <- ifelse(grepl("sourcewt", inp$layer), 4, 2)
+data.frame(
+  Layer = unname(LAYER_LABELS[inp$layer]),
+  `Res (m)` = inp$res,
+  `Area changed (ha)` = num(inp$ha_chg, 0),
+  `Share of study area` = paste0(num(100 * inp$ha_chg / tot_ha, 2), " %"),
+  `Mean, published` = mapply(num, inp$mean_pub, dp),
+  `Mean, corrected` = mapply(num, inp$mean_cor, dp),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Change in the rasters Omniscape reads. The forest layers are NA off-patch; the composites",
+    "fill those cells with the matrix value and are complete over the study area.",
+    "Means are taken over cells present in both versions."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-inputs") |>
+  cat(sep = "\n")
 ```
 
 ```{r omniscape-pending, eval = !ok_rast, results = "asis"}
 cat("_The corrected resistance surface had not been rebuilt when this was rendered._\n")
 ```
+
+The 30 m and 90 m rows are independent measurements of the same change on the ground, and they
+agree to better than 0.1% on every layer.
+That is the check that this is a real difference in the patch set and not an artefact of one grid.
+
+Two things in that table need separating.
+
+**The composite means move in the direction of less connectivity**: mean resistance rises about
+1.4% and mean source weight falls about 4.8%.
+The corrected landscape is slightly harder to move through than the published one said it was.
+
+**The forest layers change over more ground than the composites do**, which is not a contradiction.
+The forest layer is NA wherever there is no patch, so it registers a change both when a cell's
+resistance class moves and when the cell enters or leaves the patch set; in the composite the
+off-patch cells carry the matrix value instead, so only the first kind appears there as a change.
+
+```{r omniscape-extent, eval = ok_rast, results = "asis"}
+fe <- subset(inp, layer == "resistance_forest" & res == 30)
+data.frame(
+  Measure = c("In the published patch layer, not the corrected one",
+              "In the corrected patch layer, not the published one",
+              "Net change in patch extent"),
+  Value = c(paste(num(fe$ha_lost, 0), "ha"),
+            paste(num(fe$ha_gained, 0), "ha"),
+            paste(num(fe$ha_gained - fe$ha_lost, 0), "ha")),
+  stringsAsFactors = FALSE
+) |>
+  styled(caption = "Change in the extent of the forest patch layer, at 30 m.",
+         booktabs = TRUE, label = "omniscape-extent") |>
+  cat(sep = "\n")
+```
+
+The loss is almost entirely one-directional, and it is the raster expression of the patch-area
+change reported under "Forest patches".
+
+### Where the land went
+
+Resistance is assigned in discrete classes, so the composite can be compared class by class.
+
+```{r omniscape-classes, eval = ok_rast, results = "asis"}
+cellha <- 30 * 30 / 1e4
+
+## The nominal classes are what `Resistance` is assigned from. Everything else in the raster is a
+## cell that `terra::rasterize(fun = mean)` averaged because more than one polygon covered it,
+## and those are pooled into one row -- they are the subject of the paragraph below.
+##
+## `terra::freq()` counts values in C++ without materialising 69.2 M doubles in R, which matters
+## here because the transition table below needs both vectors in memory at once anyway.
+##
+## `digits` defaults to 0, which ROUNDS the values before counting -- it silently merges 125.5 into
+## 126, and the mixture values this section is about stop existing. The nominal classes are whole
+## numbers so the totals come out right either way, which is what makes the default dangerous here.
+NOMINAL <- c(1, 250, 500, 750, 1000)
+FREQ_DIGITS <- 4
+cls <- function(f) {
+  tb <- terra::freq(terra::rast(f), digits = FREQ_DIGITS)
+  k <- ifelse(tb$value %in% NOMINAL, as.character(tb$value), "mixed")
+  out <- tapply(tb$count * cellha, factor(k, levels = c(as.character(NOMINAL), "mixed")), sum)
+  out[is.na(out)] <- 0
+  out
+}
+ca <- cls(file.path(RAST_PUB, "resistance_composite_30.tif"))
+cb <- cls(file.path(RAST_CUR, "resistance_composite_30.tif"))
+
+## The two mixture values that are exactly the average of an adjacent pair of seral classes:
+## 125.5 = (1 + 250) / 2 and 375 = (250 + 500) / 2. They are the ones the paragraph below is about.
+pair_ha <- function(f) {
+  tb <- terra::freq(terra::rast(f), digits = FREQ_DIGITS)
+  sum(tb$count[abs(tb$value - 125.5) < 1e-6 | abs(tb$value - 375) < 1e-6]) * cellha
+}
+pair_pub <- pair_ha(file.path(RAST_PUB, "resistance_composite_30.tif"))
+pair_cor <- pair_ha(file.path(RAST_CUR, "resistance_composite_30.tif"))
+
+data.frame(
+  `Resistance` = c(paste0(NOMINAL, c(" (best)", "", "", "", " (matrix)")), "mixed cells"),
+  `Source weight` = c("1.00", "0.75", "0.50", "0.25", "0.00", "--"),
+  `Published (ha)` = num(as.numeric(ca), 0),
+  `Corrected (ha)` = num(as.numeric(cb), 0),
+  `Change (ha)` = paste0(ifelse(cb - ca >= 0, "+", ""), num(as.numeric(cb - ca), 0)),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Area in each resistance class of the composite at 30 m, with the source weight assigned",
+    "from the same seral class. Mixed cells are those covered by more than one polygon, which",
+    "rasterize averages."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-classes") |>
+  cat(sep = "\n")
+```
+
+The correction **polarises** the landscape.
+The best class more than doubles and the matrix grows, both at the expense of the middle: the
+250 class alone loses about a quarter of a million hectares, split between the two extremes.
+This is why the composite means barely move while so much ground changes class -- the gains at
+each end largely cancel in the mean.
+
+It also explains the last row, which is worth dwelling on because it is independent evidence.
+
+`create_resistance_raster()` rasterises with `fun = mean`, and `terra::rasterize()` assigns a cell
+from every polygon covering its centre.
+A cell written as 125.5 is therefore one whose centre fell inside a resistance-1 polygon **and** a
+resistance-250 polygon at the same time -- 125.5 being the average of the two.
+Cells like that can only exist where the patch layer overlaps itself, which is precisely what the
+`terra::union()` defect produced.
+The composite is assembled with `pmax()` and does no averaging of its own, so every mixed cell in
+it was already mixed in one of the layers it reads.
+
+Mixed cells fall from `r num(ca[["mixed"]], 0)` ha to `r num(cb[["mixed"]], 0)` ha.
+The two values that are exactly the average of an adjacent pair of seral classes -- 125.5 and 375 --
+account for `r num(pair_pub, 0)` ha of the published total and `r num(pair_cor, 0)` ha of the
+corrected one.
+That is raster-level confirmation, arrived at without going near the polygons, that the overlapping
+geometry is gone.
+The `r num(cb[["mixed"]], 0)` ha that remain are `r num(100 * cb[["mixed"]] / tot_ha, 2)`% of the
+study area; overlap has not been eliminated outright, but what is left is small enough not to move
+any figure in this report.
+
+```{r omniscape-transitions, eval = ok_rast, results = "asis"}
+## Tabulate only the cells that actually changed. A full cross-tabulation of both vectors would
+## factor 69.2 M values against ~300 levels twice; restricted to the changed cells it is 18x
+## smaller and the result is identical, because the diagonal is dropped anyway.
+va <- terra::values(terra::rast(file.path(RAST_PUB, "resistance_composite_30.tif")), mat = FALSE)
+vb <- terra::values(terra::rast(file.path(RAST_CUR, "resistance_composite_30.tif")), mat = FALSE)
+ch <- which(va != vb)
+tr <- as.data.frame(table(from = va[ch], to = vb[ch]), stringsAsFactors = FALSE)
+tr <- tr[tr$Freq > 0, ]
+tr$ha <- tr$Freq * cellha
+tr <- head(tr[order(-tr$ha), ], 6)
+
+## These are class labels, so they get no thousands separator and no forced decimal: "1000",
+## not "1,000.0", and "125.5" kept as it is.
+lbl <- function(x) ifelse(x == round(x), sprintf("%.0f", x), sprintf("%.1f", x))
+
+data.frame(
+  `Published resistance` = lbl(as.numeric(tr$from)),
+  `Corrected resistance` = lbl(as.numeric(tr$to)),
+  `Area (ha)` = num(tr$ha, 0),
+  check.names = FALSE
+) |>
+  styled(caption = "The six largest resistance-class transitions in the composite at 30 m.",
+         booktabs = TRUE, row.names = FALSE, label = "omniscape-transitions") |>
+  cat(sep = "\n")
+
+## `results = "asis"` prints whatever the chunk returns, and gc() returns its summary matrix.
+rm(va, vb, ch); invisible(gc(verbose = FALSE))
+```
+
+The two largest movements are in opposite directions and comparable in size.
+Land the published run scored as ordinary forest is best-quality habitat in the corrected one, and
+a nearly equal area the published run scored as forest patch is not in a patch at all.
+The defect was not a uniform over- or under-count that a single correction factor could absorb; it
+misplaced habitat in both directions.
 
 ## Run naming
 
@@ -798,6 +1008,308 @@ in a way that interior quantiles are not.
 
 This is entirely a consequence of the corrections, not of tiling: the serial and tiled builds give
 q100 identical to the millimetre (see "Tiling the final resultant").
+
+## What changed in the outputs
+
+```{r omniscape-outputs-setup}
+## Published run -> corrected run, matched by scale and resolution. The radii differ because
+## they are derived from the corrected interpatch distances; see "Radii".
+RUN_PAIRS <- list(
+  list(scale = "Regional", res = 30, pub = "2026-01-23_p30_r1507_bs151", cor = "2026-08-26_p30_r1429_bs143"),
+  list(scale = "Regional", res = 90, pub = "2026-01-23_p90_r503_bs51",   cor = "2026-08-26_p90_r477_bs49"),
+  list(scale = "Local",    res = 30, pub = "2026-01-23_p30_r58_bs7",     cor = "2026-08-26_p30_r86_bs9"),
+  list(scale = "Local",    res = 90, pub = "2026-01-23_p90_r20_bs3",     cor = "2026-08-26_p90_r29_bs3")
+)
+OUT_LAYERS <- c("cum_currmap", "flow_potential", "normalized_cum_currmap")
+
+run_tif <- function(run, layer) file.path(proj, "Outputs", run, paste0(layer, ".tif"))
+
+## As for the inputs: prose below quotes these inline, so they need to exist even when the
+## comparison is skipped.
+nz_stat <- stats::setNames(rep(NA_real_, 11), c(
+  "mean_lo", "mean_hi", "r_lo", "r_hi", "w5_lo", "w5_hi",
+  "ha_lo", "ha_hi", "pct_lo", "pct_hi", "chan_max"))
+raw_gain <- NA_real_
+
+## Radius is stamped into the run directory name, so the change is recoverable from the names
+## themselves rather than having to be restated in the prose and kept in step by hand.
+radius_of <- function(run) as.numeric(sub(".*_r([0-9]+)_.*", "\\1", run))
+local_radius_gain <- min(vapply(
+  Filter(function(p) p$scale == "Local", RUN_PAIRS),
+  function(p) 100 * (radius_of(p$cor) / radius_of(p$pub) - 1), numeric(1)
+))
+
+ok_runs <- all(vapply(RUN_PAIRS, function(p) {
+  all(file.exists(vapply(OUT_LAYERS, function(l) c(run_tif(p$pub, l), run_tif(p$cor, l)), character(2))))
+}, logical(1)))
+
+## As for the inputs: one read into a plain vector per raster, then arithmetic in R. Twelve pairs
+## at up to 69.2 M cells is 6.8 GB of I/O however it is done, but this way it is done once.
+cmp_run <- function(p, layer) {
+  ra <- terra::rast(run_tif(p$pub, layer))
+  rb <- terra::rast(run_tif(p$cor, layer))
+  if (!terra::compareGeom(ra, rb, stopOnError = FALSE)) return(NULL)
+  a <- terra::values(ra, mat = FALSE); b <- terra::values(rb, mat = FALSE)
+  ok <- !is.na(a) & !is.na(b)
+  a <- a[ok]; b <- b[ok]
+  d <- b - a
+  cellha <- prod(terra::res(ra)) / 1e4
+  out <- data.frame(
+    scale = p$scale, res = p$res, layer = layer,
+    mean_pub = mean(a), mean_cor = mean(b),
+    r = suppressWarnings(stats::cor(a, b)),
+    ## share of cells whose value moved by no more than 5% -- a cell-level measure of agreement
+    ## that, unlike the correlation, is not dominated by the long right tail of current values
+    within5 = 100 * mean(abs(d) <= 0.05 * pmax(abs(a), 1e-12)),
+    stringsAsFactors = FALSE
+  )
+  if (layer == "normalized_cum_currmap") {
+    ## 1.0 is the only non-arbitrary breakpoint in a normalized current map: it is exactly the
+    ## point where current equals flow potential. Above it a cell is channelized, below impeded,
+    ## so a cell that crosses it changes its interpretation and not just its value.
+    out$ha_cross <- sum((a > 1) != (b > 1)) * cellha
+    out$pct_cross <- 100 * mean((a > 1) != (b > 1))
+    out$chan_pub <- 100 * mean(a > 1)
+    out$chan_cor <- 100 * mean(b > 1)
+  } else {
+    out$ha_cross <- NA; out$pct_cross <- NA; out$chan_pub <- NA; out$chan_cor <- NA
+  }
+  rm(a, b, d); gc(verbose = FALSE)
+  out
+}
+```
+
+The published and corrected runs differ in **two** ways at once, and the artefacts on disk cannot
+separate them: the inputs changed, and the radii derived from those inputs changed with them.
+Both are consequences of the same fix, so the totals below are the right answer to "what does the
+correction do to the published maps".
+They are *not* an attribution of that difference to the input change alone; isolating it would take
+a further run of the corrected inputs at the published radius, which has not been made.
+
+This matters most for the raw current maps.
+`cum_currmap` and `flow_potential` both scale with the size of the moving window, and the local
+radius rose by at least `r num(local_radius_gain, 0)`%, so much of any change in those two layers
+is the window rather than the landscape.
+`normalized_cum_currmap` divides one by the other, which removes most of that effect, and it is
+also the layer the project's own summaries are built on.
+**It is the layer to read the comparison from.**
+
+
+```{r omniscape-outputs, eval = ok_runs, results = "asis"}
+outs <- do.call(rbind, unlist(
+  lapply(RUN_PAIRS, function(p) lapply(OUT_LAYERS, cmp_run, p = p)),
+  recursive = FALSE
+))
+
+pretty_layer <- c(cum_currmap = "Cumulative current",
+                  flow_potential = "Flow potential",
+                  normalized_cum_currmap = "Normalized current")
+
+data.frame(
+  Run = paste0(outs$scale, ", ", outs$res, " m"),
+  Layer = unname(pretty_layer[outs$layer]),
+  `Mean, published` = num(outs$mean_pub, 3),
+  `Mean, corrected` = num(outs$mean_cor, 3),
+  `Change` = paste0(ifelse(outs$mean_cor >= outs$mean_pub, "+", ""),
+                    num(100 * (outs$mean_cor - outs$mean_pub) / outs$mean_pub, 1), " %"),
+  `Correlation` = num(outs$r, 3),
+  `Cells within 5%` = paste0(num(outs$within5, 1), " %"),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Omniscape output before and after the corrections, over cells present in both runs.",
+    "The raw current and flow potential also carry the change in radius; the normalized",
+    "current largely does not."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-outputs") |>
+  cat(sep = "\n")
+
+## Quoted inline in the prose that follows, so that the text cannot drift away from the table.
+nzr <- subset(outs, layer == "normalized_cum_currmap")
+dpct <- 100 * (nzr$mean_cor - nzr$mean_pub) / nzr$mean_pub
+nz_stat[] <- c(min(dpct), max(dpct), min(nzr$r), max(nzr$r),
+               min(nzr$within5), max(nzr$within5),
+               min(nzr$ha_cross), max(nzr$ha_cross),
+               min(nzr$pct_cross), max(nzr$pct_cross),
+               max(abs(nzr$chan_cor - nzr$chan_pub)))
+raw_gain <- min(100 * (subset(outs, scale == "Local" & layer != "normalized_cum_currmap")$mean_cor /
+                       subset(outs, scale == "Local" & layer != "normalized_cum_currmap")$mean_pub - 1))
+```
+
+```{r omniscape-outputs-pending, eval = !ok_runs, results = "asis"}
+cat("_Not every published and corrected run pair was on disk when this was rendered._\n")
+```
+
+The local runs bear that out: raw current and flow potential both rise by at least
+`r num(raw_gain, 0)`% there, tracking the radius rather than anything about the landscape.
+Read down the normalized-current rows instead.
+
+The mean of the normalized current map moves by between `r num(nz_stat[["mean_lo"]], 1)`% and
+`r num(nz_stat[["mean_hi"]], 1)`%.
+Taken alone that reads as a negligible correction.
+It is not, and the next two columns say why: the cell-by-cell correlation between the published and
+corrected maps is `r num(nz_stat[["r_lo"]], 2)` to `r num(nz_stat[["r_hi"]], 2)`, and only
+`r num(nz_stat[["w5_lo"]], 0)`% to `r num(nz_stat[["w5_hi"]], 0)`% of cells are within 5% of their
+published value.
+**The summary statistic is nearly unchanged while the map underneath it is substantially
+rearranged** -- which is the same failure mode as the defects themselves, a plausible-looking number
+standing in front of a wrong one.
+
+```{r omniscape-crossings, eval = ok_runs, results = "asis"}
+nz <- subset(outs, layer == "normalized_cum_currmap")
+data.frame(
+  Run = paste0(nz$scale, ", ", nz$res, " m"),
+  `Channelized, published` = paste0(num(nz$chan_pub, 1), " %"),
+  `Channelized, corrected` = paste0(num(nz$chan_cor, 1), " %"),
+  `Area crossing (ha)` = num(nz$ha_cross, 0),
+  `Share of study area` = paste0(num(nz$pct_cross, 1), " %"),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Cells crossing the normalized-current value of 1, where current equals flow potential.",
+    "A cell above 1 is channelized, below it impeded, so crossing changes the interpretation",
+    "of that location and not only its value."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-crossings") |>
+  cat(sep = "\n")
+```
+
+Between `r num(nz_stat[["ha_lo"]], 0)` and `r num(nz_stat[["ha_hi"]], 0)` ha --
+`r num(nz_stat[["pct_lo"]], 1)`% to `r num(nz_stat[["pct_hi"]], 1)`% of the study area -- changes
+side of that line.
+The *share* of the district that is channelized barely moves, by at most
+`r num(nz_stat[["chan_max"]], 1)` percentage points.
+So this is a redistribution rather than a level shift: the corrected run finds about as much
+channelized land as the published one did, in different places.
+
+For a report whose conclusions are about where the pinch points are, that is the material result.
+
+### Zonal summaries
+
+`zonal_summaries()` reduces the normalized current map to a mean per biodiversity feature class and
+per Landscape Unit x BEC zone combination.
+Those means, not the rasters, are what the reporting was written from, so they are the level at
+which the correction actually reaches a conclusion.
+
+```{r omniscape-zonal-setup}
+zonal_of <- function(run) {
+  f <- file.path(proj, "Outputs", run, "zonal_by_polys.csv")
+  if (!file.exists(f)) return(NULL)
+  z <- utils::read.csv(f, stringsAsFactors = FALSE)
+  stats::setNames(z$mean_norm_cum_curr, z$zone)
+}
+
+zz <- do.call(rbind, lapply(RUN_PAIRS, function(p) {
+  a <- zonal_of(p$pub); b <- zonal_of(p$cor)
+  if (is.null(a) || is.null(b)) return(NULL)
+  k <- intersect(names(a), names(b))
+  data.frame(run = paste0(p$scale, ", ", p$res, " m"), zone = k,
+             pub = unname(a[k]), cor = unname(b[k]), stringsAsFactors = FALSE)
+}))
+
+ok_zonal <- !is.null(zz) && nrow(zz) > 0
+if (ok_zonal) {
+  ## A handful of high-alpine LU x BEC combinations carry no current at all at the local radius,
+  ## in both runs. 0 -> 0 is not a 0% change, it is no basis for a percentage, so those zones are
+  ## dropped and counted rather than allowed to propagate a NaN into a median.
+  zz$dpct <- ifelse(zz$pub == 0, NA_real_, 100 * (zz$cor - zz$pub) / zz$pub)
+}
+n_dropped <- if (ok_zonal) sum(is.na(zz$dpct) & grepl("^LU_", zz$zone)) else NA
+```
+
+```{r omniscape-zonal-features, eval = ok_zonal, results = "asis"}
+FEATURES <- c(parks = "Parks", ogma = "OGMA", wha = "Wildlife habitat areas",
+              mdwr = "Mule deer winter range", hvmw = "High-value moose wetlands",
+              wetlands = "Wetlands")
+fz <- subset(zz, zone %in% names(FEATURES) & run == "Regional, 30 m")
+fz <- fz[order(-fz$dpct), ]
+
+data.frame(
+  Feature = unname(FEATURES[fz$zone]),
+  `Published` = num(fz$pub, 3),
+  `Corrected` = num(fz$cor, 3),
+  `Change` = paste0(ifelse(fz$dpct >= 0, "+", ""), num(fz$dpct, 1), " %"),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "Mean normalized current within each biodiversity feature class, regional run at 30 m.",
+    "A value above 1 means current concentrates there relative to flow potential."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-zonal-features") |>
+  cat(sep = "\n")
+```
+
+The features do not move together.
+Parks, wildlife habitat areas, OGMA and mule deer winter range all gain; the two wetland classes
+lose.
+The complements tell the same story from the other side: every `non-` zone rises by between 1.4%
+and 3.6%, so the corrected run puts relatively more current outside the designated features than
+the published run did -- except in parks, where the gain inside is large enough to run the other
+way.
+
+Parks is the one to note.
+A `r num(abs(subset(zz, zone == "parks" & run == "Regional, 30 m")$dpct), 1)`% change in the mean
+normalized current of the protected-areas network is not a rounding correction, and it is the kind
+of number that gets quoted on its own.
+
+```{r omniscape-zonal-lu, eval = ok_zonal, results = "asis"}
+lz <- subset(zz, grepl("^LU_", zone) & !is.na(dpct))
+agg <- do.call(rbind, lapply(split(lz, lz$run), function(g) {
+  data.frame(
+    Run = g$run[1],
+    `Zones` = nrow(g),
+    `Median change` = paste0(ifelse(stats::median(g$dpct) >= 0, "+", ""),
+                             num(stats::median(g$dpct), 1), " %"),
+    `Median absolute` = paste0(num(stats::median(abs(g$dpct)), 1), " %"),
+    `90th pct absolute` = paste0(num(stats::quantile(abs(g$dpct), 0.9), 0), " %"),
+    `Zones moving > 10%` = num(sum(abs(g$dpct) > 10), 0),
+    check.names = FALSE
+  )
+}))
+agg <- agg[match(vapply(RUN_PAIRS, function(p) paste0(p$scale, ", ", p$res, " m"), ""), agg$Run), ]
+
+cap <- paste(
+  "Change in mean normalized current across the Landscape Unit by BEC zone summaries.",
+  "The median zone barely moves; the spread around it is large."
+)
+## Say so in the caption rather than silently showing a smaller denominator than the reader expects.
+if (isTRUE(n_dropped > 0)) {
+  cap <- paste(cap, sprintf(
+    paste("%d zone-and-run combinations are excluded: a few high-alpine units carry no current at",
+          "all at the local radius, in both runs, and 0 to 0 is no basis for a percentage."),
+    n_dropped))
+}
+
+cat(styled(agg, caption = cap, booktabs = TRUE, row.names = FALSE,
+           label = "omniscape-zonal-lu"), sep = "\n")
+```
+
+```{r omniscape-zonal-extremes, eval = ok_zonal, results = "asis"}
+ez <- subset(zz, grepl("^LU_", zone) & run == "Regional, 30 m" & !is.na(dpct))
+ez <- ez[order(-abs(ez$dpct)), ][1:6, ]
+
+## Zone keys are built as LU_<unit name>_<BEC zone>, and unit names themselves contain spaces,
+## so split on the LAST underscore. Left as-is they also reach LaTeX full of escaped underscores.
+data.frame(
+  `Landscape unit and BEC zone` = sub("^LU_(.*)_([^_]+)$", "\\1 (\\2)", ez$zone),
+  `Published` = num(ez$pub, 2),
+  `Corrected` = num(ez$cor, 2),
+  `Change` = paste0(ifelse(ez$dpct >= 0, "+", ""), num(ez$dpct, 0), " %"),
+  check.names = FALSE
+) |>
+  styled(caption = paste(
+    "The six Landscape Unit by BEC zone summaries that move most, regional run at 30 m."
+  ), booktabs = TRUE, row.names = FALSE, label = "omniscape-zonal-extremes") |>
+  cat(sep = "\n")
+```
+
+These are not small denominators inflating a percentage: the published means involved are between
+0.8 and 3.1, comfortably in range.
+They are zones whose character reverses.
+A landscape unit the published run reported as one of the strongest current concentrations in the
+district comes back as one of the weakest, and another makes the opposite journey.
+
+That is the concrete form of the redistribution the raster comparison measured, and it is the
+reason the corrected runs cannot be treated as a refinement of the published ones.
+The district-wide totals are close enough that they would not, on their own, have prompted a
+rerun; the zone-level conclusions drawn from the published maps do not survive it.
 
 # Reproducing this report
 
