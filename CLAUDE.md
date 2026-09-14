@@ -25,7 +25,9 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
 
 - **R** is pinned by `renv` (see `renv.lock`).
   Several R versions are installed side by side via [rig](https://github.com/r-lib/rig); use the version `renv.lock` names, not whatever `R` resolves to on `PATH`.
+  Read the `R.Version` field, then launch the matching rig alias -- **`Rscript-4.5.3`** or `R-4.5.3` at the time of writing, both in `/usr/local/bin/`; `rig list` shows what is installed.
   `renv/library/` is per R minor version, so running under the wrong one looks like a completely empty library.
+  The failure is easy to misread: renv says only "One or more packages recorded in the lockfile are not installed", and then the first `library()` call fails with `there is no package called 'targets'` -- which reads like broken code rather than a wrong interpreter.
 - **Julia** is managed by [juliaup](https://github.com/JuliaLang/juliaup).
   Use **1.11.x**, which `run_omniscape()` selects explicitly via a `+version` channel argument.
   The Julia version, the Omniscape version, and the Circuitscape version are **one coupled decision**, and the current one is to stay put: Julia 1.11.7, Omniscape 0.6.2, Circuitscape 5.15.0.
@@ -36,13 +38,15 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
   But that fix ships in 0.7.0, whose `Project.toml` declares `julia = "1.12"` and `Circuitscape = "6.1"` -- so 0.7.0 cannot be installed on 1.11 at all, and taking it means taking all three moves at once.
   0.7.0 is **not yet registered**; the General registry still tops out at 0.6.2.
 
-- **Pin Circuitscape explicitly when installing the Julia side.**
-  `Omniscape/install.jl` is a bare `using Pkg; Pkg.add("Omniscape")` into the global environment, and nothing about the Julia environment is tracked in git.
-  The registered Omniscape 0.6.2 declares `Circuitscape = "5.13.1-5"`, so that command resolves to whatever 5.x is newest -- **today that is 5.17.1, not the 5.15.0 this project is built against**.
-  Circuitscape 5.16/5.17 replaced the iterative solver: it is what turned upstream CI red in April 2026, and it inflates the artifact-correction factors that feed `flow_potential.tif` and `normalized_cum_currmap.tif`.
-  The `~5.15` bound that fixed upstream CI lives on their `main` under the *same* 0.6.2 version number, so it was never registered and does **not** protect a fresh install here.
-  A fresh clone, a new machine, or a stray `Pkg.update()` will therefore produce a silently different answer unless Circuitscape is pinned by hand.
-  The Julia side of this needs a committed project-local `Project.toml` / `Manifest.toml`; until then, install with an explicit `Pkg.add(name="Circuitscape", version="5.15.0")` and check `Pkg.status()` before a production run.
+- **The Julia environment is pinned project-locally, in `Omniscape/`.**
+  Install it with `julia +1.11.7 Omniscape/install.jl`, which instantiates `Omniscape/Project.toml` and `Omniscape/Manifest.toml` and then errors out if what resolved is not Omniscape 0.6.2 and Circuitscape 5.15.0.
+  `run_omniscape()` passes `--project=Omniscape`, so runs never touch the global environment; it refuses to start if the `Manifest.toml` is missing.
+
+  **Do not install Omniscape into the global environment**, and do not drop the `--project`.
+  The registered Omniscape 0.6.2 declares `Circuitscape = "5.13.1-5"`, so a bare `Pkg.add("Omniscape")` resolves to whatever 5.x is newest -- **today that is 5.17.1, not the 5.15.0 this project is built against**.
+  Circuitscape 5.16/5.17 replaced the iterative solver: it is what turned upstream CI red in April 2026, and it inflates the artifact-correction factors that feed `flow_potential.tif` and `normalized_cum_currmap.tif`, so the swap changes results without failing.
+  The `~5.15` bound that fixed upstream CI lives on their `main` under the *same* 0.6.2 version number, so it was never registered and does **not** protect an install here.
+  That is what the committed `Manifest.toml` is for; treat it as load-bearing rather than as generated noise.
 - **Never attach packages in `.Rprofile`.**
   It runs *before* R attaches the default packages, so anything attached there lands **below** `stats` on the search path -- and `library()` on an already-attached package is a no-op, so a later `library(dplyr)` cannot lift it back up.
   A bare `filter()` then silently resolves to `stats::filter()` and fails with an unrelated-looking error (`'list' object cannot be coerced to type 'double'`).
@@ -58,8 +62,8 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
 Every project needs `TAR_PROJECT`; there is no default.
 
 ```bash
-TAR_PROJECT=_targets_dataprep_quesnel  Rscript -e 'targets::tar_make()'
-TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'
+TAR_PROJECT=_targets_dataprep_quesnel  Rscript-4.5.3 -e 'targets::tar_make()'
+TAR_PROJECT=_targets_omniscape_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
 ```
 
 A bare `targets::tar_make()` resolves to `_targets.R` -- the retired Quesnel pipeline -- which refuses to run.
@@ -114,7 +118,7 @@ They share `R/`, they share `README.Rmd`, and the two factories in `R/factories.
 for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
          _targets_dataprep_chilcotin _targets_omniscape_chilcotin \
          _targets_dataprep_hundred_mile _targets_omniscape_hundred_mile; do
-  TAR_PROJECT=$p Rscript -e 'cat(nrow(targets::tar_manifest()), "targets\n")'
+  TAR_PROJECT=$p Rscript-4.5.3 -e 'cat(nrow(targets::tar_manifest()), "targets\n")'
 done
 ```
 
