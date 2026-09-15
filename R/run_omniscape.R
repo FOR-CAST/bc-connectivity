@@ -417,8 +417,25 @@ run_omniscape <- function(
 
   ## `NULL` means "size it to this configuration" -- the runs differ by three orders of magnitude
   ## in window size and do not share an optimal thread count. See `omniscape_threads()`.
+  ##
+  ## The host ceiling applies either way. A value forced through `BC_CONN_JULIA_THREADS` is still
+  ## clipped by it, because the ceiling is a property of the machine and the other work on it, not
+  ## of the configuration -- but it is clipped loudly, since someone who named a number meant it.
+  thread_cap <- omniscape_thread_cap()
+
   if (is.null(julia_threads)) {
-    julia_threads <- omniscape_threads(config_file)
+    julia_threads <- omniscape_threads(config_file, max_threads = thread_cap)
+  } else if (as.integer(julia_threads) > thread_cap) {
+    warning(
+      "`julia_threads` = ",
+      julia_threads,
+      " exceeds the host ceiling of ",
+      thread_cap,
+      " (BC_CONN_JULIA_THREADS_MAX); running with ",
+      thread_cap,
+      "."
+    )
+    julia_threads <- thread_cap
   }
 
   ## the output directory is whatever `project_name` says; paths in the config are relative to the
@@ -822,6 +839,44 @@ omniscape_thread_setting <- function(spec = Sys.getenv("BC_CONN_JULIA_THREADS", 
   }
 
   as.integer(spec)
+}
+
+#' Ceiling on the threads an Omniscape run may take on this host
+#'
+#' `BC_CONN_JULIA_THREADS` forces one value for every configuration, which is the wrong instrument
+#' for a shared host: the configurations do not share an optimum, and forcing the regional run's
+#' thread count onto the local one makes the local one *slower* -- measured 57 min at 8 threads
+#' against ~87 min at 32, because `ProgressMeter`'s global lock serialises ~855k short solves. A
+#' ceiling leaves [omniscape_threads()] free to pick per configuration and only clips the top.
+#'
+#' It is also the memory control, because memory is linear in threads with a near-zero intercept
+#' and the per-thread constant is set by window size: 2.32 GB/thread at radius 477 and
+#' 9.57 GB/thread at radius 1429, both measured on this study area. So a cap of 16 holds the 90 m
+#' regional run to ~37 GB, and 48 holds it to ~108 GB. [omniscape_memory_max()] is the backstop
+#' that makes the kernel enforce it; this is the setting that makes it unnecessary.
+#'
+#' @param spec character; a positive integer, or `""` for the default of 64 -- the top of the
+#'   measured sweep, not a host property, so a shared machine should set it.
+#'
+#' @returns integer ceiling, passed to [omniscape_threads()] as `max_threads`
+#'
+#' @export
+omniscape_thread_cap <- function(spec = Sys.getenv("BC_CONN_JULIA_THREADS_MAX", "")) {
+  if (!nzchar(spec)) {
+    return(64L)
+  }
+
+  n <- suppressWarnings(as.integer(spec))
+
+  if (is.na(n) || n < 1L) {
+    stop(
+      "`BC_CONN_JULIA_THREADS_MAX` must be a positive integer, not: ",
+      spec,
+      call. = FALSE
+    )
+  }
+
+  n
 }
 
 #' Is any Omniscape run selected?

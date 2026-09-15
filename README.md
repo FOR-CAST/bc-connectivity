@@ -87,6 +87,7 @@ Environment variables control how much of the machine the run takes:
 |----|----|----|
 | `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
 | `BC_CONN_JULIA_THREADS` | *(per configuration)* | Julia threads per Omniscape run. Unset, each run is sized from its window: 8 threads for small windows (more threads make those *slower*), 16 for medium, 64 for large. Set it to force one value everywhere. |
+| `BC_CONN_JULIA_THREADS_MAX` | `64` | ceiling on that per-configuration choice, and so on memory, which is linear in threads: 2.32 GB/thread at the 90 m regional radius. Set it on a shared host instead of forcing `BC_CONN_JULIA_THREADS`, which would also slow the small-window runs. |
 | `BC_CONN_OMNISCAPE_MEMMAX` | `50%` | memory cap for an Omniscape run, enforced with a systemd/cgroup scope; `none` disables it |
 | `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
 | `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |

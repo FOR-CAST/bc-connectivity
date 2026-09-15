@@ -70,7 +70,8 @@ A bare `targets::tar_make()` resolves to `_targets.R` -- the retired Quesnel pip
 `_targets.yaml` has no `main:` entry, but that alone is not protection: with no entry `targets` falls back to its built-in defaults, which are exactly that script and the `_targets/` store.
 Hence the guard at the top of the file.
 
-Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_OMNISCAPE`.
+Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_JULIA_THREADS_MAX`, `BC_CONN_OMNISCAPE`.
+On a shared host, cap Omniscape with `BC_CONN_JULIA_THREADS_MAX` rather than pinning `BC_CONN_JULIA_THREADS`: the ceiling clips the large-window runs, which is where the memory is, while leaving the small-window ones at the 8 threads they are fastest at.
 Omniscape runs are opt-in because a single one can take days and hundreds of GB of RAM.
 
 This is a shared machine.
