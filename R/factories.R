@@ -817,15 +817,15 @@ dataprep_targets <- function() {
 
     ## Interpatch distances ------------------------------------------------------------------------
     ##
-    ## Only the reference district measures these. Everything downstream reads two numbers out of
-    ## them -- the 25% all-pairs quantile and the 100% nearest-neighbour one -- and those are pinned
-    ## across districts (see `reference_distances()`), so for every other district the whole chain is
-    ## replaced by the constants it would have produced.
+    ## No district measures these by default. Everything downstream reads two numbers out of them
+    ## -- the 25% all-pairs quantile and the 100% nearest-neighbour one -- and those are pinned
+    ## across districts (see `reference_distances()`), so the whole chain is replaced by the
+    ## constants it would have produced.
     ##
     ## This is the expensive half of the pipeline: 97.8 h over 2.33 billion pairs on Quesnel, and
     ## pair count grows with the square of patch count. The seam is unchanged either way -- the two
     ## CSVs are written the same, so the Omniscape project cannot tell the difference.
-    if (isTRUE(spec$interpatch_distances)) {
+    if (district_interpatch_distances(spec)) {
       list(
         ## interpatch assesments ------------------------------------------------------------------------
         tar_terra_vect(

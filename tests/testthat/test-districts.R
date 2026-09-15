@@ -35,3 +35,49 @@ test_that("BC_CONN_AGG_FACTORS wins over the gate", {
     expect_identical(district_agg_factors("quesnel"), 1)
   })
 })
+
+## Interpatch distances ------------------------------------------------------------------------
+
+test_that("no district measures its own interpatch distances by default", {
+  withr::with_envvar(c(BC_CONN_INTERPATCH_DISTANCES = NA), {
+    for (key in names(districts())) {
+      expect_false(district_interpatch_distances(key), info = key)
+    }
+  })
+})
+
+test_that("BC_CONN_INTERPATCH_DISTANCES turns the chain back on", {
+  withr::with_envvar(c(BC_CONN_INTERPATCH_DISTANCES = "1"), {
+    expect_true(district_interpatch_distances("quesnel"))
+    expect_true(district_interpatch_distances("chilcotin"))
+  })
+  withr::with_envvar(c(BC_CONN_INTERPATCH_DISTANCES = "0"), {
+    expect_false(district_interpatch_distances("quesnel"))
+  })
+})
+
+## The radii are constants now, so nothing in the pipeline would notice them drifting from what
+## Quesnel actually measured -- this is that check. What has to agree is the radius in PIXELS,
+## since that is what `write_omniscape_config()` derives and all Omniscape sees.
+test_that("the recorded radii still reproduce the frozen archive's", {
+  ## `workflowtools::findProjectPath()` returns the working directory here rather than walking up
+  ## to the real root, so navigate from the test file instead.
+  store <- normalizePath(test_path("..", "..", "_targets"), mustWork = FALSE)
+  skip_if_not(dir.exists(store), "frozen Quesnel archive not available")
+
+  as_px <- function(m, pixel_size = 90) {
+    if (inherits(m, "units")) {
+      m <- units::drop_units(m)
+    }
+    ceiling(round(as.numeric(m), 0) / pixel_size)
+  }
+
+  expect_identical(
+    as_px(reference_distances()$all_dists[["25%"]]),
+    as_px(targets::tar_read(quantiles_all_dists, store = store)[["25%"]])
+  )
+  expect_identical(
+    as_px(reference_distances()$nn_dists[["100%"]]),
+    as_px(targets::tar_read(quantiles_nn_dists, store = store)[["100%"]])
+  )
+})

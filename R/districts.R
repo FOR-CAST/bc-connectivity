@@ -25,8 +25,12 @@ districts <- function() {
       ## require reconstructing which resolutions it compared.
       agg_factors = 3,
       study_agg_factors = c(1, 3),
-      ## Quesnel is where the radii are measured; every other district inherits them.
-      interpatch_distances = TRUE
+      ## Quesnel is where the radii were measured, and `reference_distances()` records what they
+      ## came out at -- so every district, Quesnel included, now reads them from there rather than
+      ## recomputing. Measuring them again costs 97.8 h over 2.33 billion pairs to reproduce
+      ## numbers already written down. `BC_CONN_INTERPATCH_DISTANCES=1` measures them anyway,
+      ## which is what a change to patch construction would need; see [reference_distances()].
+      interpatch_distances = FALSE
     ),
     chilcotin = list(
       key = "chilcotin",
@@ -110,6 +114,34 @@ resolution_study_enabled <- function(flag = Sys.getenv("BC_CONN_RESOLUTION_STUDY
   tolower(trimws(flag)) %in% c("1", "true", "yes")
 }
 
+#' Should a district measure its own interpatch distances?
+#'
+#' The chain that measures them is the expensive half of the data preparation -- 97.8 h over
+#' 2.33 billion pairs on Quesnel -- and everything downstream reads just two numbers out of it,
+#' which [reference_distances()] records. So no district measures them by default, and the
+#' `else` branch in `dataprep_targets()` substitutes the constants.
+#'
+#' `BC_CONN_INTERPATCH_DISTANCES=1` measures them for whichever district is being built. On
+#' Quesnel that regenerates the recorded values; on another district it produces that district's
+#' own, which the pipeline does not otherwise use.
+#'
+#' @param district character district key, or a spec from [district_spec()]
+#'
+#' @returns `TRUE` if the interpatch-distance chain should be built
+#'
+#' @export
+district_interpatch_distances <- function(district) {
+  spec <- if (is.list(district)) district else district_spec(district)
+
+  override <- Sys.getenv("BC_CONN_INTERPATCH_DISTANCES", "")
+
+  if (nzchar(override)) {
+    return(tolower(trimws(override)) %in% c("1", "true", "yes"))
+  }
+
+  isTRUE(spec$interpatch_distances)
+}
+
 #' Aggregation factors -- i.e. resolutions -- a district's rasters are built at
 #'
 #' The source landcover layer is 30 m, so factor 1 is 30 m and factor 3 is 90 m.
@@ -158,9 +190,21 @@ district_agg_factors <- function(district) {
 #' Measured on Quesnel and held fixed for every district. The radius is a property of the
 #' connectivity question rather than of an administrative boundary, so pinning it keeps runs
 #' comparable between districts and epochs -- and it removes the single most expensive step in the
-#' pipeline from every district that is not the reference. Quesnel's interpatch distances took
-#' 97.8 h over 2.33 billion pairs, and pair count grows with the SQUARE of patch count, so a
-#' district 2.4x the area would be several times that again.
+#' pipeline from every district. Quesnel's interpatch distances took 97.8 h over 2.33 billion
+#' pairs, and pair count grows with the SQUARE of patch count, so a district 2.4x the area would
+#' be several times that again.
+#'
+#' **Quesnel now reads these too**, rather than re-measuring them, so no district recomputes the
+#' chain by default. The values below reproduce the frozen store's to the pixel: the archive holds
+#' 42856.7467339 m and 2566.8030443 m, and `write_omniscape_config()` rounds to the metre and then
+#' takes `ceiling(m / pixel_size)`, giving 477 px and 29 px at 90 m from either. `test-districts.R`
+#' pins that against the archive.
+#'
+#' **The cost of pinning is that nothing recomputes them if patch construction changes.** Until
+#' 2026-09-14 Quesnel was the canary -- it re-measured, and a patch-construction change would have
+#' moved the radii. Now a change of that kind moves every district's patches while the radii stay
+#' put. If patch construction moves, re-measure with `BC_CONN_INTERPATCH_DISTANCES=1` on Quesnel
+#' and update the table below.
 #'
 #' Values are from the corrected 2026-08-26 Quesnel build, NOT the published pre-2026-08-25 one --
 #' the patch-construction fix moved both. Only the two quantiles the configurations actually read

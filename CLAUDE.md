@@ -122,7 +122,8 @@ for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
 done
 ```
 
-`tar_manifest()` is the check: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 118 for Quesnel and 111 for the others (the difference is the interpatch-distance chain, which only the reference district computes), and each omniscape project is 16.
+`tar_manifest()` is the check: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 111 for every district and each omniscape project is 16.
+Two environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118, and `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts.
 
 The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.
 
