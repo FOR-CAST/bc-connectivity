@@ -78,17 +78,14 @@ district_dst <- function(district, dst, type = c("inputs", "rasters")) {
 ## `R/data_prep.R` / `R/patch_stats.R`, so those files keep a zero diff: `targets` hashes function
 ## bodies, and the legacy Quesnel store depends on the originals.
 
-get_landcover_raster_district <- function(studyArea, district) {
+## The source layer is province-wide, so it is fetched once by `prefetch_shared_inputs()` and
+## handed in here rather than downloaded inline. Downloading inline is what made `Data/raw` unsafe
+## to share between concurrently running districts; see `R/prefetch.R`.
+get_landcover_raster_district <- function(studyArea, district, lcc_tif) {
   dst <- file.path(district_path("rasters", district), paste0(district$key, "_LCC.tif"))
 
-  ## the source layer is province-wide and district-independent, so it stays in the shared cache
-  lcc_url <- "https://datacube-prod-data-public.s3.ca-central-1.amazonaws.com/store/land/landcover/landcover-2020-classification.tif"
-  lcc_tif <- file.path(district_path("download", district), basename(lcc_url))
-
   if (!file.exists(lcc_tif)) {
-    withr::with_options(list(timeout = 300), {
-      download.file(lcc_url, destfile = lcc_tif)
-    })
+    stop("landcover source raster not found: ", lcc_tif, call. = FALSE)
   }
 
   landcover <- terra::rast(lcc_tif)
@@ -115,6 +112,36 @@ get_dem_raster_district <- function(studyArea, district) {
     terra::writeRaster(dst, overwrite = TRUE)
 
   return(dst)
+}
+
+## As with the landcover raster: the geodatabase is province-wide, fetched and extracted once by
+## `prefetch_shared_inputs()`, and handed in. The original in `R/data_prep.R` downloads and
+## extracts inline, and is left untouched -- `targets` hashes function bodies, so editing it would
+## invalidate the legacy Quesnel store.
+get_human_disturbance_district <- function(studyArea, rasterToMatch, cef_zip) {
+  cef_gdb <- file.path(
+    dirname(cef_zip),
+    "BC_CEF_Human_Disturbance_2023",
+    "BC_CEF_Human_Disturbance_2023.gdb"
+  )
+
+  if (!file.exists(cef_gdb)) {
+    stop("CEF human disturbance geodatabase not found: ", cef_gdb, call. = FALSE)
+  }
+
+  studyArea_bbox <- create_bbox(studyArea)
+
+  sf::st_read(
+    dsn = cef_gdb,
+    layer = "BC_CEF_Human_Disturb_BTM_2023",
+    wkt_filter = sf::st_as_text(sf::st_as_sfc(studyArea_bbox))
+  ) |>
+    sf::st_cast("MULTIPOLYGON", warn = FALSE) |>
+    sf::st_make_valid() |>
+    sf::st_set_agr("constant") |>
+    sf::st_crop(studyArea) |>
+    dplyr::select(CEF_DISTURB_GROUP, CEF_DISTURB_SUB_GROUP, CEF_HUMAN_DISTURB_FLAG) |>
+    sf::st_transform(terra::crs(rasterToMatch))
 }
 
 save_patch_stats_district <- function(stats_df, district) {
@@ -311,10 +338,33 @@ dataprep_targets <- function() {
       command = sf::st_transform(study_area_buffered, crs = terra::crs(LCC))
     ),
 
+    ## Province-wide inputs, fetched once ------------------------------------------------------
+    ##
+    ## `Data/raw` holds the layers that are identical for every district, and on this setup it is
+    ## one NFS export shared by every host -- which is exactly what lets the three districts run
+    ## concurrently, and exactly where those runs would otherwise collide. Fetching them here, in
+    ## one target that everything reading them depends on, is what makes a bare `tar_make()` safe
+    ## to start on three machines at once. See `R/prefetch.R`.
+    tar_target(
+      name = shared_inputs,
+      command = prefetch_shared_inputs(
+        district_path("download", district),
+        aoi = study_area_buffered
+      ),
+      format = "file",
+      ## One fetcher per pipeline. The lock makes several safe; it does not make them useful, and a
+      ## crew worker parked on a 2 GB download is a worker not doing spatial work.
+      deployment = "main"
+    ),
+
     ## LCC used as rasterToMatch
     tar_target(
       name = LCC_tif,
-      command = get_landcover_raster_district(study_area_buffered, district),
+      command = get_landcover_raster_district(
+        study_area_buffered,
+        district,
+        shared_input_path(shared_inputs, "landcover")
+      ),
       format = "file"
     ),
     tar_target(
@@ -344,7 +394,13 @@ dataprep_targets <- function() {
     ## DEM
     tar_target(
       name = DEM_tif,
-      command = get_dem_raster_district(study_area_buffered, district),
+      command = {
+        ## Ordering dependency, not an argument: `bcmaps` owns the CDED tile cache and there is no
+        ## path to hand over, but the tiles must be in it before this runs. `shared_inputs` warms
+        ## the cache for this district's area of interest.
+        shared_inputs
+        get_dem_raster_district(study_area_buffered, district)
+      },
       format = "file"
     ),
     tar_terra_rast(
@@ -793,7 +849,11 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = human_disturbance,
-      command = get_human_disturbance(study_area_buffered, LCC)
+      command = get_human_disturbance_district(
+        study_area_buffered,
+        LCC,
+        shared_input_path(shared_inputs, "cef_human_disturbance")
+      )
     ),
     tar_target(
       name = human_disturbance_gpkg,

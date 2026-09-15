@@ -268,6 +268,16 @@ workflow, via the [`bcdata`](https://github.com/bcgov/bcdata) and
 download from the BC Data Catalogue and Open Government Portal. No
 account, API key, or credential is required.
 
+The province-wide layers are identical for every district, so they are
+fetched once into `Data/raw/` by the `shared_inputs` target rather than
+by each step that reads them. That directory is shared, and on a setup
+where it is on network storage it is shared between machines too, so the
+fetch is written to be safe to run from several districts and several
+hosts at the same time: one caller downloads while the rest wait, and
+each file is only moved to its final name once it is complete. Running
+the three districts concurrently therefore needs nothing set up
+beforehand – a bare `tar_make()` on each is enough.
+
 **Restricted layer.** The **BC Cumulative Effects Framework Forest
 Disturbance (2024)** layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a
 CEF Custom Product. It is not available through the `bcdata` package or
@@ -283,7 +293,7 @@ Please describe your intended use when requesting the data. Once
 obtained, place the geodatabase in the workflow’s download directory so
 that the following path resolves:
 
-    Data/download/BC_CEF_Forest_Disturbance_2024.gdb
+    Data/raw/BC_CEF_Forest_Disturbance_2024.gdb
 
 The workflow will then proceed normally. Note that the Forest
 Disturbance layer drives the Simple Inferred Forest Age (SIFA) and seral
