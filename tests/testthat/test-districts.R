@@ -81,3 +81,20 @@ test_that("the recorded radii still reproduce the frozen archive's", {
     as_px(targets::tar_read(quantiles_nn_dists, store = store)[["100%"]])
   )
 })
+
+## The flags are arguments rather than an environment read inside the command, so the factories can
+## bake their values in with `!!` and make them part of the target's identity. Passing them
+## explicitly has to win over the environment, or that interpolation would be a lie.
+test_that("the resolution flags can be passed explicitly, overriding the environment", {
+  withr::with_envvar(c(BC_CONN_AGG_FACTORS = "1", BC_CONN_RESOLUTION_STUDY = "1"), {
+    expect_identical(district_agg_factors("quesnel", override = "", study = FALSE), 3)
+    expect_identical(district_agg_factors("quesnel", override = "", study = TRUE), c(1, 3))
+    expect_identical(district_agg_factors("quesnel", override = "3", study = TRUE), 3)
+  })
+})
+
+test_that("the flags still default to the environment when not passed", {
+  withr::with_envvar(c(BC_CONN_AGG_FACTORS = NA, BC_CONN_RESOLUTION_STUDY = "1"), {
+    expect_identical(district_agg_factors("quesnel"), c(1, 3))
+  })
+})

@@ -160,25 +160,33 @@ district_interpatch_distances <- function(district) {
 #'   resolution-equivalence study compared. Only Quesnel declares one; for every other district
 #'   this changes nothing, so the flag can be left set across a multi-district run.
 #'
-#' Neither is a target dependency, which is why `agg_fact_lcc` carries an always-cue in both
-#' factories: without it the flag would be read once and then ignored until something unrelated
-#' invalidated the target.
+#' Both are read where the pipeline is *defined* and passed in as arguments, so the factories can
+#' bake their values into the `agg_fact_lcc` command with `!!`. That makes a flag part of the
+#' target's identity: changing one changes the command text and invalidates the target, and so does
+#' changing it back. An earlier version read the environment inside the command and carried an
+#' always-cue instead, which invalidated in one direction only and made `tar_outdated()` report the
+#' whole downstream raster chain -- 22 targets -- as outdated forever, destroying the completion
+#' signal the rebuild drivers print.
 #'
 #' @param district character district key, or a spec from [district_spec()]
+#' @param override value of `BC_CONN_AGG_FACTORS`; `""` for unset.
+#' @param study whether the resolution study is enabled, as [resolution_study_enabled()].
 #'
 #' @returns numeric vector of aggregation factors
 #'
 #' @export
-district_agg_factors <- function(district) {
+district_agg_factors <- function(
+  district,
+  override = Sys.getenv("BC_CONN_AGG_FACTORS", ""),
+  study = resolution_study_enabled()
+) {
   spec <- if (is.list(district)) district else district_spec(district)
-
-  override <- Sys.getenv("BC_CONN_AGG_FACTORS", "")
 
   if (nzchar(override)) {
     return(as.numeric(strsplit(override, "[ ,]+")[[1]]))
   }
 
-  if (resolution_study_enabled() && !is.null(spec$study_agg_factors)) {
+  if (isTRUE(study) && !is.null(spec$study_agg_factors)) {
     return(spec$study_agg_factors)
   }
 

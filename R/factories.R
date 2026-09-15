@@ -319,16 +319,23 @@ dataprep_targets <- function() {
     ),
     tar_target(
       name = agg_fact_lcc,
-      command = district_agg_factors(district),
-      ## `BC_CONN_AGG_FACTORS` and `BC_CONN_RESOLUTION_STUDY` are read at run time and are not
-      ## target dependencies, so without an always-cue a change to either stays invisible until
-      ## something unrelated happens to invalidate this target. The command returns a short numeric
-      ## vector, so re-running it every time costs nothing, and the branches downstream move only
-      ## if the value actually changes.
+      ## The two flags are read HERE, where the pipeline is defined, and `!!` bakes their values
+      ## into the command text -- so they are part of this target's identity rather than a runtime
+      ## read `targets` cannot see. Setting a flag invalidates the target; so does unsetting it.
       ##
-      ## Read on the main process: `crew.ssh` workers do not inherit this session's environment,
-      ## so a worker could otherwise resolve the flags differently from the process that set them.
-      cue = tar_cue(mode = "always"),
+      ## An always-cue was the obvious alternative and is wrong twice over. It only invalidates in
+      ## one direction -- the stale value survives unsetting the flag -- and because an always-cue
+      ## target is by definition always outdated, `tar_outdated()` reported this target and its
+      ## entire downstream raster chain, 22 targets, as outdated even on a fully built store. That
+      ## is the number the rebuild drivers print to decide whether a district is finished.
+      ##
+      ## Reading them at definition time also settles the `crew.ssh` question: workers do not
+      ## inherit this session's environment, and now they never need to.
+      command = district_agg_factors(
+        district,
+        !!Sys.getenv("BC_CONN_AGG_FACTORS", ""),
+        !!resolution_study_enabled()
+      ),
       deployment = "main"
     ),
     tar_terra_rast(
@@ -1196,16 +1203,23 @@ omniscape_targets <- function() {
     ## 90 m), one for the rest.
     tar_target(
       name = agg_fact_lcc,
-      command = district_agg_factors(district),
-      ## `BC_CONN_AGG_FACTORS` and `BC_CONN_RESOLUTION_STUDY` are read at run time and are not
-      ## target dependencies, so without an always-cue a change to either stays invisible until
-      ## something unrelated happens to invalidate this target. The command returns a short numeric
-      ## vector, so re-running it every time costs nothing, and the branches downstream move only
-      ## if the value actually changes.
+      ## The two flags are read HERE, where the pipeline is defined, and `!!` bakes their values
+      ## into the command text -- so they are part of this target's identity rather than a runtime
+      ## read `targets` cannot see. Setting a flag invalidates the target; so does unsetting it.
       ##
-      ## Read on the main process: `crew.ssh` workers do not inherit this session's environment,
-      ## so a worker could otherwise resolve the flags differently from the process that set them.
-      cue = tar_cue(mode = "always"),
+      ## An always-cue was the obvious alternative and is wrong twice over. It only invalidates in
+      ## one direction -- the stale value survives unsetting the flag -- and because an always-cue
+      ## target is by definition always outdated, `tar_outdated()` reported this target and its
+      ## entire downstream raster chain, 22 targets, as outdated even on a fully built store. That
+      ## is the number the rebuild drivers print to decide whether a district is finished.
+      ##
+      ## Reading them at definition time also settles the `crew.ssh` question: workers do not
+      ## inherit this session's environment, and now they never need to.
+      command = district_agg_factors(
+        district,
+        !!Sys.getenv("BC_CONN_AGG_FACTORS", ""),
+        !!resolution_study_enabled()
+      ),
       deployment = "main"
     ),
     tar_target(
