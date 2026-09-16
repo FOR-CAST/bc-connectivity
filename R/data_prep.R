@@ -17,7 +17,7 @@
 ## `Data/processed/quesnel/chilcotin/...` -- whose parent no one creates, so every district writer
 ## fails at run time with "Creation failed." while the pipeline definition still validates.
 get_path <- function(type) {
-  project_dir <- workflowtools::findProjectPath()
+  project_dir <- workflowtools::project_path()
 
   switch(
     type,

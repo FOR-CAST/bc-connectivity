@@ -31,7 +31,7 @@
 #' @export
 district_path <- function(type, district) {
   spec <- if (is.list(district)) district else district_spec(district)
-  project_dir <- workflowtools::findProjectPath()
+  project_dir <- workflowtools::project_path()
   key <- spec$key
 
   switch(
