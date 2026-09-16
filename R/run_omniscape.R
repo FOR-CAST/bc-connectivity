@@ -212,7 +212,10 @@ write_omniscape_config <- function(
   ## current within ~1400 px of every seam was wrong and the mosaics were artifact-ridden.
   tiled <- prod(ntiles) > 1
 
-  tile_dir <- file.path(get_path("rasters"), run_name) |> fs::dir_create()
+  ## Named here but NOT created here: tiling is opt-in (`BC_CONN_OMNISCAPE_BENCH`), and creating
+  ## the directory unconditionally left one empty directory per run under `Data/processed/rasters/`,
+  ## named for the run rather than for a district -- the only thing in that tree that is not.
+  tile_dir <- file.path(get_path("rasters"), run_name)
   tile_c <- ceiling(terra::ncol(res_r) / ntiles[2])
   tile_r <- ceiling(terra::nrow(res_r) / ntiles[1])
   use_buffer <- 2 * radius
@@ -231,6 +234,8 @@ write_omniscape_config <- function(
   }
 
   if (tiled) {
+    fs::dir_create(tile_dir) ## `makeTiles()` does not create missing parents
+
     res_tiles <- terra::makeTiles(
       x = res_r,
       y = c(tile_r, tile_c),
