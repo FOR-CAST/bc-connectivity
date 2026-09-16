@@ -642,6 +642,31 @@ run_omniscape <- function(
   return(output_files)
 }
 
+## The run directories behind a set of Omniscape outputs.
+##
+## `run_omniscape()` returns FILES -- three rasters, the log, and the metrics CSV, five per run --
+## because the target is `format = "file"` and every one of them has to be tracked. Anything that
+## works per RUN therefore has to collapse them first: handed the vector as-is, a per-run loop
+## visits each directory five times and builds the same output five times over.
+##
+## Selects on `normalized_cum_currmap.tif` rather than taking `dirname()` of everything, so a run
+## contributes exactly one directory and only when the raster these consumers need was actually
+## written -- `calc_normalized_current` is off by default in Omniscape.
+##
+## Directories pass through unchanged, so a finished run can still be pointed at by path.
+omniscape_run_dirs <- function(x) {
+  x <- unlist(x, use.names = FALSE)
+  if (!length(x)) {
+    return(character(0))
+  }
+
+  is_dir <- dir.exists(x)
+  unique(c(
+    x[is_dir],
+    dirname(grep("normalized_cum_currmap[.]tif$", x[!is_dir], value = TRUE))
+  ))
+}
+
 ## the launch scripts written by write_omniscape_config(), in the order they should be run
 omniscape_scripts <- function(omniscape_files, tiled = FALSE) {
   scripts <- grep("[.]jl$", unlist(omniscape_files), value = TRUE)

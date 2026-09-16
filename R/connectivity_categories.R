@@ -93,7 +93,8 @@ district_study_area <- function(district) {
 #'
 #' One GeoTIFF per run, clipped to the district.
 #'
-#' @param run_dirs character vector of completed Omniscape run directories.
+#' @param run_dirs completed Omniscape runs, either as the file vector `run_omniscape()` returns
+#'   or as run directories. See [omniscape_run_dirs()].
 #' @param study_area `SpatVector` district boundary, or a path to one.
 #' @param dest_dir directory to write into.
 #'
@@ -103,6 +104,7 @@ district_study_area <- function(district) {
 connectivity_category_rasters <- function(run_dirs, study_area, dest_dir) {
   ## No branching over these targets, so an empty vector has to be handled here rather than by
   ## `targets`: with `BC_CONN_OMNISCAPE` unset -- the usual `tar_make()` -- no runs exist.
+  run_dirs <- omniscape_run_dirs(run_dirs)
   if (!length(run_dirs)) {
     return(character(0))
   }
@@ -225,7 +227,8 @@ plot_connectivity_categories <- function(
 
 #' Categorical maps for every completed Omniscape run in a district
 #'
-#' @param run_dirs character vector of completed Omniscape run directories.
+#' @param run_dirs completed Omniscape runs, either as the file vector `run_omniscape()` returns
+#'   or as run directories. See [omniscape_run_dirs()].
 #' @param study_area `SpatVector` district boundary.
 #' @param dest_dir directory to write the PNGs into.
 #' @param label district label used in map titles.
@@ -234,6 +237,7 @@ plot_connectivity_categories <- function(
 #'
 #' @export
 connectivity_category_maps <- function(run_dirs, study_area, dest_dir, label = NULL) {
+  run_dirs <- omniscape_run_dirs(run_dirs)
   if (!length(run_dirs)) {
     return(character(0))
   }
