@@ -73,6 +73,35 @@ district_dst <- function(district, dst, type = c("inputs", "rasters")) {
   file.path(district$key, dst)
 }
 
+## The reading half of `district_dst()`: a layer the prep project has already published, by path.
+##
+## The prep project writes every one of these with `save_gpkg()` (the `*_gpkg` targets), so the
+## omniscape project imports the published file rather than recomputing the layer or keeping a
+## second copy of it. That is the same seam `resistance_composite` and `quantiles_*` already cross,
+## and `district_dst()` names the same file on the writing side.
+##
+## Errors when the file is absent instead of handing `targets` a path that does not exist: a
+## `format = "file"` target on a missing path fails with a message that names neither the district
+## nor the layer, a long way from the fact that dataprep has not been built.
+district_input_layer <- function(district, file, type = c("inputs", "rasters")) {
+  type <- match.arg(type)
+  spec <- if (is.list(district)) district else district_spec(district)
+  path <- file.path(district_path(type, spec), file)
+
+  if (!file.exists(path)) {
+    stop(
+      "no ",
+      file,
+      " for district '",
+      spec$key,
+      "' -- build the dataprep project for it first",
+      call. = FALSE
+    )
+  }
+
+  path
+}
+
 ## District-aware variants of the writers that hardcode their own filename, and so offer no `dst`
 ## to route with `district_dst()`. They are added here, rather than edited in place in
 ## `R/data_prep.R` / `R/patch_stats.R`, so those files keep a zero diff: `targets` hashes function
@@ -1463,20 +1492,80 @@ omniscape_targets <- function() {
       format = "file"
     ),
 
+    ## Layers for the zonal summaries, imported from the prep project BY PATH -- the same seam as
+    ## `resistance_composite` and `quantiles_*` above. Dataprep already publishes every one of these
+    ## with `save_gpkg()`, so nothing is recomputed here and no second copy is kept; these targets
+    ## name the published files and track their contents.
+    ##
+    ## They exist because `omniscape_summary` referenced `LCC`, `LU`, `BEC` and the rest as bare
+    ## symbols. Those are targets of the PREP project and have never existed in this one, so the
+    ## target could only ever have failed. Nothing caught it for the same reason the connectivity
+    ## categories went unnoticed: `zonal_summaries()` returns early when no runs exist, and R's lazy
+    ## evaluation means the arguments are never forced, so with `BC_CONN_OMNISCAPE` unset -- the
+    ## usual `tar_make()` -- the target reported as built without ever reading a layer.
+    tar_target(
+      name = LCC_tif,
+      command = district_input_layer(district, paste0(district$key, "_LCC.tif"), "rasters"),
+      format = "file"
+    ),
+    tar_target(
+      name = LU_gpkg,
+      command = district_input_layer(district, "landscape_units.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = BEC_gpkg,
+      command = district_input_layer(district, "BEC.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = moose_wetlands_gpkg,
+      command = district_input_layer(district, "moose_wetlands.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = MDWR_gpkg,
+      command = district_input_layer(district, "MDWR.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = OGMA_gpkg,
+      command = district_input_layer(district, "OGMA_current.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = parks_gpkg,
+      command = district_input_layer(district, "parks.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = wetlands_gpkg,
+      command = district_input_layer(district, "wetlands.gpkg"),
+      format = "file"
+    ),
+    tar_target(
+      name = WHA_gpkg,
+      command = district_input_layer(district, "WHA.gpkg"),
+      format = "file"
+    ),
+
+    ## Clipped to `study_area_boundary`, the UNBUFFERED district. The layers above were derived
+    ## against the buffered one so the moving window has room; summarising over that margin would
+    ## report land outside the district.
     tar_target(
       name = omniscape_summary,
       command = zonal_summaries(
         omniscape_run,
-        study_area,
-        LCC,
-        LU,
-        BEC,
-        moose_wetlands,
-        MDWR,
-        OGMA,
-        parks,
-        wetlands,
-        WHA
+        study_area_boundary,
+        LCC_tif,
+        LU_gpkg,
+        BEC_gpkg,
+        moose_wetlands_gpkg,
+        MDWR_gpkg,
+        OGMA_gpkg,
+        parks_gpkg,
+        wetlands_gpkg,
+        WHA_gpkg
       ),
       format = "file"
     ),
