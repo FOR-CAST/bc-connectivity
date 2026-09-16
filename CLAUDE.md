@@ -116,14 +116,19 @@ They share `R/`, and the two factories in `R/factories.R` generate all of them, 
 **After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` / `tar_quarto()` target points at -- validate all six, not just the one you were working on.**
 
 ```bash
-for p in _targets_dataprep_quesnel _targets_omniscape_quesnel \
-         _targets_dataprep_chilcotin _targets_omniscape_chilcotin \
-         _targets_dataprep_hundred_mile _targets_omniscape_hundred_mile; do
-  TAR_PROJECT=$p Rscript-4.5.3 -e 'cat(nrow(targets::tar_manifest()), "targets\n")'
-done
+Rscript-4.5.3 scripts/validate-projects.R
 ```
 
-`tar_manifest()` is the check: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 112 for every district and each omniscape project is 25.
+It runs in CI too, so a pull request gets the same check.
+
+`tar_manifest()` is the core of it: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 112 for every district and each omniscape project is 25.
+
+The script adds the check `targets` does not do: that every symbol a command references actually **resolves** -- to a target in the same project, to something the project script binds, to something `tar_source()` defined, or to the search path.
+Nothing else catches a command naming a target that belongs to a *different* project.
+`omniscape_summary` called `zonal_summaries(omniscape_run, study_area, LCC, ...)` against ten targets that exist only in the dataprep project, from `8e88b9a` until a district first finished an Omniscape run -- months.
+It went unnoticed because the function returns early when no runs exist and R's lazy evaluation never forced the arguments, so the target reported as built without ever having read a layer.
+`connectivity_categories` failed the same way for the same reason.
+**A target that returns early on an empty input is not evidence that its arguments resolve.**
 Two environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118, and `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts.
 
 The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.

@@ -83,10 +83,12 @@ district_dst <- function(district, dst, type = c("inputs", "rasters")) {
 ## Errors when the file is absent instead of handing `targets` a path that does not exist: a
 ## `format = "file"` target on a missing path fails with a message that names neither the district
 ## nor the layer, a long way from the fact that dataprep has not been built.
-district_input_layer <- function(district, file, type = c("inputs", "rasters")) {
+## `dir` defaults to the real location and exists so tests can point it at a temporary one; the
+## suite must run in a clone with no `Data/`, which is what CI has.
+district_input_layer <- function(district, file, type = c("inputs", "rasters"), dir = NULL) {
   type <- match.arg(type)
   spec <- if (is.list(district)) district else district_spec(district)
-  path <- file.path(district_path(type, spec), file)
+  path <- file.path(dir %||% district_path(type, spec), file)
 
   if (!file.exists(path)) {
     stop(
