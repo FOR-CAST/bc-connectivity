@@ -244,12 +244,12 @@ When working on a package:
   ```
   `lock = TRUE` records the exact remote SHA in `renv.lock`, so a fresh clone of this project can actually install what it was tested against.
   Run it from **this** project's directory -- renv writes the lockfile of whatever project is active, so running it from the package's own clone drops a stray `renv.lock` there and installs into the wrong library.
-- **`renv.lock` is deliberately kept in renv's v1 format** (compact records). renv 1.x writes v2 by default, which embeds each package's full DESCRIPTION and turns a one-package bump into a ~1,000-line diff.
-  Preserve it when installing:
-  ```r
-  withr::with_options(list(renv.lockfile.version = 1), renv::install("FOR-CAST/spatialutils", lock = TRUE))
-  ```
-  (The `options(renv.lockfile.version = 1)` that used to sit in `.Rprofile` was there for `workflowtools` issue #1; that is obsolete -- `workflowtools::packages_from_snapshot()` reads both formats identically -- so the pin is now a readability choice, not a requirement.)
+- **`renv.lock` is in renv's v2 format** (full records), deliberately, since the renv 1.2.4 upgrade on 2026-09-16.
+  v2 is what renv 1.x writes by default, so nothing needs doing to keep it.
+  **Do not reinstate the `withr::with_options(list(renv.lockfile.version = 1), ...)` wrapper this file used to prescribe**, and do not re-snapshot back to v1.
+  The reason the v1 pin existed was diff size, and that argument does not survive contact with the numbers: the v1 -> v2 migration was a single 2,468-line commit (58 KB -> 197 KB, 78 CRAN records gaining their full DESCRIPTION), but a package bump *within* v2 rewrites only that package's record.
+  The churn is the format change, not the updates -- so it is paid once, and it has been.
+  (The `options(renv.lockfile.version = 1)` that used to sit in `.Rprofile` was there for `workflowtools` issue #1; that is obsolete too -- `workflowtools::packages_from_snapshot()` reads both formats identically.)
 - Run `devtools::test()` and `devtools::check()` locally before pushing, and watch the package's GitHub Actions afterwards.
 - Every user-facing change gets a `NEWS.md` bullet, and every fix gets a test that fails without it.
 - **Use `usethis` for package plumbing** rather than editing files by hand -- `use_version()`, `use_package()`, `use_test()`, and friends.
