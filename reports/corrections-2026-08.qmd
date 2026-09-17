@@ -91,6 +91,29 @@ library(targets)
 ## live under its own key. Quesnel is one district among them; nothing here is flat.
 QUESNEL_OUT <- file.path(proj, "Outputs", "quesnel")
 
+## Omniscape RUN directories specifically -- `QUESNEL_OUT` still addresses the files that sit
+## directly in it, such as the patch-stats CSV below.
+##
+## The runs this report compares were produced before Quesnel went through the factories. When it
+## was rebuilt on 2026-09-16 they moved into `archive-prefactory/` so that the new, district-
+## qualified runs would not sit beside them at the same vintage. Older clones have them one level
+## up, or flat, so all three are resolved.
+##
+## Returns the unresolved archive path when none exists, so a missing run fails at the point of use
+## naming a real path, rather than silently reading as absent.
+quesnel_run_dir <- function(run) {
+  cand <- c(
+    file.path(QUESNEL_OUT, "archive-prefactory", run),
+    file.path(QUESNEL_OUT, run),
+    file.path(proj, "Outputs", run)
+  )
+  hit <- cand[dir.exists(cand)]
+  if (!length(hit)) {
+    return(cand[[1]])
+  }
+  hit[[1]]
+}
+
 ## Artefacts of the delivered (pre-correction) run, copied out of the way before the rerun
 ## overwrote them. See Appendix C, "Reproducing this report".
 ##
@@ -1044,7 +1067,7 @@ RUN_PAIRS <- list(
 )
 OUT_LAYERS <- c("cum_currmap", "flow_potential", "normalized_cum_currmap")
 
-run_tif <- function(run, layer) file.path(QUESNEL_OUT, run, paste0(layer, ".tif"))
+run_tif <- function(run, layer) file.path(quesnel_run_dir(run), paste0(layer, ".tif"))
 
 ## As for the inputs: prose below quotes these inline, so they need to exist even when the
 ## comparison is skipped.
@@ -1281,7 +1304,7 @@ which the correction actually reaches a conclusion.
 
 ```{r omniscape-zonal-setup}
 zonal_of <- function(run) {
-  f <- file.path(QUESNEL_OUT, run, "zonal_by_polys.csv")
+  f <- file.path(quesnel_run_dir(run), "zonal_by_polys.csv")
   if (!file.exists(f)) {
     return(NULL)
   }
