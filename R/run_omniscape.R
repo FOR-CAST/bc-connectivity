@@ -81,9 +81,22 @@ parse_gnu_time <- function(path) {
     if (length(hit) == 0L) NA_character_ else sub("^[^:]*:\\s*", "", hit[[1]]) |> trimws()
   }
 
-  ## "Elapsed (wall clock) time" is h:mm:ss or m:ss
-  elapsed <- grab("Elapsed \\(wall clock\\) time")
-  seconds <- if (is.na(elapsed)) {
+  ## "Elapsed (wall clock) time (h:mm:ss or m:ss): 1:17:03"
+  ##
+  ## Deliberately NOT via `grab()`. Its `^[^:]*:` stops at the FIRST colon, which on this line sits
+  ## inside the label's own "(h:mm:ss or m:ss)" -- so it returned "mm:ss or m:ss): 1:17:03", the
+  ## split fed the label's words to `as.numeric()`, and the run warned "NAs introduced by coercion"
+  ## and fell back to R's wall clock. Every run made before 2026-09-17 therefore recorded
+  ## `wall_seconds` from R (Julia's time plus R's launch overhead) rather than from `time -v`.
+  ## Anchor on the trailing timestamp instead, which is unambiguous in both of GNU time's formats.
+  hit <- grep("Elapsed \\(wall clock\\) time", lines, value = TRUE)
+  elapsed <- if (length(hit) == 0L) {
+    character(0)
+  } else {
+    txt <- trimws(hit[[1]])
+    regmatches(txt, regexpr("[0-9]+(:[0-9]{2}){1,2}([.][0-9]+)?$", txt))
+  }
+  seconds <- if (length(elapsed) != 1L) {
     NA_real_
   } else {
     parts <- as.numeric(strsplit(elapsed, ":", fixed = TRUE)[[1]])
@@ -138,6 +151,10 @@ systemd_scope <- function() {
 #' @param q percentile value from `patch_distances` to use as the Omniscape run `radius` (e.g., 90 means '90%')
 #' @param run_name character specifying the base run name, to which the pixel size, radius, and block size will be appended
 #' @param ntiles integer [2] specifying the number of tile rows and columns to split the rasters by
+#' @param outputs_dir directory the run's output directory is created in. Defaults to the
+#'   repository-level `Outputs/`, which is district-blind; the district factories pass
+#'   `district_path("outputs", district)` so each district's runs land under its own subdirectory
+#'   alongside its category rasters and figures.
 #'
 #' @returns character vector specifying the file paths of the saved configuration and launch script files
 #' (`config.ini` and `script.jl`, respectively)
@@ -149,7 +166,8 @@ write_omniscape_config <- function(
   patch_distances,
   q = 100L,
   run_name = Sys.Date(),
-  ntiles = c(2, 3)
+  ntiles = c(2, 3),
+  outputs_dir = get_path("outputs")
 ) {
   q <- as.integer(q)
 
@@ -285,7 +303,7 @@ write_omniscape_config <- function(
     omni_path <- fs::dir_create(get_path("omniscape"), run_name)
     omni_path_rel <- fs::path_rel(omni_path, get_path("project"))
 
-    output_dir <- fs::path(get_path("outputs"), run_name_tile) ## don't create the dir, Omniscape needs to do it!
+    output_dir <- fs::path(outputs_dir, run_name_tile) ## don't create the dir, Omniscape needs to do it!
     output_path_rel <- fs::path_rel(output_dir, get_path("project"))
 
     if (tile_id == max(tile_ids)) {

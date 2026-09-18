@@ -282,7 +282,7 @@ patches_interior_forest_combine <- function(tiles, age_class) {
 
 #' Where a district's reproducibility receipt goes
 #'
-#' `workflowtools::reproducibilityReceipt()` resolves `writeTo` RELATIVE to the project directory
+#' `workflowtools::reproducibility_receipt()` resolves `writeTo` RELATIVE to the project directory
 #' and prepends it, so an absolute path comes back doubled -- `<proj>/<proj>/Outputs/...` -- and
 #' fails with "cannot open the connection", which says nothing about the cause. Returns the relative
 #' path, having created the directory it names.
@@ -1356,13 +1356,15 @@ omniscape_targets <- function() {
         srcwt = sourcewt_composite,
         patch_distances = quantiles_all_dists,
         q = 25, ## ~45 km
-        ## District-qualified, because the run name is ALL that separates one district's
-        ## configuration from another's. `write_omniscape_config()` derives both the config
-        ## directory and Omniscape's `project_name` from it, and neither is district-aware.
-        ## The radii are pinned across districts (see `reference_distances()`), so without this
-        ## every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49` -- and
-        ## silently overwrites the previous district's config and output directory.
+        ## District-qualified, because the run name is what separates one district's *configuration*
+        ## from another's: the config directory under `Omniscape/` is named from it and is not
+        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
+        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
+        ## -- and silently overwrites the previous district's config.
         run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
+        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
+        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
+        outputs_dir = district_path("outputs", district),
         ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
         ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
         ntiles = omniscape_tiles()
@@ -1379,13 +1381,15 @@ omniscape_targets <- function() {
         srcwt = sourcewt_composite,
         patch_distances = quantiles_nn_dists,
         q = 100, ## could reasonably use e.g., 90, 95, 99, 100
-        ## District-qualified, because the run name is ALL that separates one district's
-        ## configuration from another's. `write_omniscape_config()` derives both the config
-        ## directory and Omniscape's `project_name` from it, and neither is district-aware.
-        ## The radii are pinned across districts (see `reference_distances()`), so without this
-        ## every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49` -- and
-        ## silently overwrites the previous district's config and output directory.
+        ## District-qualified, because the run name is what separates one district's *configuration*
+        ## from another's: the config directory under `Omniscape/` is named from it and is not
+        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
+        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
+        ## -- and silently overwrites the previous district's config.
         run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
+        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
+        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
+        outputs_dir = district_path("outputs", district),
         ntiles = omniscape_tiles()
       ),
       format = "file",
