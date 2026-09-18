@@ -133,7 +133,7 @@ write_reproducibility_receipt <- function(dst = "INFO.md") {
     unlink(dst)
   }
 
-  workflowtools::reproducibilityReceipt(writeTo = dst)
+  workflowtools::reproducibility_receipt(writeTo = dst)
 
   return(dst)
 }
