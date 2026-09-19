@@ -27,3 +27,8 @@ reports/*_files/
 
 # stray device output from a test that accidentally called graphics::box()
 Rplots.pdf
+
+## Claude Code: machine-specific policy and personal permissions stay local;
+## the .example beside it is what belongs in the repo.
+.claude/r-project-policy.json
+.claude/settings.local.json
