@@ -8,6 +8,6 @@
     }
   },
   "enabledPlugins": {
-    "r-bundle-research@ai-workflows": true
+    "r-bundle-targets@ai-workflows": true
   }
 }
