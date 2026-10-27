@@ -5,8 +5,9 @@ date-format: "[Last updated:] YYYY-MM-DD"
 # GitHub-flavoured markdown, which is what this document is FOR. The previous setup rendered an
 # `html_document` and kept knitr's intermediate markdown as `README.md`, so the file GitHub shows
 # was the one pandoc had never processed: every citation appeared on the front page as a raw
-# `[@key]` and the reference list was never generated at all. `gfm` writes the markdown directly,
-# through citeproc, so what is committed is what was rendered.
+# `[@key]`, the reference list was never generated at all, and this YAML block was printed above
+# the title. `gfm` writes the markdown directly, through citeproc, so what is committed is what
+# was rendered.
 format:
   gfm:
     toc: false
