@@ -100,14 +100,33 @@ jobs:
       ## them and force every spatial package to build from source. The binaries
       ## link against these at runtime, so they are needed even when nothing
       ## compiles.
-      - name: Install spatial system libraries
+      ##
+      ## The rest are the other locked packages' system requirements, from Posit
+      ## Package Manager's sysreqs API for ubuntu 24.04. A cold cache installs
+      ## every package and test-loads it, so one missing library (librsvg for
+      ## rsvg was the first) fails the restore.
+      - name: Install system libraries
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
             libgdal-dev \
             libgeos-dev \
             libproj-dev \
-            libudunits2-dev
+            libudunits2-dev \
+            libabsl-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libfribidi-dev \
+            libgit2-dev \
+            libglpk-dev \
+            libharfbuzz-dev \
+            libicu-dev \
+            libjpeg-dev \
+            libnode-dev \
+            libpng-dev \
+            librsvg2-dev \
+            libsqlite3-dev \
+            libzstd-dev
 
       - uses: r-lib/actions/setup-r@v2
         with:
