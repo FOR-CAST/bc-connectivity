@@ -129,7 +129,7 @@ Nothing else catches a command naming a target that belongs to a *different* pro
 It went unnoticed because the function returns early when no runs exist and R's lazy evaluation never forced the arguments, so the target reported as built without ever having read a layer.
 `connectivity_categories` failed the same way for the same reason.
 **A target that returns early on an empty input is not evidence that its arguments resolve.**
-Two environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118, and `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts.
+Three environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118; `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts; and `BC_CONN_EPOCHS` adds the historical epochs -- 2 shared targets plus 28 per epoch, so 142 for one epoch and 226 for `all`.
 
 The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.
 

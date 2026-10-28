@@ -325,6 +325,298 @@ plot_bec_ndt_district <- function(BECNDT, studyArea, district) {
   return(dst)
 }
 
+#' The seral-to-composite chain, shared by the current condition and every historical epoch
+#'
+#' Everything from the combined seral layer to the resistance and source-weight composites. The
+#' current condition builds it as it always has; each epoch builds it again inside `tar_map()`, from
+#' an epoch seral layer (plan §D, task D4).
+#'
+#' Output file names are the only thing that differs. For the current condition they are filled in as
+#' the same string literals the commands have always had, so the command text -- which is what
+#' `targets` hashes -- is unchanged and nothing is invalidated. For an epoch they are a `paste0()`
+#' over the `epoch` symbol, which `tar_map()` substitutes, so an epoch can never write over the
+#' current condition's files.
+#'
+#' @param epoch logical; `TRUE` when called inside the epoch `tar_map()`
+#'
+#' @returns list of targets
+seral_chain_targets <- function(epoch = FALSE) {
+  chain_file <- function(stem, ext) {
+    if (isTRUE(epoch)) call("paste0", stem, "_", quote(epoch), ext) else paste0(stem, ext)
+  }
+
+  ## `bquote()` fills in `.(chain_file(...))` here, where `chain_file` is in scope, before `tar_target()`
+  ## sees the command: its own `!!` would be evaluated in the global environment.
+  eval(bquote(list(
+    tar_terra_vect(
+      name = forest_disturbance_seral,
+      command = combine_spatvectors(forest_disturbance_seral_tiles),
+      deployment = "main" ## see VRI_BECNDT above
+    ),
+    tar_target(
+      name = forest_disturbance_seral_png,
+      command = plot_forest_disturbance_seral(
+        forest_disturbance_seral,
+        study_area,
+        .(chain_file("study_area_for_dist_seral", ".png")),
+        outdir = district_path("figures", district)
+      ),
+      format = "file"
+    ),
+    tar_target(
+      name = forest_disturbance_seral_gpkg,
+      command = save_gpkg(
+        forest_disturbance_seral,
+        district_dst(district, .(chain_file("forest_disturbance_seral", ".gpkg")))
+      ),
+      format = "file"
+    ),
+
+    ## Patch construction (README appendix, arcpy steps 1-6) ---------------------------------------
+    tar_terra_vect(
+      name = patches_input_data,
+      command = patches_get_input_data(forest_disturbance_seral)
+    ),
+
+    tar_terra_vect(
+      name = patches_mature_old,
+      command = patches_create_old_mature(patches_input_data, c("Mature", "Old"))
+    ),
+    tar_terra_vect(
+      name = patches_old,
+      command = patches_create_old_mature(patches_input_data, "Old")
+    ),
+
+    ## Edge-influence buffers, one per neighbouring seral stage
+    ## (Early <20 yr -> 200 m, Early >=20 yr -> 101 m, Mid -> 52 m, Mature -> 25 m).
+    tar_terra_vect(
+      name = patches_buffer_200,
+      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 200)
+    ),
+    tar_terra_vect(
+      name = patches_buffer_100,
+      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 100)
+    ),
+    tar_terra_vect(
+      name = patches_buffer_50,
+      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 50)
+    ),
+    tar_terra_vect(
+      name = patches_buffer_25,
+      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 25)
+    ),
+
+    ## The four sequential erases collapse to one erase against the union of the buffers that apply.
+    ## The 25 m (Mature) buffer applies only to the old-only target -- see
+    ## `patches_create_erase_mask()`.
+    tar_terra_vect(
+      name = patches_erase_mask_old,
+      command = patches_create_erase_mask(
+        patches_buffer_200,
+        patches_buffer_100,
+        patches_buffer_50,
+        patches_buffer_25,
+        "Old"
+      )
+    ),
+    tar_terra_vect(
+      name = patches_erase_mask_mature_old,
+      command = patches_create_erase_mask(
+        patches_buffer_200,
+        patches_buffer_100,
+        patches_buffer_50,
+        patches_buffer_25,
+        "Mature"
+      )
+    ),
+
+    ## Tiled: the mask is one district-wide multipolygon, so an untiled erase pays for its full
+    ## complexity on every patch. 55.3x on 100 Mile House, identical output. See
+    ## `patches_create_interior_forest_tile()`.
+    tar_terra_vect(
+      name = patches_interior_forest_old_tiles,
+      command = patches_create_interior_forest_tile(
+        patches_old,
+        patches_erase_mask_old,
+        "Old",
+        study_area_tiles
+      ),
+      ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
+      pattern = map(study_area_tiles)
+    ),
+    tar_terra_vect(
+      name = patches_interior_forest_old,
+      command = patches_interior_forest_combine(patches_interior_forest_old_tiles, "Old"),
+      deployment = "main" ## the dissolve needs every branch at once
+    ),
+    tar_terra_vect(
+      name = patches_interior_forest_mature_old_tiles,
+      command = patches_create_interior_forest_tile(
+        patches_mature_old,
+        patches_erase_mask_mature_old,
+        "Mature",
+        study_area_tiles
+      ),
+      pattern = map(study_area_tiles)
+    ),
+    tar_terra_vect(
+      name = patches_interior_forest_mature_old,
+      command = patches_interior_forest_combine(
+        patches_interior_forest_mature_old_tiles,
+        "Mature"
+      ),
+      deployment = "main"
+    ),
+
+    tar_terra_vect(
+      name = patches_patch_size,
+      command = patches_create_patch_size_data(patches_input_data)
+    ),
+    ## The tiled resultant reads its base layer through GDAL rather than out of the store: a worker
+    ## then materialises only the polygons inside its own tile, instead of deserialising all 255,879
+    ## of them to keep a few thousand.
+    tar_target(
+      name = patches_patch_size_gpkg,
+      command = save_gpkg(
+        patches_patch_size,
+        district_dst(district, .(chain_file("patches_patch_size", ".gpkg")))
+      ),
+      format = "file"
+    ),
+
+    ## arcpy step 6a: Union of the seral layer with both interior-forest layers. Every polygon keeps
+    ## its own seral stage and gains `old_interior` / `matold_interior` flags -- interior forest is an
+    ## attribute, not a relabelling.
+    ## Tiled: this ran 5h 51m 58s in a single process on 2026-08-31, and the overlay is embarrassingly
+    ## parallel over space.
+    ##
+    ## The tiles are `study_area_tiles` -- the *same* grid the seral layer was built on, which matters
+    ## for more than consistency. That layer already carries vertices lying bit-exactly on these seam
+    ## coordinates, so re-cutting here intersects at existing vertices, GEOS invents no new ones, and
+    ## the halves of a split polygon abut exactly. A different or finer grid would cut at fresh
+    ## coordinates and forfeit that.
+    ##
+    ## Cropping splits polygons at the seams, so the resultant has a few percent more features than
+    ## the untiled build. Area, footprint and every attribute combination are unchanged, and
+    ## `calc_matold()` dissolves and explodes before the interpatch distances are measured, which puts
+    ## split patches back together -- verified on real geometry across a seam: identical feature count
+    ## after `calc_matold()`, and identical nearest-neighbour quantiles.
+    tar_terra_vect(
+      name = patches_union_final_tiles,
+      command = patches_union_into_final_resultant(
+        patches_patch_size_gpkg,
+        patches_interior_forest_old,
+        patches_interior_forest_mature_old,
+        study_area_tiles
+      ),
+      ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
+      pattern = map(study_area_tiles)
+    ),
+    tar_terra_vect(
+      name = patches_union_final,
+      command = combine_spatvectors(patches_union_final_tiles),
+      deployment = "main"
+    ),
+
+    tar_terra_vect(
+      name = forest_patches_final,
+      command = define_forest_seral_patch_conn_vals(patches_union_final)
+    ),
+    tar_target(
+      name = forest_patches_final_gpkg,
+      command = save_gpkg(
+        forest_patches_final,
+        district_dst(district, .(chain_file("forest_patches_final", ".gpkg")))
+      ),
+      format = "file"
+    ),
+    tar_target(
+      name = forest_patches_final_png,
+      command = plot_forest_disturbance_seral(
+        forest_patches_final,
+        study_area,
+        .(chain_file("study_area_for_dist_seral_patches", ".png")),
+        outdir = district_path("figures", district)
+      ),
+      format = "file"
+    ),
+
+    tar_target(
+      name = resistance_forest,
+      command = create_resistance_raster(
+        polys = forest_patches_final,
+        rasterToMatch = LCC_agg,
+        dst = district_dst(district, .(chain_file("resistance_forest", ".tif")), type = "rasters")
+      ),
+      format = "file",
+      pattern = map(LCC_agg),
+      iteration = "list"
+    ),
+    tar_target(
+      name = sourcewt_forest,
+      command = create_sourcewt_raster(
+        polys = forest_patches_final,
+        rasterToMatch = LCC_agg,
+        dst = district_dst(district, .(chain_file("sourcewt_forest", ".tif")), type = "rasters")
+      ),
+      format = "file",
+      pattern = map(LCC_agg),
+      iteration = "list"
+    ),
+
+    # composite rasters
+    tar_target(
+      name = resistance_composite,
+      command = create_composite_resistance_raster(
+        forest = resistance_forest,
+        roads = resistance_roads_railways,
+        streams = resistance_streams,
+        rivers = resistance_rivers,
+        lakes = resistance_lakes,
+        wetlands = resistance_wetlands,
+        dst = district_dst(
+          district,
+          .(chain_file("resistance_composite", ".tif")),
+          type = "rasters"
+        )
+      ),
+      format = "file",
+      pattern = map(
+        forest = resistance_forest,
+        roads = resistance_roads_railways,
+        streams = resistance_streams,
+        rivers = resistance_rivers,
+        lakes = resistance_lakes,
+        wetlands = resistance_wetlands
+      ),
+      iteration = "list"
+    ),
+    tar_target(
+      name = sourcewt_composite,
+      command = create_composite_sourcewt_raster(
+        forest = sourcewt_forest,
+        roads = sourcewt_roads_railways,
+        streams = sourcewt_streams,
+        rivers = sourcewt_rivers,
+        lakes = sourcewt_lakes,
+        wetlands = sourcewt_wetlands,
+        dst = district_dst(district, .(chain_file("sourcewt_composite", ".tif")), type = "rasters")
+      ),
+      format = "file",
+      pattern = map(
+        forest = sourcewt_forest,
+        roads = sourcewt_roads_railways,
+        streams = sourcewt_streams,
+        rivers = sourcewt_rivers,
+        lakes = sourcewt_lakes,
+        wetlands = sourcewt_wetlands
+      ),
+      iteration = "list"
+    )
+  )))
+}
+
+
 dataprep_targets <- function() {
   ## resolved when the project script is sourced, so it can shape the GRAPH (which targets
   ## exist), not just values -- the `district` target below carries the same spec to commands
@@ -564,195 +856,10 @@ dataprep_targets <- function() {
       ),
       pattern = map(study_area_tiles) ## no `iteration =`; see VRI_BECNDT_tiles above
     ),
-    tar_terra_vect(
-      name = forest_disturbance_seral,
-      command = combine_spatvectors(forest_disturbance_seral_tiles),
-      deployment = "main" ## see VRI_BECNDT above
-    ),
-    tar_target(
-      name = forest_disturbance_seral_png,
-      command = plot_forest_disturbance_seral(
-        forest_disturbance_seral,
-        study_area,
-        "study_area_for_dist_seral.png",
-        outdir = district_path("figures", district)
-      ),
-      format = "file"
-    ),
-    tar_target(
-      name = forest_disturbance_seral_gpkg,
-      command = save_gpkg(
-        forest_disturbance_seral,
-        district_dst(district, "forest_disturbance_seral.gpkg")
-      ),
-      format = "file"
-    ),
+    seral_chain_targets(),
 
-    ## Patch construction (README appendix, arcpy steps 1-6) ---------------------------------------
-    tar_terra_vect(
-      name = patches_input_data,
-      command = patches_get_input_data(forest_disturbance_seral)
-    ),
-
-    tar_terra_vect(
-      name = patches_mature_old,
-      command = patches_create_old_mature(patches_input_data, c("Mature", "Old"))
-    ),
-    tar_terra_vect(
-      name = patches_old,
-      command = patches_create_old_mature(patches_input_data, "Old")
-    ),
-
-    ## Edge-influence buffers, one per neighbouring seral stage
-    ## (Early <20 yr -> 200 m, Early >=20 yr -> 101 m, Mid -> 52 m, Mature -> 25 m).
-    tar_terra_vect(
-      name = patches_buffer_200,
-      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 200)
-    ),
-    tar_terra_vect(
-      name = patches_buffer_100,
-      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 100)
-    ),
-    tar_terra_vect(
-      name = patches_buffer_50,
-      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 50)
-    ),
-    tar_terra_vect(
-      name = patches_buffer_25,
-      command = patches_create_buffers_to_delete(patches_input_data, buffer_size = 25)
-    ),
-
-    ## The four sequential erases collapse to one erase against the union of the buffers that apply.
-    ## The 25 m (Mature) buffer applies only to the old-only target -- see
-    ## `patches_create_erase_mask()`.
-    tar_terra_vect(
-      name = patches_erase_mask_old,
-      command = patches_create_erase_mask(
-        patches_buffer_200,
-        patches_buffer_100,
-        patches_buffer_50,
-        patches_buffer_25,
-        "Old"
-      )
-    ),
-    tar_terra_vect(
-      name = patches_erase_mask_mature_old,
-      command = patches_create_erase_mask(
-        patches_buffer_200,
-        patches_buffer_100,
-        patches_buffer_50,
-        patches_buffer_25,
-        "Mature"
-      )
-    ),
-
-    ## Tiled: the mask is one district-wide multipolygon, so an untiled erase pays for its full
-    ## complexity on every patch. 55.3x on 100 Mile House, identical output. See
-    ## `patches_create_interior_forest_tile()`.
-    tar_terra_vect(
-      name = patches_interior_forest_old_tiles,
-      command = patches_create_interior_forest_tile(
-        patches_old,
-        patches_erase_mask_old,
-        "Old",
-        study_area_tiles
-      ),
-      ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
-      pattern = map(study_area_tiles)
-    ),
-    tar_terra_vect(
-      name = patches_interior_forest_old,
-      command = patches_interior_forest_combine(patches_interior_forest_old_tiles, "Old"),
-      deployment = "main" ## the dissolve needs every branch at once
-    ),
-    tar_terra_vect(
-      name = patches_interior_forest_mature_old_tiles,
-      command = patches_create_interior_forest_tile(
-        patches_mature_old,
-        patches_erase_mask_mature_old,
-        "Mature",
-        study_area_tiles
-      ),
-      pattern = map(study_area_tiles)
-    ),
-    tar_terra_vect(
-      name = patches_interior_forest_mature_old,
-      command = patches_interior_forest_combine(
-        patches_interior_forest_mature_old_tiles,
-        "Mature"
-      ),
-      deployment = "main"
-    ),
-
-    tar_terra_vect(
-      name = patches_patch_size,
-      command = patches_create_patch_size_data(patches_input_data)
-    ),
-    ## The tiled resultant reads its base layer through GDAL rather than out of the store: a worker
-    ## then materialises only the polygons inside its own tile, instead of deserialising all 255,879
-    ## of them to keep a few thousand.
-    tar_target(
-      name = patches_patch_size_gpkg,
-      command = save_gpkg(patches_patch_size, district_dst(district, "patches_patch_size.gpkg")),
-      format = "file"
-    ),
-
-    ## arcpy step 6a: Union of the seral layer with both interior-forest layers. Every polygon keeps
-    ## its own seral stage and gains `old_interior` / `matold_interior` flags -- interior forest is an
-    ## attribute, not a relabelling.
-    ## Tiled: this ran 5h 51m 58s in a single process on 2026-08-31, and the overlay is embarrassingly
-    ## parallel over space.
-    ##
-    ## The tiles are `study_area_tiles` -- the *same* grid the seral layer was built on, which matters
-    ## for more than consistency. That layer already carries vertices lying bit-exactly on these seam
-    ## coordinates, so re-cutting here intersects at existing vertices, GEOS invents no new ones, and
-    ## the halves of a split polygon abut exactly. A different or finer grid would cut at fresh
-    ## coordinates and forfeit that.
-    ##
-    ## Cropping splits polygons at the seams, so the resultant has a few percent more features than
-    ## the untiled build. Area, footprint and every attribute combination are unchanged, and
-    ## `calc_matold()` dissolves and explodes before the interpatch distances are measured, which puts
-    ## split patches back together -- verified on real geometry across a seam: identical feature count
-    ## after `calc_matold()`, and identical nearest-neighbour quantiles.
-    tar_terra_vect(
-      name = patches_union_final_tiles,
-      command = patches_union_into_final_resultant(
-        patches_patch_size_gpkg,
-        patches_interior_forest_old,
-        patches_interior_forest_mature_old,
-        study_area_tiles
-      ),
-      ## NOTE: no `iteration =` -- see `VRI_BECNDT_tiles` above
-      pattern = map(study_area_tiles)
-    ),
-    tar_terra_vect(
-      name = patches_union_final,
-      command = combine_spatvectors(patches_union_final_tiles),
-      deployment = "main"
-    ),
-
-    tar_terra_vect(
-      name = forest_patches_final,
-      command = define_forest_seral_patch_conn_vals(patches_union_final)
-    ),
-    tar_target(
-      name = forest_patches_final_gpkg,
-      command = save_gpkg(
-        forest_patches_final,
-        district_dst(district, "forest_patches_final.gpkg")
-      ),
-      format = "file"
-    ),
-    tar_target(
-      name = forest_patches_final_png,
-      command = plot_forest_disturbance_seral(
-        forest_patches_final,
-        study_area,
-        "study_area_for_dist_seral_patches.png",
-        outdir = district_path("figures", district)
-      ),
-      format = "file"
-    ),
+    ## Historical epochs (plan §D): off unless `BC_CONN_EPOCHS` asks for them
+    historical_epoch_targets(historical_epochs()),
 
     ## biodiversity features
     tar_target(
@@ -994,28 +1101,6 @@ dataprep_targets <- function() {
     },
 
     ## create resistance and sourcewt rasters
-    tar_target(
-      name = resistance_forest,
-      command = create_resistance_raster(
-        polys = forest_patches_final,
-        rasterToMatch = LCC_agg,
-        dst = district_dst(district, "resistance_forest.tif", type = "rasters")
-      ),
-      format = "file",
-      pattern = map(LCC_agg),
-      iteration = "list"
-    ),
-    tar_target(
-      name = sourcewt_forest,
-      command = create_sourcewt_raster(
-        polys = forest_patches_final,
-        rasterToMatch = LCC_agg,
-        dst = district_dst(district, "sourcewt_forest.tif", type = "rasters")
-      ),
-      format = "file",
-      pattern = map(LCC_agg),
-      iteration = "list"
-    ),
 
     tar_target(
       name = resistance_roads_railways,
@@ -1201,51 +1286,6 @@ dataprep_targets <- function() {
       iteration = "list"
     ),
 
-    # composite rasters
-    tar_target(
-      name = resistance_composite,
-      command = create_composite_resistance_raster(
-        forest = resistance_forest,
-        roads = resistance_roads_railways,
-        streams = resistance_streams,
-        rivers = resistance_rivers,
-        lakes = resistance_lakes,
-        wetlands = resistance_wetlands,
-        dst = district_dst(district, "resistance_composite.tif", type = "rasters")
-      ),
-      format = "file",
-      pattern = map(
-        forest = resistance_forest,
-        roads = resistance_roads_railways,
-        streams = resistance_streams,
-        rivers = resistance_rivers,
-        lakes = resistance_lakes,
-        wetlands = resistance_wetlands
-      ),
-      iteration = "list"
-    ),
-    tar_target(
-      name = sourcewt_composite,
-      command = create_composite_sourcewt_raster(
-        forest = sourcewt_forest,
-        roads = sourcewt_roads_railways,
-        streams = sourcewt_streams,
-        rivers = sourcewt_rivers,
-        lakes = sourcewt_lakes,
-        wetlands = sourcewt_wetlands,
-        dst = district_dst(district, "sourcewt_composite.tif", type = "rasters")
-      ),
-      format = "file",
-      pattern = map(
-        forest = sourcewt_forest,
-        roads = sourcewt_roads_railways,
-        streams = sourcewt_streams,
-        rivers = sourcewt_rivers,
-        lakes = sourcewt_lakes,
-        wetlands = sourcewt_wetlands
-      ),
-      iteration = "list"
-    ),
     ## Seam to the omniscape project ------------------------------------------------------------
     ##
     ## Written as files so the omniscape project gets hash-based invalidation on them, rather than
@@ -1265,6 +1305,60 @@ dataprep_targets <- function() {
         file.path(district_path("inputs", district), "quantiles_all_dists.csv")
       ),
       format = "file"
+    )
+  )
+}
+
+#' Targets for the historical epochs (plan §D, task D4)
+#'
+#' One overlay of the disturbance history with VRI-NDT-BEC, shared by every epoch, and a donor table
+#' of ages at disturbance built from it tile by tile. Then, per epoch, an epoch seral layer and the
+#' whole of [seral_chain_targets()] again, under `tar_map()`: target names gain the epoch as a
+#' suffix (`resistance_composite_2005`) and so do the files they write.
+#'
+#' Roads and every non-forest layer are shared with the current condition. Dating roads by tenure
+#' (task D3) is not done yet, so road-driven change is absent from the series, not just a lower bound.
+#'
+#' @param epochs integer years, from [historical_epochs()]; none builds no targets
+#'
+#' @returns list of targets
+historical_epoch_targets <- function(epochs) {
+  if (length(epochs) == 0L) {
+    return(list())
+  }
+
+  list(
+    tar_terra_vect(
+      name = forest_disturbance_history_tiles,
+      command = create_forest_disturbance_history(
+        forest_disturbance_gpkg,
+        VRI_BECNDT_gpkg,
+        study_area_tiles
+      ),
+      pattern = map(study_area_tiles) ## no `iteration =`; see VRI_BECNDT_tiles
+    ),
+    ## per tile, row-bound by `targets`: no session ever holds every tile's geometry at once
+    tar_target(
+      name = lost_age_donors,
+      command = donor_ages(terra::as.data.frame(forest_disturbance_history_tiles)),
+      pattern = map(forest_disturbance_history_tiles)
+    ),
+
+    tarchetypes::tar_map(
+      values = list(epoch = epochs),
+      names = "epoch",
+      tar_terra_vect(
+        name = forest_disturbance_seral_tiles,
+        command = create_forest_disturbance_seral_epoch(
+          forest_disturbance_history_tiles,
+          epoch,
+          lost_age_donors,
+          sifa_max,
+          study_area_tiles
+        ),
+        pattern = map(forest_disturbance_history_tiles, study_area_tiles)
+      ),
+      seral_chain_targets(epoch = TRUE)
     )
   )
 }

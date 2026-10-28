@@ -97,6 +97,7 @@ Environment variables control how much of the machine the run takes:
 | `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
 | `BC_CONN_RESOLUTION_STUDY` | unset | `1` rebuilds the 30 m series alongside 90 m, for the resolution-equivalence comparison. Only Quesnel has one. |
 | `BC_CONN_AGG_FACTORS` | *(per district)* | set the resolutions directly, e.g. `1` for 30 m alone or `1 3` for both. Overrides `BC_CONN_RESOLUTION_STUDY`. |
+| `BC_CONN_EPOCHS` | unset | historical epochs to build in the `dataprep` projects: `all` (2005, 2010, 2015, 2020) or a list such as `2005,2010`. Each re-runs the patch chain from back-cast stand ages; 2025 is the current condition. |
 
 By default the `dataprep` project prepares every Omniscape input, and the `omniscape` project stops short of launching the runs themselves, which take hours to days each.
 
