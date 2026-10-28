@@ -81,9 +81,22 @@ parse_gnu_time <- function(path) {
     if (length(hit) == 0L) NA_character_ else sub("^[^:]*:\\s*", "", hit[[1]]) |> trimws()
   }
 
-  ## "Elapsed (wall clock) time" is h:mm:ss or m:ss
-  elapsed <- grab("Elapsed \\(wall clock\\) time")
-  seconds <- if (is.na(elapsed)) {
+  ## "Elapsed (wall clock) time (h:mm:ss or m:ss): 1:17:03"
+  ##
+  ## Deliberately NOT via `grab()`. Its `^[^:]*:` stops at the FIRST colon, which on this line sits
+  ## inside the label's own "(h:mm:ss or m:ss)" -- so it returned "mm:ss or m:ss): 1:17:03", the
+  ## split fed the label's words to `as.numeric()`, and the run warned "NAs introduced by coercion"
+  ## and fell back to R's wall clock. Every run made before 2026-09-17 therefore recorded
+  ## `wall_seconds` from R (Julia's time plus R's launch overhead) rather than from `time -v`.
+  ## Anchor on the trailing timestamp instead, which is unambiguous in both of GNU time's formats.
+  hit <- grep("Elapsed \\(wall clock\\) time", lines, value = TRUE)
+  elapsed <- if (length(hit) == 0L) {
+    character(0)
+  } else {
+    txt <- trimws(hit[[1]])
+    regmatches(txt, regexpr("[0-9]+(:[0-9]{2}){1,2}([.][0-9]+)?$", txt))
+  }
+  seconds <- if (length(elapsed) != 1L) {
     NA_real_
   } else {
     parts <- as.numeric(strsplit(elapsed, ":", fixed = TRUE)[[1]])
@@ -138,6 +151,10 @@ systemd_scope <- function() {
 #' @param q percentile value from `patch_distances` to use as the Omniscape run `radius` (e.g., 90 means '90%')
 #' @param run_name character specifying the base run name, to which the pixel size, radius, and block size will be appended
 #' @param ntiles integer [2] specifying the number of tile rows and columns to split the rasters by
+#' @param outputs_dir directory the run's output directory is created in. Defaults to the
+#'   repository-level `Outputs/`, which is district-blind; the district factories pass
+#'   `district_path("outputs", district)` so each district's runs land under its own subdirectory
+#'   alongside its category rasters and figures.
 #'
 #' @returns character vector specifying the file paths of the saved configuration and launch script files
 #' (`config.ini` and `script.jl`, respectively)
@@ -149,7 +166,8 @@ write_omniscape_config <- function(
   patch_distances,
   q = 100L,
   run_name = Sys.Date(),
-  ntiles = c(2, 3)
+  ntiles = c(2, 3),
+  outputs_dir = get_path("outputs")
 ) {
   q <- as.integer(q)
 
@@ -212,7 +230,10 @@ write_omniscape_config <- function(
   ## current within ~1400 px of every seam was wrong and the mosaics were artifact-ridden.
   tiled <- prod(ntiles) > 1
 
-  tile_dir <- file.path(get_path("rasters"), run_name) |> fs::dir_create()
+  ## Named here but NOT created here: tiling is opt-in (`BC_CONN_OMNISCAPE_BENCH`), and creating
+  ## the directory unconditionally left one empty directory per run under `Data/processed/rasters/`,
+  ## named for the run rather than for a district -- the only thing in that tree that is not.
+  tile_dir <- file.path(get_path("rasters"), run_name)
   tile_c <- ceiling(terra::ncol(res_r) / ntiles[2])
   tile_r <- ceiling(terra::nrow(res_r) / ntiles[1])
   use_buffer <- 2 * radius
@@ -231,6 +252,8 @@ write_omniscape_config <- function(
   }
 
   if (tiled) {
+    fs::dir_create(tile_dir) ## `makeTiles()` does not create missing parents
+
     res_tiles <- terra::makeTiles(
       x = res_r,
       y = c(tile_r, tile_c),
@@ -280,7 +303,7 @@ write_omniscape_config <- function(
     omni_path <- fs::dir_create(get_path("omniscape"), run_name)
     omni_path_rel <- fs::path_rel(omni_path, get_path("project"))
 
-    output_dir <- fs::path(get_path("outputs"), run_name_tile) ## don't create the dir, Omniscape needs to do it!
+    output_dir <- fs::path(outputs_dir, run_name_tile) ## don't create the dir, Omniscape needs to do it!
     output_path_rel <- fs::path_rel(output_dir, get_path("project"))
 
     if (tile_id == max(tile_ids)) {
@@ -417,8 +440,25 @@ run_omniscape <- function(
 
   ## `NULL` means "size it to this configuration" -- the runs differ by three orders of magnitude
   ## in window size and do not share an optimal thread count. See `omniscape_threads()`.
+  ##
+  ## The host ceiling applies either way. A value forced through `BC_CONN_JULIA_THREADS` is still
+  ## clipped by it, because the ceiling is a property of the machine and the other work on it, not
+  ## of the configuration -- but it is clipped loudly, since someone who named a number meant it.
+  thread_cap <- omniscape_thread_cap()
+
   if (is.null(julia_threads)) {
-    julia_threads <- omniscape_threads(config_file)
+    julia_threads <- omniscape_threads(config_file, max_threads = thread_cap)
+  } else if (as.integer(julia_threads) > thread_cap) {
+    warning(
+      "`julia_threads` = ",
+      julia_threads,
+      " exceeds the host ceiling of ",
+      thread_cap,
+      " (BC_CONN_JULIA_THREADS_MAX); running with ",
+      thread_cap,
+      "."
+    )
+    julia_threads <- thread_cap
   }
 
   ## the output directory is whatever `project_name` says; paths in the config are relative to the
@@ -625,6 +665,31 @@ run_omniscape <- function(
   return(output_files)
 }
 
+## The run directories behind a set of Omniscape outputs.
+##
+## `run_omniscape()` returns FILES -- three rasters, the log, and the metrics CSV, five per run --
+## because the target is `format = "file"` and every one of them has to be tracked. Anything that
+## works per RUN therefore has to collapse them first: handed the vector as-is, a per-run loop
+## visits each directory five times and builds the same output five times over.
+##
+## Selects on `normalized_cum_currmap.tif` rather than taking `dirname()` of everything, so a run
+## contributes exactly one directory and only when the raster these consumers need was actually
+## written -- `calc_normalized_current` is off by default in Omniscape.
+##
+## Directories pass through unchanged, so a finished run can still be pointed at by path.
+omniscape_run_dirs <- function(x) {
+  x <- unlist(x, use.names = FALSE)
+  if (!length(x)) {
+    return(character(0))
+  }
+
+  is_dir <- dir.exists(x)
+  unique(c(
+    x[is_dir],
+    dirname(grep("normalized_cum_currmap[.]tif$", x[!is_dir], value = TRUE))
+  ))
+}
+
 ## the launch scripts written by write_omniscape_config(), in the order they should be run
 omniscape_scripts <- function(omniscape_files, tiled = FALSE) {
   scripts <- grep("[.]jl$", unlist(omniscape_files), value = TRUE)
@@ -669,7 +734,7 @@ omniscape_tiles <- function(spec = Sys.getenv("BC_CONN_OMNISCAPE_BENCH", "")) {
 #' @returns path to the combined CSV, or `character(0)` when no runs have been made
 #'
 #' @export
-omniscape_benchmark_table <- function(omniscape_outputs) {
+omniscape_benchmark_table <- function(omniscape_outputs, dest_dir = get_path("outputs")) {
   metrics <- grep("omniscape_metrics[.]csv$", omniscape_outputs, value = TRUE)
 
   if (length(metrics) == 0L) {
@@ -684,7 +749,7 @@ omniscape_benchmark_table <- function(omniscape_outputs) {
       peak_rss_gb = round(.data$peak_rss_gb, 1)
     )
 
-  dst <- file.path(get_path("outputs"), "omniscape_benchmarks.csv")
+  dst <- file.path(dest_dir, "omniscape_benchmarks.csv")
   utils::write.csv(combined, dst, row.names = FALSE)
 
   return(dst)
@@ -822,6 +887,44 @@ omniscape_thread_setting <- function(spec = Sys.getenv("BC_CONN_JULIA_THREADS", 
   }
 
   as.integer(spec)
+}
+
+#' Ceiling on the threads an Omniscape run may take on this host
+#'
+#' `BC_CONN_JULIA_THREADS` forces one value for every configuration, which is the wrong instrument
+#' for a shared host: the configurations do not share an optimum, and forcing the regional run's
+#' thread count onto the local one makes the local one *slower* -- measured 57 min at 8 threads
+#' against ~87 min at 32, because `ProgressMeter`'s global lock serialises ~855k short solves. A
+#' ceiling leaves [omniscape_threads()] free to pick per configuration and only clips the top.
+#'
+#' It is also the memory control, because memory is linear in threads with a near-zero intercept
+#' and the per-thread constant is set by window size: 2.32 GB/thread at radius 477 and
+#' 9.57 GB/thread at radius 1429, both measured on this study area. So a cap of 16 holds the 90 m
+#' regional run to ~37 GB, and 48 holds it to ~108 GB. [omniscape_memory_max()] is the backstop
+#' that makes the kernel enforce it; this is the setting that makes it unnecessary.
+#'
+#' @param spec character; a positive integer, or `""` for the default of 64 -- the top of the
+#'   measured sweep, not a host property, so a shared machine should set it.
+#'
+#' @returns integer ceiling, passed to [omniscape_threads()] as `max_threads`
+#'
+#' @export
+omniscape_thread_cap <- function(spec = Sys.getenv("BC_CONN_JULIA_THREADS_MAX", "")) {
+  if (!nzchar(spec)) {
+    return(64L)
+  }
+
+  n <- suppressWarnings(as.integer(spec))
+
+  if (is.na(n) || n < 1L) {
+    stop(
+      "`BC_CONN_JULIA_THREADS_MAX` must be a positive integer, not: ",
+      spec,
+      call. = FALSE
+    )
+  }
+
+  n
 }
 
 #' Is any Omniscape run selected?

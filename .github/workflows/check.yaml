@@ -18,12 +18,15 @@ jobs:
     name: syntax and metadata
 
     env:
-      ## The project .Rprofile activates renv and attaches dplyr/sf/targets.
-      ## This job deliberately does not restore the project library, so those
-      ## packages are absent and `shell: Rscript` steps would fail on startup.
-      ## Point R at an empty user profile so it starts bare. This overrides only
-      ## the *user* profile, so Rprofile.site (and the repos setup-r configures)
-      ## still applies.
+      ## The project .Rprofile sources `renv/activate.R`. This job deliberately
+      ## does not restore the library, and the bootstrapper would try to install
+      ## renv on startup and then report every missing package. Point R at an
+      ## empty user profile so it starts bare. This overrides only the *user*
+      ## profile, so Rprofile.site (and the repos setup-r configures) still
+      ## applies.
+      ##
+      ## Do NOT copy this into the `tests` job: it would stop renv activating,
+      ## and nothing would be on `.libPaths()`.
       R_PROFILE_USER: /dev/null
 
     steps:
@@ -72,3 +75,79 @@ jobs:
 
       - name: Validate CITATION.cff
         uses: dieghernan/cff-validator@v5
+
+  tests:
+    ## pinned for the same reason as `syntax` above: ubuntu-26.04 ships a
+    ## toolchain several pinned packages cannot build against, and this job
+    ## does build some of them from source (see the note on the cache below).
+    runs-on: ubuntu-24.04
+    name: tests and pipeline validation
+    ## a cold cache builds ~100 packages from source; a warm one is a couple of minutes
+    timeout-minutes: 120
+
+    env:
+      ## renv resolves the 5 GitHub-sourced packages through the GitHub API,
+      ## which is rate-limited to 60 requests/hour per IP when unauthenticated
+      ## -- and runners share IPs.
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      ## Stock Ubuntu GDAL/GEOS/PROJ, deliberately. Posit Package Manager builds
+      ## its Linux binaries against the distribution's own libraries, so adding a
+      ## PPA such as ubuntugis would change the system libraries out from under
+      ## them and force every spatial package to build from source. The binaries
+      ## link against these at runtime, so they are needed even when nothing
+      ## compiles.
+      ##
+      ## The rest are the other locked packages' system requirements, from Posit
+      ## Package Manager's sysreqs API for ubuntu 24.04. A cold cache installs
+      ## every package and test-loads it, so one missing library (librsvg for
+      ## rsvg was the first) fails the restore.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libudunits2-dev \
+            libabsl-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libfribidi-dev \
+            libgit2-dev \
+            libglpk-dev \
+            libharfbuzz-dev \
+            libicu-dev \
+            libjpeg-dev \
+            libnode-dev \
+            libpng-dev \
+            librsvg2-dev \
+            libsqlite3-dev \
+            libzstd-dev
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          ## the version renv.lock records, rather than a second place to update it
+          r-version: renv
+
+      ## Restores the library and caches it itself -- no separate actions/cache
+      ## step. The key is (os, R version, cache-version, hash of renv.lock), so
+      ## the cache survives every commit that does not touch the lockfile, and a
+      ## lockfile change still warm-starts from the previous cache.
+      - uses: r-lib/actions/setup-renv@v2
+
+      - name: Run tests
+        run: |
+          targets::tar_source()
+          testthat::test_dir("tests/testthat")
+        shell: Rscript {0}
+
+      ## Builds all six pipeline definitions and checks that every symbol each
+      ## command references resolves. See the header of the script: this is the
+      ## check that catches a command naming a target that belongs to a
+      ## different project, which `targets` itself does not verify.
+      - name: Validate every targets project
+        run: Rscript scripts/validate-projects.R

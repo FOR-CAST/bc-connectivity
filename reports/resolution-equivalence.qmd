@@ -61,10 +61,16 @@ library(dplyr)
 library(knitr)
 
 ## Quesnel's Omniscape outputs moved under `Outputs/quesnel/` when the pipeline became
-## multi-district. A clone from before that move still has them flat. Resolve either, so this
-## document does not care which layout it is rendering against.
+## multi-district, and the pre-factory runs this document compares moved again, into
+## `archive-prefactory/`, when Quesnel was rebuilt through the factories on 2026-09-16. A clone
+## from before either move still has them flat. Resolve any of the three, so this document does not
+## care which layout it is rendering against.
+##
+## Order matters: the archive is searched FIRST, because a rebuilt Quesnel writes new runs under
+## district-qualified names at the top level, and this document is about the pre-factory ones.
 run_dir <- function(run) {
   cand <- c(
+    file.path(proj, "Outputs", "quesnel", "archive-prefactory", run),
     file.path(proj, "Outputs", "quesnel", run),
     file.path(proj, "Outputs", run)
   )

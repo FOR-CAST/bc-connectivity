@@ -33,13 +33,30 @@ ecological values of forest ages.
 This project uses a [`targets`](https://docs.ropensci.org/targets/)
 workflow.
 
-``` r
-## Run the workflow:
-targets::tar_make()
+The pipeline runs once per Natural Resource District, as a pair of
+projects – a `dataprep` project ending at the Omniscape inputs, and an
+`omniscape` project that consumes them. `_targets.yaml` names them;
+`TAR_PROJECT` selects one.
 
-## Visualize the target dependencies:
-targets::tar_visnetwork()
+``` bash
+## Prepare one district's inputs:
+TAR_PROJECT=_targets_dataprep_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
+
+## Then run Omniscape for it (opt-in; see BC_CONN_OMNISCAPE below):
+TAR_PROJECT=_targets_omniscape_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
+
+## Visualize the target dependencies for a project:
+TAR_PROJECT=_targets_dataprep_quesnel Rscript-4.5.3 -e 'targets::tar_visnetwork()'
 ```
+
+Substitute `chilcotin` or `hundred_mile` for `quesnel` to run another
+district. Each district’s inputs and results live under its own key –
+`Data/processed/<district>/`, `Data/processed/rasters/<district>/`,
+`Outputs/<district>/` – so districts never overwrite one another.
+
+There is no default project: `TAR_PROJECT` is required. A bare
+`targets::tar_make()` resolves to `_targets.R`, which is the retired
+single-district Quesnel pipeline and refuses to run.
 
 Long runs should be started detached, so they survive an SSH or IDE
 disconnect from the compute node:
@@ -69,13 +86,17 @@ Environment variables control how much of the machine the run takes:
 | Variable | Default | Effect |
 |----|----|----|
 | `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
-| `BC_CONN_JULIA_THREADS` | *(per configuration)* | Julia threads per Omniscape run. Unset, each run is sized from its window: 8 threads for small windows (more threads make those *slower*), 16 for medium, 40 for large. Set it to force one value everywhere. |
+| `BC_CONN_JULIA_THREADS` | *(per configuration)* | Julia threads per Omniscape run. Unset, each run is sized from its window: 8 threads for small windows (more threads make those *slower*), 16 for medium, 64 for large. Set it to force one value everywhere. |
+| `BC_CONN_JULIA_THREADS_MAX` | `64` | ceiling on that per-configuration choice, and so on memory, which is linear in threads: 2.32 GB/thread at the 90 m regional radius. Set it on a shared host instead of forcing `BC_CONN_JULIA_THREADS`, which would also slow the small-window runs. |
 | `BC_CONN_OMNISCAPE_MEMMAX` | `50%` | memory cap for an Omniscape run, enforced with a systemd/cgroup scope; `none` disables it |
 | `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
 | `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
+| `BC_CONN_RESOLUTION_STUDY` | unset | `1` rebuilds the 30 m series alongside 90 m, for the resolution-equivalence comparison. Only Quesnel has one. |
+| `BC_CONN_AGG_FACTORS` | *(per district)* | set the resolutions directly, e.g. `1` for 30 m alone or `1 3` for both. Overrides `BC_CONN_RESOLUTION_STUDY`. |
 
-By default a full `tar_make()` prepares every Omniscape input and stops
-short of launching the runs themselves, which take hours to days each.
+By default the `dataprep` project prepares every Omniscape input, and
+the `omniscape` project stops short of launching the runs themselves,
+which take hours to days each.
 
 ### Debugging
 
@@ -106,7 +127,10 @@ testthat::test_dir("tests/testthat")
 
     .
     ├── _dependencies.R
+    ├── _targets_dataprep.R
+    ├── _targets_omniscape.R
     ├── _targets.R
+    ├── _targets.yaml
     ├── .github
     ├── .gitignore
     ├── .Rprofile
@@ -244,6 +268,16 @@ workflow, via the [`bcdata`](https://github.com/bcgov/bcdata) and
 download from the BC Data Catalogue and Open Government Portal. No
 account, API key, or credential is required.
 
+The province-wide layers are identical for every district, so they are
+fetched once into `Data/raw/` by the `shared_inputs` target rather than
+by each step that reads them. That directory is shared, and on a setup
+where it is on network storage it is shared between machines too, so the
+fetch is written to be safe to run from several districts and several
+hosts at the same time: one caller downloads while the rest wait, and
+each file is only moved to its final name once it is complete. Running
+the three districts concurrently therefore needs nothing set up
+beforehand – a bare `tar_make()` on each is enough.
+
 **Restricted layer.** The **BC Cumulative Effects Framework Forest
 Disturbance (2024)** layer (`BC_CEF_Forest_Disturbance_2024.gdb`) is a
 CEF Custom Product. It is not available through the `bcdata` package or
@@ -259,7 +293,7 @@ Please describe your intended use when requesting the data. Once
 obtained, place the geodatabase in the workflow’s download directory so
 that the following path resolves:
 
-    Data/download/BC_CEF_Forest_Disturbance_2024.gdb
+    Data/raw/BC_CEF_Forest_Disturbance_2024.gdb
 
 The workflow will then proceed normally. Note that the Forest
 Disturbance layer drives the Simple Inferred Forest Age (SIFA) and seral
@@ -629,13 +663,34 @@ stacking rules:
 
 Used Omniscape to produce connectivity maps.
 
-**NOTE:** Omniscape not working with Julia 1.12; use 1.11 for now.
-<https://github.com/Circuitscape/Omniscape.jl/issues/160>
+**NOTE:** Omniscape is pinned to 0.6.2 and Julia to 1.11.7, and both
+pins are deliberate. Omniscape 0.6.2 does not run on Julia 1.12
+([\#160](https://github.com/Circuitscape/Omniscape.jl/issues/160),
+[\#165](https://github.com/Circuitscape/Omniscape.jl/issues/165)); both
+are fixed in the unreleased 0.7.0.
 
-Omniscape runs are launched from the `targets` workflow, so the whole
-analysis is a single `tar_make()`. (This previously had to be done by
-hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled shared
-libraries, which any Julia subprocess inherits, so Julia resolved
+**The forthcoming Omniscape 0.7.0 will not reproduce the results this
+pipeline currently produces.**
+[Omniscape.jl#171](https://github.com/Circuitscape/Omniscape.jl/pull/171)
+changes the artifact correction so that cells whose block-source current
+sits at solver-noise level get a correction factor of 1, instead of a
+factor derived from the ratio of two near-zero currents. That moves
+`flow_potential.tif` and `normalized_cum_currmap.tif` for any run with
+`correct_artifacts = true` and `block_size > 1` – which is every
+configuration this pipeline writes. `cum_currmap.tif` is unaffected.
+Upstream’s own test case moved by roughly two orders of magnitude; the
+magnitude on this study area is unmeasured. 0.7.0 also requires
+Circuitscape 6, which replaces the iterative solver again.
+
+Upgrading is therefore a results change, not a version bump. It needs a
+measured before-and-after on this study area, recorded in the
+Corrections section below, and it should not be started while production
+runs are in flight.
+
+Omniscape runs are launched from the `targets` workflow, so a district’s
+whole analysis is two `tar_make()` calls. (This previously had to be
+done by hand: R exports `LD_LIBRARY_PATH` pointing at its own bundled
+shared libraries, which any Julia subprocess inherits, so Julia resolved
 libraries such as `libcurl` against R’s copies and segfaulted on
 `using Omniscape`. Dropping that variable from the child environment –
 see `julia_env()` in `R/run_omniscape.R` – is all that was needed.)
@@ -690,8 +745,44 @@ Tiled variants exist to benchmark resource use against the untiled run
 rather than because the analysis needs them, so they are opt-in via
 `BC_CONN_OMNISCAPE_BENCH`.
 
-All configurations were run on a single AMD EPYC CPU using 64 threads
-(per below).
+Runs execute on a single machine, with the thread count chosen per
+configuration by default (see `BC_CONN_JULIA_THREADS`).
+
+#### Thread scaling
+
+Measured 2026-09-02 on a two-socket AMD EPYC 7702 (64 physical cores per
+socket), `performance` governor, Julia 1.11.7, at `r` = 477 and
+`bs = 75` (1,323 targets). Times are for the solve phase only. Startup
+is a fixed serial cost, so including it would flatter the low thread
+counts.
+
+| threads | placement  |   solve | speedup | peak RSS |
+|--------:|------------|--------:|--------:|---------:|
+|      16 | default    | 7,616 s |   1.00x |  32.7 GB |
+|      24 | default    | 5,528 s |   1.38x |  49.9 GB |
+|      32 | default    | 5,054 s |   1.51x |  72.0 GB |
+|      32 | one socket | 4,497 s |   1.69x |  67.5 GB |
+|      40 | default    | 4,345 s |   1.75x |  88.3 GB |
+|      48 | default    | 3,980 s |   1.91x | 107.5 GB |
+|      64 | default    | 3,317 s |   2.30x | 144.1 GB |
+|      64 | one socket | 5,123 s |   1.49x |        – |
+
+There is no plateau: throughput keeps improving to 64 threads, but
+sublinearly, since four times the threads buys 2.30x. Memory is linear
+in thread count, as the accumulator allocation
+`2 * nrows * ncols * 8 * nthreads` requires, so in practice the thread
+count is set by available RAM rather than by diminishing returns.
+
+Binding to one socket with `numactl --cpunodebind=0` is worth 1.12x at
+32 threads and costs 1.54x at 64, because one socket cannot supply 64
+physical cores and the pinned run falls back onto SMT siblings. Pin at
+or below a socket’s physical core count, never above it.
+
+The curve was measured at 90 m but it transfers. Two 30 m regional runs
+at `r` = 1429, identical apart from thread count, give 40 -\> 64 = 1.30x
+against 1.31x here, so the scaling holds across a 9x change in window
+area and a 4.1x change in per-thread working set. Memory at 30 m came in
+at 10.4 GB per thread.
 
 Individual runs can still be launched by hand from a terminal if needed,
 e.g.,
@@ -850,6 +941,12 @@ Install R 4.5.3:
 rig add 4.5.3
 ```
 
+This also puts a version-suffixed `Rscript-4.5.3` on the path, which is
+what the commands above use. A bare `Rscript` resolves to whichever R
+comes first on the path, and `renv/library/` is per R minor version, so
+under a different one the project library looks completely empty and
+every command fails as though the project itself were broken.
+
 ### R packages
 
 ``` r
@@ -885,11 +982,16 @@ Launch the Julia REPL:
 julia +1.11.7
 ```
 
-Install Omniscape:
+Install Omniscape, pinned to the version this project’s results were
+produced with:
 
 ``` julia
-import Pkg; Pkg.add("Omniscape")
+import Pkg; Pkg.add(name = "Omniscape", version = "0.6.2")
 ```
+
+The pin is deliberate – see the note in the *Omniscape runs* section
+above on 0.7.0 changing results. An unpinned `Pkg.add("Omniscape")` will
+silently pick up 0.7.0 once it is released.
 
 # Contributing
 
@@ -954,9 +1056,10 @@ Source Software*, 6, 2829.
 
 <div id="ref-McRae:2008" class="csl-entry">
 
-McRae, B.H., Dickson, B.G., Keitt, T.H. & Shah, V.B. (2008). Using
+McRae, B.H., Dickson, B.G., Keitt, T.H. & Shah, V.B. (2008). [Using
 circuit theory to model connectivity in ecology, evolution, and
-conservation. *Ecology*, 89, 2712–2724.
+conservation](https://doi.org/10.1890/07-1861.1). *Ecology*, 89,
+2712–2724.
 
 </div>
 

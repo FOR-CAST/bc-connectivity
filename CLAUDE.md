@@ -59,11 +59,19 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
 
 ## Running the pipeline
 
-```r
-targets::tar_make()
+Every project needs `TAR_PROJECT`; there is no default.
+
+```bash
+TAR_PROJECT=_targets_dataprep_quesnel  Rscript-4.5.3 -e 'targets::tar_make()'
+TAR_PROJECT=_targets_omniscape_quesnel Rscript-4.5.3 -e 'targets::tar_make()'
 ```
 
-Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_OMNISCAPE`.
+A bare `targets::tar_make()` resolves to `_targets.R` -- the retired Quesnel pipeline -- which refuses to run.
+`_targets.yaml` has no `main:` entry, but that alone is not protection: with no entry `targets` falls back to its built-in defaults, which are exactly that script and the `_targets/` store.
+Hence the guard at the top of the file.
+
+Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_JULIA_THREADS_MAX`, `BC_CONN_OMNISCAPE`.
+On a shared host, cap Omniscape with `BC_CONN_JULIA_THREADS_MAX` rather than pinning `BC_CONN_JULIA_THREADS`: the ceiling clips the large-window runs, which is where the memory is, while leaving the small-window ones at the 8 threads they are fastest at.
 Omniscape runs are opt-in because a single one can take days and hundreds of GB of RAM.
 
 This is a shared machine.
@@ -99,6 +107,60 @@ Two things to do rather than quoting an early ETA:
   Per-solve cost scales with window area at roughly `nodes^1.8` on this study area (measured: a 8.96x node ratio cost 52.4x), so a finished run at one radius predicts another.
 
 Do not relay an early ETA as a projection without saying it is unsettled.
+
+## Validate every project after touching the pipeline
+
+There are six `targets` projects (see `_targets.yaml`): a dataprep and an omniscape project per district.
+They share `R/`, and the two factories in `R/factories.R` generate all of them, so a change in one file can break projects you were not thinking about.
+
+**After changing anything a pipeline reads -- `_targets*.R`, anything in `R/`, `_targets.yaml`, or a literate document a `tar_render()` / `tar_quarto()` target points at -- validate all six, not just the one you were working on.**
+
+```bash
+Rscript-4.5.3 scripts/validate-projects.R
+```
+
+It runs in CI too, so a pull request gets the same check.
+
+`tar_manifest()` is the core of it: it builds the whole pipeline definition, so it catches what `tar_validate()` catches, and the target count is a useful regression signal in itself -- dataprep is 112 for every district and each omniscape project is 25.
+
+The script adds the check `targets` does not do: that every symbol a command references actually **resolves** -- to a target in the same project, to something the project script binds, to something `tar_source()` defined, or to the search path.
+Nothing else catches a command naming a target that belongs to a *different* project.
+`omniscape_summary` called `zonal_summaries(omniscape_run, study_area, LCC, ...)` against ten targets that exist only in the dataprep project, from `8e88b9a` until a district first finished an Omniscape run -- months.
+It went unnoticed because the function returns early when no runs exist and R's lazy evaluation never forced the arguments, so the target reported as built without ever having read a layer.
+`connectivity_categories` failed the same way for the same reason.
+**A target that returns early on an empty input is not evidence that its arguments resolve.**
+Two environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118, and `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts.
+
+The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.
+
+Two real failures that only a full sweep would have caught:
+
+- Editing the README once broke `main` **and** both omniscape projects, because `omniscape_targets()` rendered the same repository-level document in every district.
+  `_targets_dataprep.R` was fine, so validating the project being worked on reported everything healthy.
+  That target has since been removed from the factory -- see the note in `omniscape_targets()` -- so the README is no longer shared, but the shape of the failure is what to watch for.
+- A code span written as `` `r = 477` `` is knitr *inline R code*, not formatting: knitr tangles it to `= 477`, which does not parse, and the dependency scan fails with `Could not parse knitr report`.
+  Write `` `r` = 477 `` instead.
+  Any code span starting with `` `r `` followed by a space is an R expression, so this applies to every `.Rmd` and `.qmd` here.
+
+Validation is cheap -- seconds per project -- and it runs no targets, so there is no reason to skip it.
+
+## The retired `main` project
+
+`main` was the single-district Quesnel pipeline, from before the factories existed.
+Quesnel now runs through `_targets_dataprep_quesnel` / `_targets_omniscape_quesnel` like every other district, and its artefacts live under `quesnel/` alongside theirs.
+
+**`_targets/` is a frozen archive, not a live store.**
+It holds 204 h of recorded compute and is the provenance behind the published results and the corrections report.
+When Quesnel's artefacts moved under `quesnel/`, the paths recorded in `_targets/meta/meta` were rewritten to match, so `tar_meta()` and `tar_read()` still resolve against it -- 2,175 recorded file paths, all of which exist.
+
+**Do not run it.**
+`_targets.R` still resolves paths through `get_path()`, which is district-blind, so a `tar_make()` there would write a second, flat copy of Quesnel's outputs beside the moved ones.
+It is deliberately absent from `_targets.yaml` for that reason; reading the archive needs no entry there.
+`_targets.R` and the writers in `R/data_prep.R` and `R/rasters.R` are kept as they were -- editing them would buy nothing, since nothing runs them, and `targets` hashes function bodies, so a change there would invalidate the two district stores that *are* live.
+
+Anything that reads Quesnel's artefacts directly rather than through `targets` has to decide which layout it expects, because a clone from before the move still has them flat.
+`reports/corrections-2026-08.qmd` assumes the district layout and nothing else: the artefacts moved before anyone outside this repository had run the pipeline, so there is no older clone for it to render against.
+A document that does need to work either way should resolve both rather than assume one.
 
 ## Tests
 
@@ -187,12 +249,12 @@ When working on a package:
   ```
   `lock = TRUE` records the exact remote SHA in `renv.lock`, so a fresh clone of this project can actually install what it was tested against.
   Run it from **this** project's directory -- renv writes the lockfile of whatever project is active, so running it from the package's own clone drops a stray `renv.lock` there and installs into the wrong library.
-- **`renv.lock` is deliberately kept in renv's v1 format** (compact records). renv 1.x writes v2 by default, which embeds each package's full DESCRIPTION and turns a one-package bump into a ~1,000-line diff.
-  Preserve it when installing:
-  ```r
-  withr::with_options(list(renv.lockfile.version = 1), renv::install("FOR-CAST/spatialutils", lock = TRUE))
-  ```
-  (The `options(renv.lockfile.version = 1)` that used to sit in `.Rprofile` was there for `workflowtools` issue #1; that is obsolete -- `workflowtools::packages_from_snapshot()` reads both formats identically -- so the pin is now a readability choice, not a requirement.)
+- **`renv.lock` is in renv's v2 format** (full records), deliberately, since the renv 1.2.4 upgrade on 2026-09-16.
+  v2 is what renv 1.x writes by default, so nothing needs doing to keep it.
+  **Do not reinstate the `withr::with_options(list(renv.lockfile.version = 1), ...)` wrapper this file used to prescribe**, and do not re-snapshot back to v1.
+  The reason the v1 pin existed was diff size, and that argument does not survive contact with the numbers: the v1 -> v2 migration was a single 2,468-line commit (58 KB -> 197 KB, 78 CRAN records gaining their full DESCRIPTION), but a package bump *within* v2 rewrites only that package's record.
+  The churn is the format change, not the updates -- so it is paid once, and it has been.
+  (The `options(renv.lockfile.version = 1)` that used to sit in `.Rprofile` was there for `workflowtools` issue #1; that is obsolete too -- `workflowtools::packages_from_snapshot()` reads both formats identically.)
 - Run `devtools::test()` and `devtools::check()` locally before pushing, and watch the package's GitHub Actions afterwards.
 - Every user-facing change gets a `NEWS.md` bullet, and every fix gets a test that fails without it.
 - **Use `usethis` for package plumbing** rather than editing files by hand -- `use_version()`, `use_package()`, `use_test()`, and friends.

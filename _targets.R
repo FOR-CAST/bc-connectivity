@@ -1,3 +1,29 @@
+# RETIRED -- the single-district Quesnel pipeline, kept for provenance. See CLAUDE.md,
+# "The retired `main` project".
+#
+# Quesnel runs through `_targets_dataprep_quesnel` / `_targets_omniscape_quesnel` now, and its
+# artefacts live under `quesnel/` with the other districts'. Everything below still resolves paths
+# through `get_path()`, which is district-blind, so running it would write a second, FLAT copy of
+# Quesnel's outputs beside the moved ones and leave two divergent sets on disk.
+#
+# `main` is absent from `_targets.yaml`, but absence is not protection: with no entry, `targets`
+# falls back to its built-in defaults, which are exactly this script and the `_targets/` store. A
+# bare `tar_make()` would therefore run this. Hence the guard.
+#
+# Reading the archive -- `tar_meta()`, `tar_read()` -- does not source this file and is unaffected.
+if (!nzchar(Sys.getenv("BC_CONN_ALLOW_RETIRED_MAIN"))) {
+  stop(
+    "`_targets.R` is the RETIRED single-district Quesnel pipeline and must not be run.\n",
+    "Quesnel now builds through the district projects:\n",
+    "  TAR_PROJECT=_targets_dataprep_quesnel  Rscript -e 'targets::tar_make()'\n",
+    "  TAR_PROJECT=_targets_omniscape_quesnel Rscript -e 'targets::tar_make()'\n",
+    "Reading the frozen archive needs no override: tar_meta()/tar_read() work as they are.\n",
+    "If you really do mean to run this, set BC_CONN_ALLOW_RETIRED_MAIN=1 -- and read\n",
+    "CLAUDE.md, \"The retired `main` project\", first.",
+    call. = FALSE
+  )
+}
+
 # Created by use_targets().
 # Follow the comments below to fill in this target script.
 # Then follow the manual to check and run the pipeline:
@@ -65,12 +91,12 @@ tar_option_set(
     workers = n_workers,
     seconds_idle = 600,
     crashes_max = 20L,
-    ## Keep the workers' stdout/stderr. crew's default DISCARDS it, so a worker that dies
-    ## mid-task takes its only diagnostic with it. That is not hypothetical: a long-running
-    ## target was observed failing repeatedly over several days leaving nothing behind -- no
-    ## error in the pipeline log, no R condition, no cgroup OOM, no kernel record -- on an
-    ## idle machine with hundreds of GB free. The retries show up only as more "dispatched"
-    ## lines, which read exactly like progress.
+    ## Keep the workers' stdout/stderr. crew's default DISCARDS it, and a worker that dies mid-task
+    ## then takes its only diagnostic with it: the Chilcotin dataprep lost
+    ## `patches_interior_forest_*` eleven times each over six days leaving nothing behind -- no
+    ## error in the pipeline log, no R condition, no cgroup OOM, no kernel record -- on an idle
+    ## machine with hundreds of GB free. The retries show up only as more "dispatched" lines,
+    ## which read exactly like progress.
     ##
     ## They go under `Outputs/log/crew/`, which is shared storage, so a run on one machine can be diagnosed
     ## from any of the others -- the failure that needs the log is usually not on the host you are
@@ -1036,6 +1062,12 @@ list(
   ## Render the README. `tar_quarto()` rather than `tar_render()` since the document is a .qmd:
   ## it renders to GitHub-flavoured markdown, so `README.md` is produced by pandoc rather than
   ## being knitr's unprocessed intermediate.
+  ##
+  ## This is the only README target in the repository, and this pipeline is retired, so nothing
+  ## renders it automatically any more. It is kept here for provenance and correctness rather than
+  ## because it runs; render by hand with `quarto render README.qmd`. The per-district factories
+  ## deliberately have no README target -- see the note in `omniscape_targets()`: the README is a
+  ## repository-level document, and three districts rendering it would race on one path.
   tar_quarto(
     name = readme,
     path = "README.qmd"

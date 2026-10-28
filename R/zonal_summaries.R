@@ -6,9 +6,14 @@
 ## Takes the Omniscape output paths from the pipeline rather than globbing `Outputs/` for a
 ## hard-coded run-name pattern, and takes its layers as arguments rather than re-reading them with
 ## `tar_read()` -- both of which silently tied this function to one particular set of runs.
+##
+## The layers arrive as PATHS from the omniscape project, which imports what the prep project
+## published rather than holding a second copy (see `district_input_layer()`). Objects are still
+## accepted, which is what the retired `main` project passes; it calls positionally, so `study_area`
+## may be renamed but the argument ORDER may not.
 zonal_summaries <- function(
   omniscape_outputs,
-  Quesnel_TSA,
+  study_area,
   LCC,
   LU,
   BEC,
@@ -29,11 +34,18 @@ zonal_summaries <- function(
     return(character(0))
   }
 
-  studyArea <- tidyterra::as_spatvector(Quesnel_TSA) |>
-    terra::project(terra::crs(LCC))
+  ## `terra::rast()` on a path is lazy -- it reads the header, not the cells -- so taking the CRS
+  ## from a GeoTIFF path costs nothing.
+  as_polygons <- function(x) {
+    if (is.character(x)) terra::vect(x) else tidyterra::as_spatvector(x)
+  }
+  lcc_crs <- if (is.character(LCC)) terra::crs(terra::rast(LCC)) else terra::crs(LCC)
+
+  studyArea <- as_polygons(study_area) |>
+    terra::project(lcc_crs)
 
   clip <- function(x) {
-    tidyterra::as_spatvector(x) |> terra::project(terra::crs(LCC)) |> terra::crop(studyArea)
+    as_polygons(x) |> terra::project(lcc_crs) |> terra::crop(studyArea)
   }
 
   summary_polys <- list(
@@ -67,7 +79,10 @@ zonal_summaries <- function(
           )
       } else {
         u <- terra::aggregate(summary_polys[[p]]) ## e.g., all parks areas
-        d <- terra::erase(studyArea, u) ## e.g., all non-parks areas
+        ## `erase_polygons()`, not `terra::erase()`: terra can return a SpatVector with more
+        ## attribute rows than geometries when a difference comes out empty, and nothing complains
+        ## until whatever next reads the attributes fails. See CLAUDE.md.
+        d <- spatialutils::erase_polygons(studyArea, u) ## e.g., all non-parks areas
 
         dplyr::bind_rows(
           terra::zonal(norm_curr, u, fun = "mean", na.rm = TRUE) |>

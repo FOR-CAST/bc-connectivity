@@ -9,22 +9,25 @@
 ##
 ## `Data/raw` is deliberately NOT under the key: the provincial layers it holds are
 ## district-independent, and downloading them once is the point.
-DISTRICT <- "quesnel"
-
 ## paths
+##
+## DISTRICT-BLIND, deliberately, and it must stay that way on this branch. The writers compose
+## `file.path(get_path(<type>), dst)`, and `district_dst()` supplies `dst` as a RELATIVE subpath
+## beginning with the district key. Baking a district into the base here composes it twice --
+## `Data/processed/quesnel/chilcotin/...` -- whose parent no one creates, so every district writer
+## fails at run time with "Creation failed." while the pipeline definition still validates.
 get_path <- function(type) {
-  project_dir <- workflowtools::findProjectPath()
+  project_dir <- workflowtools::project_path()
 
   switch(
     type,
     download = file.path(project_dir, "Data", "raw") |> fs::dir_create(),
-    inputs = file.path(project_dir, "Data", "processed", DISTRICT) |> fs::dir_create(),
-    rasters = file.path(project_dir, "Data", "processed", "rasters", DISTRICT) |>
-      fs::dir_create(),
-    omniscape = file.path(project_dir, "Omniscape", DISTRICT) |> fs::dir_create(),
-    outputs = file.path(project_dir, "Outputs", DISTRICT) |> fs::dir_create(),
+    inputs = file.path(project_dir, "Data", "processed") |> fs::dir_create(),
+    rasters = file.path(project_dir, "Data", "processed", "rasters") |> fs::dir_create(),
+    omniscape = file.path(project_dir, "Omniscape") |> fs::dir_create(),
+    outputs = file.path(project_dir, "Outputs") |> fs::dir_create(),
     project = fs::path(project_dir),
-    figures = file.path(project_dir, "Outputs", DISTRICT, "figures") |> fs::dir_create(),
+    figures = file.path(project_dir, "Outputs", "figures") |> fs::dir_create(),
   )
 }
 
@@ -130,7 +133,7 @@ write_reproducibility_receipt <- function(dst = "INFO.md") {
     unlink(dst)
   }
 
-  workflowtools::reproducibilityReceipt(writeTo = dst)
+  workflowtools::reproducibility_receipt(writeTo = dst)
 
   return(dst)
 }
@@ -159,6 +162,45 @@ get_quesnel_NRD_boundary <- function(file, buffer = FALSE) {
     sf::st_buffer(Quesnel_TSA, 500 * 30) ## add 500-pixel buffer to mitigate edge-effects
   } else {
     Quesnel_TSA
+  }
+}
+
+#' Natural Resource District boundary, for any district
+#'
+#' The generic form of [get_quesnel_NRD_boundary()], used by the multi-district factories.
+#'
+#' `get_quesnel_NRD_boundary()` is deliberately left untouched rather than reimplemented in terms
+#' of this: `targets` hashes function bodies, so editing it would invalidate `Quesnel_TSA` and
+#' every target downstream of it -- 280 h of stored work at the time of writing.
+#'
+#' @param file path to the BCGW `ADM_NR_DISTRICTS_SP` shapefile; falls back to [bcmaps::nr_districts()]
+#' @param district_name character, a value of `DSTRCT_NM` (e.g. "Cariboo-Chilcotin Natural Resource District")
+#' @param buffer if `TRUE`, add the 500-pixel (15 km) edge-effect buffer
+#'
+#' @returns `sf` polygon with a single `DIST_NAME` column
+#'
+#' @export
+get_NRD_boundary <- function(file, district_name, buffer = FALSE) {
+  if (file.exists(file)) {
+    boundary <- sf::st_read(file, quiet = TRUE) |>
+      dplyr::filter(.data$DSTRCT_NM == district_name) |>
+      dplyr::select("DSTRCT_NM") |>
+      dplyr::rename(DIST_NAME = "DSTRCT_NM")
+  } else {
+    boundary <- bcmaps::nr_districts() |>
+      dplyr::filter(.data$DISTRICT_NAME == district_name) |>
+      dplyr::select("DISTRICT_NAME") |>
+      dplyr::rename(DIST_NAME = "DISTRICT_NAME")
+  }
+
+  if (nrow(boundary) == 0L) {
+    stop("no district matched \"", district_name, "\" in ", file)
+  }
+
+  if (isTRUE(buffer)) {
+    sf::st_buffer(boundary, 500 * 30) ## 500-pixel buffer to mitigate edge-effects
+  } else {
+    boundary
   }
 }
 
@@ -1171,6 +1213,11 @@ SERAL_UNCLASSIFIED <- "<unclassified>"
 ## Seral stages in stand-development order, which is the order they belong in on a plot or in a
 ## table. Alphabetical puts Mature before Mid, which reads as an error to anyone who knows the
 ## sequence.
+##
+## `seral_stages_long()` carries the same order as a literal and is deliberately left that way for
+## now: it is upstream of the seral layer, so changing its body would invalidate every district
+## store for a change that alters no value. Unify the two when something else invalidates them
+## anyway.
 SERAL_LEVELS <- c("Early", "Mid", "Mature", "Old")
 
 ## Rasterise the seral layer for display.
