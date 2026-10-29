@@ -1,0 +1,1551 @@
+---
+title: "Summarizing change in connectivity over time"
+subtitle: "Options for the historical series -- draft for team review"
+author: "Alex Chubaty"
+date: last-modified
+date-format: "[Last updated:] YYYY-MM-DD"
+bibliography: ../citations/references.bib
+csl: ../citations/ecology-letters.csl
+format:
+  pdf:
+    output-file: connectivity-change-methods.pdf
+    documentclass: article
+    geometry: margin=2.5cm
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    fig-pos: "H"
+    pdf-engine: pdflatex
+    urlcolor: blue
+    include-in-header:
+      text: |
+        \usepackage{float}
+        \floatplacement{figure}{H}
+        \floatplacement{table}{H}
+        \usepackage{needspace}
+        \let\oldsection\section
+        \renewcommand{\section}{\needspace{12\baselineskip}\oldsection}
+        \let\oldsubsection\subsection
+        \renewcommand{\subsection}{\needspace{8\baselineskip}\oldsubsection}
+        \clubpenalty=10000
+        \widowpenalty=10000
+        %% DRAFT watermark on every page
+        \usepackage{draftwatermark}
+        \SetWatermarkText{DRAFT}
+        \SetWatermarkScale{1.2}
+        \SetWatermarkColor[gray]{0.88}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.pos = "H",
+  out.extra = "",
+  dev = "png",
+  dpi = 200
+)
+
+library(ggplot2)
+library(patchwork)
+
+theme_set(
+  theme_minimal(base_size = 10) + theme(panel.grid.minor = element_blank())
+)
+
+## Every figure carries this, so a figure lifted out of the document still says what it is.
+SIM_NOTE <- "SIMULATED DATA - not real results"
+sim_theme <- theme(
+  plot.caption = element_text(
+    colour = "#B2182B",
+    face = "bold",
+    size = 9,
+    hjust = 1
+  )
+)
+sim_caption <- function() list(labs(caption = SIM_NOTE), sim_theme)
+sim_annotation <- function() {
+  patchwork::plot_annotation(caption = SIM_NOTE, theme = sim_theme)
+}
+
+## Palettes. Connectivity classes use the pipeline's fixed colours (`R/connectivity_categories.R`),
+## so these figures read the same as the district maps.
+CONN_CLASSES <- c("Impeded", "Diffuse", "Intensified", "Channelized")
+CONN_COLOURS <- c(
+  Impeded = "#B2182B",
+  Diffuse = "#F7F7F7",
+  Intensified = "#92C5DE",
+  Channelized = "#2166AC"
+)
+SERAL_CLASSES <- c("Early", "Mid", "Mature", "Old")
+SERAL_COLOURS <- c(
+  Early = "#A1D99B",
+  Mid = "#74C476",
+  Mature = "#31A354",
+  Old = "#00441B"
+)
+AGENTS <- c("None", "Harvest", "Fire", "Beetle")
+AGENT_COLOURS <- c(
+  None = "#BDBDBD",
+  Harvest = "#0072B2",
+  Fire = "#D55E00",
+  Beetle = "#009E73"
+)
+ZONE_COLOURS <- c("Zone A" = "#0072B2", "Zone B" = "#D55E00")
+
+## Changes in cumulative current are analysed as log2 ratios; label them as percent changes.
+pct_lab <- function(b) sprintf("%+.0f%%", 100 * (2^b - 1))
+PCT_BREAKS <- log2(c(0.25, 0.5, 0.8, 1, 1.25, 2, 4))
+diverging <- function(
+  lim,
+  name,
+  labels = ggplot2::waiver(),
+  breaks = ggplot2::waiver()
+) {
+  scale_fill_gradient2(
+    low = "#B2182B",
+    mid = "#F7F7F7",
+    high = "#2166AC",
+    midpoint = 0,
+    limits = c(-lim, lim),
+    oob = scales::squish,
+    name = name,
+    labels = labels,
+    breaks = breaks,
+    na.value = "grey85",
+    guide = guide_colourbar(barheight = grid::unit(3, "cm"))
+  )
+}
+```
+
+```{r simulate}
+## A simulated landscape --------------------------------------------------------------------------
+##
+## Nothing here is fitted to the study area. The aim is a landscape whose connectivity surfaces
+## behave qualitatively like Omniscape outputs, so each method has something to show.
+
+set.seed(20261029)
+
+NR <- 120L
+NC <- 120L
+RES <- 90
+EPOCHS <- seq(1995L, 2025L, by = 5L)
+
+template <- terra::rast(
+  nrows = NR,
+  ncols = NC,
+  xmin = 0,
+  xmax = NC * RES,
+  ymin = 0,
+  ymax = NR * RES,
+  crs = "EPSG:3005"
+)
+
+## smoothed Gaussian noise, rescaled to mean 0 and sd 1
+grf <- function(sigma_cells) {
+  r <- template
+  terra::values(r) <- stats::rnorm(terra::ncell(r))
+  w <- terra::focalMat(r, sigma_cells * RES, type = "Gauss")
+  r <- terra::focal(r, w, fun = "sum", na.rm = TRUE)
+  v <- terra::values(r, mat = FALSE)
+  terra::values(r) <- (v - mean(v)) / stats::sd(v)
+  r
+}
+
+## Gaussian-weighted sum over a neighbourhood of `sigma_cells`
+smooth <- function(v, sigma_cells) {
+  r <- template
+  terra::values(r) <- v
+  w <- terra::focalMat(r, sigma_cells * RES, "Gauss")
+  terra::values(terra::focal(r, w, fun = "sum", na.rm = TRUE), mat = FALSE)
+}
+
+age <- round(stats::pnorm(terra::values(grf(5), mat = FALSE)) * 260)
+pine <- terra::values(grf(8), mat = FALSE) > 0.2
+xy <- terra::xyFromCell(template, seq_len(terra::ncell(template)))
+zone <- ifelse(xy[, 1] + 0.3 * xy[, 2] < 0.6 * NC * RES, "Zone A", "Zone B")
+
+## Cells inside a rectangle centred on `cell`
+block_cells <- function(cell, w, h) {
+  rc <- terra::rowColFromCell(template, cell)
+  rows <- pmin(pmax(rc[1] + seq(-h %/% 2, h %/% 2), 1), NR)
+  cols <- pmin(pmax(rc[2] + seq(-w %/% 2, w %/% 2), 1), NC)
+  terra::cellFromRowCol(
+    template,
+    rep(rows, each = length(cols)),
+    rep(cols, length(rows))
+  )
+}
+
+## Disturbance in each 5-year interval: harvest blocks throughout, a beetle outbreak peaking
+## 2000-2010 in pine-leading stands, and a large fire in 2015-2020.
+n_blocks <- c(10, 12, 16, 18, 14, 10)
+beetle_rate <- c(0.03, 0.20, 0.25, 0.05, 0.01, 0.00)
+fire_events <- list(
+  NULL,
+  list(c(25, 95), 7),
+  NULL,
+  NULL,
+  list(c(85, 30), 17),
+  NULL
+)
+
+ages <- list(age)
+agents <- list()
+for (k in seq_along(n_blocks)) {
+  a <- rep("None", length(age))
+
+  ## beetle: clustered mortality in older pine
+  if (beetle_rate[k] > 0) {
+    clump <- terra::values(grf(2), mat = FALSE)
+    hit <- pine & age >= 60 & clump > stats::qnorm(1 - beetle_rate[k])
+    a[hit] <- "Beetle"
+  }
+
+  ## fire: an irregular patch around a centre
+  if (!is.null(fire_events[[k]])) {
+    ctr <- fire_events[[k]][[1]] * RES
+    rad <- fire_events[[k]][[2]] * RES
+    d <- sqrt((xy[, 1] - ctr[1])^2 + (xy[, 2] - ctr[2])^2)
+    edge <- terra::values(grf(3), mat = FALSE)
+    a[d < rad * (1 + 0.35 * edge)] <- "Fire"
+  }
+
+  ## harvest last, so salvage of beetle-killed stands counts as harvest
+  eligible <- which(age >= 80)
+  for (b in seq_len(n_blocks[k])) {
+    centre <- eligible[sample.int(length(eligible), 1)]
+    a[block_cells(centre, sample(3:9, 1), sample(3:9, 1))] <- "Harvest"
+  }
+
+  age <- age + 5
+  age[a != "None"] <- sample(0:4, sum(a != "None"), replace = TRUE)
+  ages[[k + 1]] <- age
+  agents[[k]] <- a
+}
+names(ages) <- EPOCHS
+names(agents) <- paste(head(EPOCHS, -1), EPOCHS[-1], sep = "-")
+
+seral_of <- function(age) {
+  factor(
+    cut(age, c(-Inf, 40, 80, 140, Inf), right = FALSE, labels = SERAL_CLASSES),
+    levels = SERAL_CLASSES
+  )
+}
+
+## Stand-ins for Omniscape's three outputs.
+##
+## Conductance (1 / resistance) rises with stand age; source strength is on the same 0-1 scale at
+## every snapshot, as the pipeline's source weights are, and is high only in old forest.
+conductance <- function(age) 0.08 + 0.92 * (pmin(age, 160) / 160)^1.5
+source_wt <- function(age) 0.02 + 0.98 * (pmin(age, 200) / 200)^2
+
+## Normalized current: a cell's conductance relative to its neighbourhood. Old forest surrounded
+## by young stands carries more than its share (channelized); young stands within an old-forest
+## matrix carry less (impeded).
+norm_current <- function(age) {
+  c0 <- conductance(age)
+  f <- smooth((c0 / smooth(c0, 6))^0.75, 1)
+  pmin(pmax(f * exp(stats::rnorm(length(f), 0, 0.04)), 0.05), 5)
+}
+flow <- lapply(ages, norm_current)
+
+## Flow potential: what the sources within the moving window would deliver with no resistance.
+potential <- lapply(ages, function(a) smooth(source_wt(a), 8))
+
+## Cumulative current, so that cumulative / potential is the normalized current above: the same
+## relationship Omniscape's three outputs have.
+cumcur <- Map(`*`, flow, potential)
+lcum <- lapply(cumcur, log2)
+
+classify <- function(f) {
+  factor(
+    cut(f, c(-Inf, 0.7, 1.3, 1.7, Inf), labels = CONN_CLASSES, right = TRUE),
+    levels = CONN_CLASSES
+  )
+}
+conn <- lapply(flow, classify)
+
+## Reporting areas: the two zones above stand in for BEC zones; 16 landscape units are the
+## Voronoi cells of random seeds. Drawn last, so they do not change the landscape above.
+seeds <- cbind(stats::runif(16, 0, NC * RES), stats::runif(16, 0, NR * RES))
+d2 <- outer(xy[, 1], seeds[, 1], "-")^2 + outer(xy[, 2], seeds[, 2], "-")^2
+lu <- sprintf("LU %02d", max.col(-d2))
+lu_zone <- tapply(zone, lu, function(z) names(which.max(table(z))))
+
+## long form, one row per cell per epoch
+cells <- dplyr::bind_rows(lapply(seq_along(EPOCHS), function(i) {
+  data.frame(
+    cell = seq_along(ages[[i]]),
+    x = xy[, 1],
+    y = xy[, 2],
+    zone = zone,
+    lu = lu,
+    epoch = EPOCHS[i],
+    age = ages[[i]],
+    seral = seral_of(ages[[i]]),
+    flow = flow[[i]],
+    lcum = lcum[[i]],
+    class = conn[[i]]
+  )
+}))
+```
+
+::: {.callout-important}
+## Every figure in this document uses simulated data
+
+The maps, plots and numbers below come from a made-up 120 x 120-cell landscape (90 m cells, about 10.8 x 10.8 km) with invented disturbance.
+They show what each summary would look like and how it reads.
+They say nothing about Cariboo-Chilcotin, 100 Mile House, or Quesnel.
+:::
+
+# Purpose
+
+The historical series will give us Omniscape connectivity surfaces and forest patch layers for each of seven snapshots, 1995 to 2025 at five-year steps.
+This document lays out candidate ways to summarize how connectivity changed across those snapshots, so we can choose which to carry forward before the real runs finish.
+Each method is shown on simulated data, with what it answers, what it cannot answer, and the choices it needs from us.
+
+There are two families:
+
+1. Methods on the Omniscape current surfaces (@sec-lee to @sec-transitions).
+   @sec-layer first sets out which of Omniscape's outputs each method should use.
+2. Methods on patch layers -- old and mature forest, or other definitions -- using standard landscape pattern metrics (@sec-fragstats).
+
+The two are complementary.
+The Omniscape surfaces describe how movement is routed across the whole landscape, including the matrix.
+Patch metrics describe habitat (or whatever the patches are taken to be) without any model of movement.
+@sec-areas covers summarizing all of them by reporting area.
+
+## The simulated landscape
+
+@fig-overview shows the simulated landscape at the start and end of the series.
+Stand age starts as a smooth random surface and advances five years per step.
+Three disturbance agents reset age to zero: harvest blocks in every interval, a beetle outbreak in pine-leading stands peaking in 2000--2010, and two fires, a small one in 2000--2005 and a large one in 2015--2020.
+
+The current surfaces are not Omniscape runs.
+They are stand-ins built to have the same relationships as Omniscape's outputs: resistance and source strength follow stand age, flow potential is the source strength within a moving window, normalized current is high where a cell conducts better than its neighbourhood, and cumulative current is normalized current times flow potential.
+Connectivity classes use the same cut-offs as the real outputs [@Cameron:2022; @McRae:2016]: Impeded at or below 0.7, Diffuse to 1.3, Intensified to 1.7, Channelized above.
+
+```{r map-helpers}
+map_theme <- theme(
+  axis.text = element_blank(),
+  panel.grid = element_blank(),
+  legend.key.size = unit(0.3, "cm"),
+  legend.text = element_text(size = 7),
+  legend.title = element_text(size = 8)
+)
+map_layer <- function(df, fill, title) {
+  ggplot(df, aes(x / 1000, y / 1000, fill = .data[[fill]])) +
+    geom_raster() +
+    coord_equal(expand = FALSE) +
+    labs(x = NULL, y = NULL, title = title) +
+    map_theme
+}
+
+## who disturbed each cell most recently, by 2025
+last_agent <- Reduce(
+  function(prev, a) ifelse(a == "None", prev, a),
+  agents,
+  accumulate = FALSE
+)
+```
+
+```{r fig-overview}
+#| fig-cap: "**Simulated data.** The simulated landscape in 1995 and 2025: seral stage (top), the most recent stand-replacing disturbance by 2025 (top right), and connectivity class from the stand-in for normalized current (bottom)."
+#| fig-width: 7.5
+#| fig-height: 6.2
+d95 <- dplyr::filter(cells, epoch == 1995)
+d25 <- dplyr::filter(cells, epoch == 2025)
+d25$agent <- factor(last_agent, levels = AGENTS)
+
+seral_scale <- scale_fill_manual(
+  values = SERAL_COLOURS,
+  name = "Seral stage",
+  drop = FALSE
+)
+conn_scale <- scale_fill_manual(
+  values = CONN_COLOURS,
+  name = "Connectivity",
+  drop = FALSE
+)
+
+p <- (map_layer(d95, "seral", "Seral stage, 1995") + seral_scale) +
+  (map_layer(d25, "seral", "Seral stage, 2025") + seral_scale) +
+  (map_layer(d25, "agent", "Last disturbance, by 2025") +
+    scale_fill_manual(values = AGENT_COLOURS, name = "Agent")) +
+  (map_layer(d95, "class", "Connectivity, 1995") + conn_scale) +
+  (map_layer(d25, "class", "Connectivity, 2025") + conn_scale) +
+  patchwork::guide_area() +
+  patchwork::plot_layout(ncol = 3, guides = "collect") +
+  sim_annotation()
+p
+```
+
+# Which Omniscape output to compare over time {#sec-layer}
+
+::: {.callout-note}
+## Recommendation
+
+Normalized current is the wrong layer for measuring *how much* connectivity changed between snapshots.
+Use **cumulative current** for that, and keep normalized current for the connectivity classes (@sec-transitions), where it is the layer the classes are defined on.
+:::
+
+Omniscape writes three surfaces:
+
+- **Cumulative current**: the modelled flow through each cell, from all sources within the moving window.
+- **Flow potential**: the flow the same sources would produce if every cell had the lowest resistance.
+- **Normalized current**: cumulative current divided by flow potential.
+  Values above 1 mean flow is being concentrated through a cell; values below 1 mean it is being held back.
+
+Normalized current is built to compare places *within one map*: it removes the effect of how much habitat is nearby, leaving how the landscape routes the flow.
+That is what makes it the right basis for the Impeded-to-Channelized classes.
+
+Across snapshots it is a poor measure of change, because its denominator changes too.
+Each snapshot in the historical series is run with its own source weights (old forest is the source) and its own resistance, so flow potential is recomputed for each snapshot.
+A change in normalized current therefore mixes a change in flow with a change in the yardstick it is measured against.
+When old forest is lost, flow potential falls along with the flow, and the ratio can stay level while the amount of movement the model predicts drops substantially.
+
+Cumulative current does not have this problem in our runs.
+The source weights are on the same 0--1 scale at every snapshot, and the moving-window radius and all other settings are fixed across snapshots, so a cell's cumulative current can be compared directly between years.
+Because it spans orders of magnitude, change in cumulative current is best expressed as a ratio (a percentage change), not a difference.
+
+```{r layer}
+layer_means <- data.frame(
+  epoch = EPOCHS,
+  `Cumulative current` = vapply(cumcur, mean, numeric(1)),
+  `Flow potential` = vapply(potential, mean, numeric(1)),
+  `Normalized current` = vapply(flow, mean, numeric(1)),
+  check.names = FALSE
+) |>
+  tidyr::pivot_longer(-epoch, names_to = "layer") |>
+  dplyr::group_by(layer) |>
+  dplyr::mutate(index = 100 * value / value[1]) |>
+  dplyr::ungroup()
+
+idx_2025 <- function(l) {
+  round(layer_means$index[layer_means$layer == l & layer_means$epoch == 2025])
+}
+```
+
+
+In the simulation (@fig-layer), the landscape mean of cumulative current falls to `r idx_2025("Cumulative current")`% of its 1995 value and flow potential to `r idx_2025("Flow potential")`%, while mean normalized current ends at `r idx_2025("Normalized current")`%.
+The two change maps also disagree on *where*: normalized current rises around many disturbances, because the remaining forest beside them now carries a larger share of a smaller flow, while cumulative current shows the net loss.
+
+What this means for the methods that follow:
+
+- **Lee's L** (@sec-lee) and **change by disturbance agent** (@sec-agents) use cumulative current, on a log scale.
+- **Transitions between classes** (@sec-transitions) use normalized current, because that is what the classes are defined on; read them as changes in how flow is routed, not in how much there is.
+- If a normalized measure is wanted for change over time, one option is to divide every snapshot's cumulative current by a *single* reference flow potential (e.g. 2025's), so the denominator stays fixed.
+  That keeps the familiar scale, but the result no longer matches the published class definitions, so it should not be classified with them.
+
+```{r fig-layer}
+#| fig-cap: "**Simulated data.** Top: landscape means of the three Omniscape outputs, indexed to 1995 = 100. Bottom: change from 1995 to 2025 in normalized current (as a difference) and in cumulative current (as a percentage change)."
+#| fig-width: 7.5
+#| fig-height: 5.4
+p_idx <- ggplot(layer_means, aes(epoch, index, colour = layer)) +
+  geom_hline(yintercept = 100, colour = "grey60") +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.8) +
+  scale_colour_manual(
+    values = c(
+      "Cumulative current" = "#0072B2",
+      "Flow potential" = "#009E73",
+      "Normalized current" = "#D55E00"
+    ),
+    name = NULL
+  ) +
+  scale_x_continuous(breaks = EPOCHS) +
+  labs(x = "Snapshot", y = "Landscape mean (1995 = 100)")
+
+dl <- data.frame(
+  x = xy[, 1],
+  y = xy[, 2],
+  dflow = flow[[7]] - flow[[1]],
+  dcum = lcum[[7]] - lcum[[1]]
+)
+p_dn <- map_layer(dl, "dflow", "Normalized current, change") +
+  diverging(stats::quantile(abs(dl$dflow), 0.99), "Difference")
+p_dc <- map_layer(dl, "dcum", "Cumulative current, change") +
+  diverging(2, "Change", labels = pct_lab, breaks = log2(c(0.25, 0.5, 1, 2, 4)))
+
+p_idx /
+  (p_dn | p_dc) +
+  patchwork::plot_layout(heights = c(1, 1.5)) +
+  sim_annotation()
+```
+
+# Lee's L: how similar is the spatial pattern between snapshots? {#sec-lee}
+
+## What it measures
+
+Lee's L [@Lee:2001] is a bivariate measure of spatial association.
+It combines Pearson's correlation with Moran's I: before correlating two maps it averages each over a cell's neighbours, so it asks whether *neighbourhoods* that are high on one map are high on the other.
+It runs from -1 to 1.
+Applied to two snapshots of the same surface, it measures how much the spatial pattern of connectivity persisted.
+
+Lee's L compares patterns, not amounts: an even loss of flow everywhere leaves it unchanged.
+It answers a different question from the change in cumulative current in @sec-layer, and the two should be reported together.
+
+A permutation test gives a p-value, but with tens of thousands of autocorrelated cells almost any L is "significant" -- every p-value here is below 0.01.
+The useful quantities are the size of L and how it changes through the series.
+
+Lee's L also has a **local** form: one value per cell, whose mean is the global L.
+Mapped, it shows where the pattern held (high values) and where it broke (low or negative values: neighbourhoods whose relative flow reversed between the two snapshots).
+
+## Three ways to compare the snapshots
+
+There are three defensible sets of comparisons, each answering a different question.
+They are shown below, one figure each, computed on log cumulative current.
+Each figure has the global L under two neighbourhood definitions (top) and maps of local L within 360 m (bottom).
+We can report one, two or all three.
+
+```{r lee}
+nb_queen <- spdep::cell2nb(NR, NC, type = "queen")
+nb_wide <- spdep::dnearneigh(xy, 0, 4 * RES)
+WIDE <- "Within 4 cells (360 m)"
+lw <- list(
+  "Adjacent cells (90 m)" = spdep::nb2listw(nb_queen, style = "W"),
+  "Within 4 cells (360 m)" = spdep::nb2listw(nb_wide, style = "W")
+)
+
+## `cell2nb()` numbers cells column-major from the bottom-left; terra numbers them row-major from
+## the top-left. Reorder the values to match the neighbour list.
+rc <- terra::rowColFromCell(template, seq_len(terra::ncell(template)))
+cell2nb_order <- order(rc[, 2], NR - rc[, 1])
+by_scheme <- function(v, scheme) {
+  if (grepl("^Adjacent", scheme)) v[cell2nb_order] else v
+}
+
+lee_L <- function(x, y, scheme, nsim = 199) {
+  t <- spdep::lee.mc(
+    by_scheme(x, scheme),
+    by_scheme(y, scheme),
+    lw[[scheme]],
+    nsim = nsim
+  )
+  c(L = unname(t$statistic), p = t$p.value)
+}
+
+## Leave-one-out: each snapshot against the mean of the OTHER six, so the snapshot is not
+## correlated against itself.
+loo_mean <- function(i) Reduce(`+`, lcum[-i]) / (length(lcum) - 1)
+
+comparisons <- list(
+  mean = lapply(seq_along(EPOCHS), function(i) {
+    list(
+      x = lcum[[i]],
+      y = loo_mean(i),
+      label = as.character(EPOCHS[i]),
+      epoch = EPOCHS[i]
+    )
+  }),
+  consec = lapply(2:length(EPOCHS), function(i) {
+    list(
+      x = lcum[[i - 1]],
+      y = lcum[[i]],
+      label = paste(EPOCHS[i - 1], EPOCHS[i], sep = "-"),
+      epoch = EPOCHS[i]
+    )
+  }),
+  base = lapply(2:length(EPOCHS), function(i) {
+    list(
+      x = lcum[[1]],
+      y = lcum[[i]],
+      label = paste(EPOCHS[1], EPOCHS[i], sep = "-"),
+      epoch = EPOCHS[i]
+    )
+  })
+)
+
+lee_global <- dplyr::bind_rows(lapply(names(comparisons), function(cmp) {
+  dplyr::bind_rows(lapply(comparisons[[cmp]], function(p) {
+    dplyr::bind_rows(lapply(names(lw), function(s) {
+      data.frame(
+        comparison = cmp,
+        scheme = s,
+        epoch = p$epoch,
+        label = p$label,
+        t(lee_L(p$x, p$y, s))
+      )
+    }))
+  }))
+}))
+
+lee_local <- dplyr::bind_rows(lapply(names(comparisons), function(cmp) {
+  dplyr::bind_rows(lapply(comparisons[[cmp]], function(p) {
+    data.frame(
+      comparison = cmp,
+      label = p$label,
+      x = xy[, 1],
+      y = xy[, 2],
+      localL = spdep::lee(
+        p$x,
+        p$y,
+        lw[[WIDE]],
+        n = terra::ncell(template)
+      )$localL
+    )
+  }))
+}))
+## one colour scale for all three figures; a few extreme cells would otherwise wash the maps out
+lim_L <- stats::quantile(abs(lee_local$localL), 0.98)
+
+## global L for inline text
+gL <- function(cmp, scheme, lab) {
+  sprintf(
+    "%.2f",
+    lee_global$L[
+      lee_global$comparison == cmp &
+        lee_global$scheme == scheme &
+        lee_global$label == lab
+    ]
+  )
+}
+gL_min <- function(cmp, scheme) {
+  g <- lee_global[lee_global$comparison == cmp & lee_global$scheme == scheme, ]
+  g$label[which.min(g$L)]
+}
+consec_mean <- function(scheme) {
+  sprintf(
+    "%.2f",
+    mean(lee_global$L[
+      lee_global$comparison == "consec" & lee_global$scheme == scheme
+    ])
+  )
+}
+
+lee_figure <- function(cmp, x_title) {
+  g <- dplyr::filter(lee_global, comparison == cmp)
+  p1 <- ggplot(g, aes(epoch, L, colour = scheme)) +
+    geom_line(linewidth = 0.7) +
+    geom_point(size = 1.8) +
+    scale_colour_manual(
+      values = stats::setNames(c("#0072B2", "#D55E00"), names(lw)),
+      name = "Neighbours"
+    ) +
+    scale_x_continuous(breaks = unique(g$epoch), labels = unique(g$label)) +
+    labs(x = x_title, y = "Lee's L (global)") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+  l <- dplyr::filter(lee_local, comparison == cmp)
+  l$label <- factor(l$label, levels = unique(l$label))
+  p2 <- ggplot(l, aes(x / 1000, y / 1000, fill = localL)) +
+    geom_raster() +
+    facet_wrap(~label, ncol = 4) +
+    coord_equal(expand = FALSE) +
+    diverging(lim_L, "Local L\n(360 m)") +
+    labs(x = NULL, y = NULL) +
+    map_theme
+
+  p1 / p2 + patchwork::plot_layout(heights = c(1, 1.9)) + sim_annotation()
+}
+```
+
+### Option A: each snapshot against the rest of the series
+
+The per-cell mean of the other six snapshots is a reference pattern for the period; L for each snapshot says how typical that year's pattern is (@fig-lee-mean).
+The snapshot itself is left out of the mean so that it is not partly correlated with itself.
+This answers "which years were unusual?", and the local maps show where each year departs from the period's usual pattern.
+
+```{r fig-lee-mean}
+#| fig-cap: "**Simulated data.** Option A: Lee's L between each snapshot and the mean of the other six. Top: global L under two neighbourhood definitions. Bottom: local L within 360 m, colour scale capped at the 98th percentile of absolute values across all three options."
+#| fig-width: 7.5
+#| fig-height: 6.6
+lee_figure("mean", "Snapshot")
+```
+
+In the simulation the least typical snapshot is `r gL_min("mean", WIDE)` within 360 m (L = `r gL("mean", WIDE, gL_min("mean", WIDE))`), and `r gL_min("mean", names(lw)[1])` with adjacent-cell neighbours.
+
+### Option B: consecutive snapshots
+
+Each snapshot against the one before it (@fig-lee-consec).
+This places change in an *interval*, which is what links it to the disturbance record (@sec-agents).
+The mean of the six values is a single summary of pattern stability for the whole series: `r consec_mean(names(lw)[1])` with adjacent-cell neighbours and `r consec_mean(WIDE)` within 360 m in the simulation.
+
+```{r fig-lee-consec}
+#| fig-cap: "**Simulated data.** Option B: Lee's L between consecutive snapshots, plotted at the later snapshot of each pair. Top: global L. Bottom: local L within 360 m."
+#| fig-width: 7.5
+#| fig-height: 5.6
+lee_figure("consec", "Interval")
+```
+
+The lowest value, the interval with the most rearrangement, is `r gL_min("consec", names(lw)[1])` with adjacent-cell neighbours and `r gL_min("consec", WIDE)` within 360 m.
+
+### Option C: each snapshot against 1995
+
+Each snapshot against the first (@fig-lee-base).
+This shows cumulative drift: how far the pattern has moved from the start of the record.
+It declines more or less steadily by construction, so the interest is in its rate -- where it steepens -- and in the local maps, which accumulate the places where the pattern has broken since 1995.
+In the simulation, L between 1995 and 2025 is `r gL("base", WIDE, "1995-2025")` within 360 m.
+
+```{r fig-lee-base}
+#| fig-cap: "**Simulated data.** Option C: Lee's L between 1995 and each later snapshot. Top: global L. Bottom: local L within 360 m."
+#| fig-width: 7.5
+#| fig-height: 5.6
+lee_figure("base", "Comparison")
+```
+
+## Choices for the team
+
+- **Which of options A to C.**
+  They are not alternatives so much as answers to different questions: which years were unusual (A), when the pattern changed (B), and how far it has moved (C).
+- **Neighbourhood size.**
+  L depends on it.
+  Lee's L is the correlation between the neighbourhood-averaged values, multiplied by a factor for each map that measures how spatially smooth it is at that neighbourhood size.
+  That factor shrinks as neighbourhoods widen, so values computed with different neighbourhoods cannot be compared, and the timing of change can differ between them.
+  Omniscape surfaces are already smoothed by the moving window, so a neighbourhood tied to a movement scale of interest is easier to defend than adjacent cells.
+- **Resolution.**
+  A district raster has many more cells than this example.
+  Aggregating to a coarser grid first, or using a regular sample of cells, keeps the computation manageable; the permutation test scales well, but see @sec-appendix on the analytical test.
+
+# Change in connectivity by disturbance agent {#sec-agents}
+
+## What it measures
+
+For each interval, the change in cumulative current at each cell, grouped by the stand-replacing agent that disturbed it during that interval: harvest, fire, beetle, or none.
+This links connectivity change to its causes.
+
+```{r agent-change}
+change <- dplyr::bind_rows(lapply(seq_along(agents), function(k) {
+  data.frame(
+    cell = seq_along(agents[[k]]),
+    interval = names(agents)[k],
+    agent = factor(agents[[k]], levels = AGENTS),
+    dcum = lcum[[k + 1]] - lcum[[k]],
+    dflow = flow[[k + 1]] - flow[[k]]
+  )
+}))
+med_pct <- function(ag) {
+  sprintf(
+    "%+.0f%%",
+    100 * (2^stats::median(change$dcum[change$agent == ag]) - 1)
+  )
+}
+med_norm <- function(ag) {
+  sprintf("%.2f", stats::median(change$dflow[change$agent == ag]))
+}
+
+## distance from each cell to the nearest cell disturbed in the same interval, and by which agent
+nearest <- dplyr::bind_rows(lapply(seq_along(agents), function(k) {
+  present <- setdiff(unique(agents[[k]]), "None")
+  d <- sapply(present, function(ag) {
+    r <- template
+    terra::values(r) <- ifelse(agents[[k]] == ag, 1, NA)
+    terra::values(terra::distance(r), mat = FALSE)
+  })
+  d <- matrix(d, ncol = length(present), dimnames = list(NULL, present))
+  data.frame(
+    interval = names(agents)[k],
+    cell = seq_len(nrow(d)),
+    disturbed = agents[[k]] != "None",
+    nearest_agent = factor(
+      present[max.col(-d, ties.method = "first")],
+      levels = AGENTS
+    ),
+    dist = apply(d, 1, min),
+    dcum = lcum[[k + 1]] - lcum[[k]]
+  )
+}))
+```
+
+```{r fig-agent-box}
+#| fig-cap: "**Simulated data.** Change in cumulative current over each five-year interval, for cells disturbed during that interval by each agent, and for undisturbed cells. Boxes span the interquartile range; whiskers extend to 1.5 times it. Intervals with no disturbance by an agent have no box for it."
+#| fig-width: 7.5
+#| fig-height: 4.2
+ggplot(change, aes(agent, dcum, fill = agent)) +
+  geom_hline(yintercept = 0, colour = "grey50") +
+  geom_boxplot(outlier.shape = NA, width = 0.6, linewidth = 0.3) +
+  facet_wrap(~interval, nrow = 2) +
+  scale_fill_manual(values = AGENT_COLOURS, guide = "none") +
+  scale_y_continuous(breaks = PCT_BREAKS, labels = pct_lab) +
+  coord_cartesian(ylim = stats::quantile(change$dcum, c(0.005, 0.995))) +
+  labs(x = NULL, y = "Change in cumulative current") +
+  sim_caption()
+```
+
+@fig-agent-box is the direct version: disturbed cells lose flow, and the useful comparison is between agents, and between intervals for the same agent.
+The median change in the simulation is `r med_pct("Harvest")` for harvest, `r med_pct("Beetle")` for beetle and `r med_pct("Fire")` for fire.
+
+The choice of layer matters here.
+Measured in normalized current, the same fire cells change by a median of only `r med_norm("Fire")`, against `r med_norm("Harvest")` for harvest, which would make fire look the least damaging agent.
+That is an artefact of the ratio: a large burn removes the sources over the whole neighbourhood, so flow and flow potential fall together, while a cutblock is a young cell in a neighbourhood whose potential is largely intact.
+
+The less obvious effect is on the cells **around** a disturbance.
+Omniscape is not a cell-by-cell model: a disturbance removes sources and raises resistance, which changes the flow through the forest around it as well.
+A cell-only summary credits that change to "no disturbance".
+@fig-agent-distance shows it by distance from the nearest disturbance in the same interval.
+
+```{r fig-agent-distance}
+#| fig-cap: "**Simulated data.** Mean change in cumulative current against distance from the nearest cell disturbed in the same interval, by the agent of that disturbance, pooled over intervals. Distance 0 is the disturbed cells themselves."
+#| fig-width: 6.5
+#| fig-height: 3.6
+bins <- c(-1, 0, 90, 180, 360, 540, 720, 1080, 1440, Inf)
+dd <- nearest |>
+  dplyr::filter(!is.na(nearest_agent)) |>
+  dplyr::mutate(
+    band = cut(
+      dist,
+      bins,
+      labels = c(0, 90, 180, 360, 540, 720, 1080, 1440, 2000)
+    ),
+    band = as.numeric(as.character(band))
+  ) |>
+  dplyr::group_by(nearest_agent, band) |>
+  dplyr::summarise(dcum = mean(dcum), n = dplyr::n(), .groups = "drop") |>
+  dplyr::filter(n >= 30)
+## for the text: harvest, 180-360 m from the edge
+dd_reach_pct <- pct_lab(dd$dcum[dd$nearest_agent == "Harvest" & dd$band == 360])
+dd_far_pct <- pct_lab(dd$dcum[dd$nearest_agent == "Harvest" & dd$band == 2000])
+
+ggplot(dd, aes(band, dcum, colour = nearest_agent)) +
+  geom_hline(yintercept = 0, colour = "grey50") +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.8) +
+  scale_colour_manual(
+    values = AGENT_COLOURS[-1],
+    name = "Nearest disturbance"
+  ) +
+  scale_y_continuous(breaks = PCT_BREAKS, labels = pct_lab) +
+  labs(
+    x = "Distance to nearest disturbance (m, upper edge of band)",
+    y = "Mean change in cumulative current"
+  ) +
+  theme(legend.position = "bottom") +
+  sim_caption()
+```
+
+In the simulation, cells 180--360 m from a harvest edge change by `r dd_reach_pct` on average, against `r dd_far_pct` beyond 1.4 km, where the stands are simply ageing.
+
+## Dominant agent by reporting area
+
+At the cell level each cell has at most one stand-replacing agent per interval, so "dominant" only means something once cells are grouped into reporting areas.
+@fig-agent-lu does this for landscape units: each point is a unit, placed by how much of it was disturbed over the series and how much its cumulative current changed, and coloured by the agent that disturbed the most area.
+
+```{r fig-agent-lu}
+#| fig-cap: "**Simulated data.** Landscape units: share of area disturbed 1995-2025 (cells disturbed twice count twice) against mean change in cumulative current, coloured by the agent that disturbed the most area. Mean change is the geometric mean of the per-cell ratios."
+#| fig-width: 6.5
+#| fig-height: 4.2
+lu_agent <- dplyr::bind_rows(lapply(agents, function(a) {
+  data.frame(lu = lu, agent = a)
+})) |>
+  dplyr::filter(agent != "None") |>
+  dplyr::count(lu, agent) |>
+  dplyr::left_join(
+    as.data.frame(table(lu = lu), responseName = "ncell"),
+    by = "lu"
+  ) |>
+  dplyr::group_by(lu) |>
+  dplyr::summarise(
+    disturbed = sum(n) / ncell[1],
+    dominant = agent[which.max(n)],
+    .groups = "drop"
+  )
+lu_change <- data.frame(lu = lu, dcum = lcum[[7]] - lcum[[1]]) |>
+  dplyr::group_by(lu) |>
+  dplyr::summarise(dcum = mean(dcum))
+lu_df <- dplyr::left_join(lu_change, lu_agent, by = "lu") |>
+  dplyr::mutate(
+    disturbed = dplyr::coalesce(disturbed, 0),
+    dominant = factor(dplyr::coalesce(dominant, "None"), levels = AGENTS)
+  )
+
+ggplot(lu_df, aes(disturbed, dcum, colour = dominant)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_point(size = 2.6) +
+  ggrepel::geom_text_repel(
+    aes(label = lu),
+    size = 2.6,
+    colour = "grey25",
+    seed = 1
+  ) +
+  scale_colour_manual(
+    values = AGENT_COLOURS,
+    name = "Dominant agent",
+    drop = TRUE
+  ) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  scale_y_continuous(breaks = PCT_BREAKS, labels = pct_lab) +
+  labs(
+    x = "Area disturbed, 1995-2025",
+    y = "Mean change in cumulative current"
+  ) +
+  theme(legend.position = "bottom") +
+  sim_caption()
+```
+
+## Choices for the team
+
+- **What "dominant" means.**
+  The agent covering the most area (as in @fig-agent-lu), or the agent with the largest summed effect on current; and over the whole series or per interval.
+  The reporting areas are a separate choice (@sec-areas).
+- **Disturbances below the stand-replacing threshold.**
+  Partial beetle mortality and low-severity fire change resistance without resetting age.
+  As set up in the series they are not distinguished, and they would fall into "None" here.
+- **Attribution in the 2000 snapshot is weak.**
+  The disturbance record only partly covers the start of the beetle outbreak, so 1995--2000 and 2000--2005 under-assign beetle until national disturbance data are added.
+- **Including the neighbourhood effect.**
+  We should decide whether to report a single "effect of harvest" that includes the surrounding change (e.g. all cells within a set distance), or the two components separately.
+
+# Transitions between connectivity classes {#sec-transitions}
+
+## What it measures
+
+The connectivity class of each cell, followed through the series.
+LandR's vegetation-transition plots [using the alluvial plots of @Brunson:2020] do this for leading vegetation type; the same plot works for any categorical map, including the four connectivity classes.
+
+The classes are defined on normalized current, so this section uses it.
+As @sec-layer explains, a cell moving from Diffuse to Channelized means its share of the local flow rose, not necessarily that more movement passes through it.
+
+@fig-class-area is the simplest summary: the share of the landscape in each class at each snapshot.
+It shows the net change but hides the exchanges -- a class can hold its area while the cells in it turn over completely.
+
+```{r fig-class-area}
+#| fig-cap: "**Simulated data.** Share of the landscape in each connectivity class at each snapshot."
+#| fig-width: 6.5
+#| fig-height: 3.4
+ca <- cells |>
+  dplyr::count(epoch, class) |>
+  dplyr::group_by(epoch) |>
+  dplyr::mutate(share = n / sum(n))
+ggplot(ca, aes(factor(epoch), share, fill = class)) +
+  geom_col(width = 0.75, colour = "grey40", linewidth = 0.2) +
+  scale_fill_manual(values = CONN_COLOURS, name = NULL) +
+  scale_y_continuous(labels = scales::label_percent(), expand = c(0, 0)) +
+  labs(x = "Snapshot", y = "Share of landscape") +
+  sim_caption()
+```
+
+## Transition plots
+
+@fig-alluvial follows cells through all seven snapshots, split by BEC zone as LandR does by reporting zone.
+Each band is a set of cells that took the same path through the classes; its width is their area.
+
+```{r fig-alluvial}
+#| fig-cap: "**Simulated data.** Transitions between connectivity classes across the series, for two simulated BEC zones. Band width is area. Bands are grouped by the path cells took through all seven snapshots."
+#| fig-width: 7.5
+#| fig-height: 5.6
+paths <- cells |>
+  dplyr::select(cell, zone, epoch, class) |>
+  tidyr::pivot_wider(
+    names_from = epoch,
+    values_from = class,
+    names_prefix = "y"
+  ) |>
+  dplyr::count(zone, dplyr::across(dplyr::starts_with("y")), name = "n") |>
+  dplyr::mutate(path = dplyr::row_number(), area_km2 = n * RES^2 / 1e6)
+
+lodes <- paths |>
+  tidyr::pivot_longer(
+    dplyr::starts_with("y"),
+    names_to = "epoch",
+    values_to = "class"
+  ) |>
+  dplyr::mutate(epoch = factor(sub("^y", "", epoch), levels = EPOCHS))
+
+ggplot(
+  lodes,
+  aes(x = epoch, stratum = class, alluvium = path, y = area_km2, fill = class)
+) +
+  ## no `colour = NA` here: with ggplot2 4 it stops the flows drawing at all
+  ggalluvial::geom_flow(alpha = 0.6) +
+  ggalluvial::geom_stratum(width = 1 / 5, colour = "grey30", linewidth = 0.2) +
+  facet_wrap(~zone, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = CONN_COLOURS, name = NULL) +
+  labs(x = "Snapshot", y = expression("Area (km"^2 * ")")) +
+  theme(legend.position = "bottom", panel.grid = element_blank()) +
+  sim_caption()
+```
+
+With seven snapshots and four classes the diagram gets busy, and on real data most of the width is cells that stay Diffuse throughout.
+Two complementary views of the same information are easier to read for a single pair of years, or for persistence.
+
+```{r fig-transition-matrix}
+#| fig-cap: "**Simulated data.** Left: where the area in each 1995 class ended up in 2025, as a share of the 1995 class. Right: number of snapshots, of seven, in which each cell was Intensified or Channelized."
+#| fig-width: 7.5
+#| fig-height: 3.6
+tm <- data.frame(from = conn[[1]], to = conn[[7]]) |>
+  dplyr::count(from, to, .drop = FALSE) |>
+  dplyr::group_by(from) |>
+  dplyr::mutate(share = n / sum(n))
+
+p_tm <- ggplot(
+  tm,
+  aes(to, factor(from, levels = rev(CONN_CLASSES)), fill = share)
+) +
+  geom_tile(colour = "white", linewidth = 1) +
+  geom_text(
+    aes(
+      label = scales::label_percent(accuracy = 1)(share),
+      colour = share > 0.5
+    ),
+    size = 3
+  ) +
+  scale_fill_gradient(
+    low = "#F7F7F7",
+    high = "#2166AC",
+    labels = scales::label_percent(),
+    guide = "none"
+  ) +
+  scale_colour_manual(
+    values = c(`TRUE` = "white", `FALSE` = "grey15"),
+    guide = "none"
+  ) +
+  labs(x = "Class in 2025", y = "Class in 1995", title = "1995 to 2025") +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+persist_n <- Reduce(
+  `+`,
+  lapply(conn, function(k) k %in% c("Intensified", "Channelized"))
+)
+persist <- data.frame(
+  x = xy[, 1],
+  y = xy[, 2],
+  n = factor(persist_n, levels = 0:7)
+)
+p_pe <- map_layer(persist, "n", "Corridor persistence") +
+  scale_fill_manual(
+    values = c(
+      "#F7F7F7",
+      grDevices::colorRampPalette(c("#D1E5F0", "#053061"))(7)
+    ),
+    name = "Snapshots",
+    drop = FALSE
+  )
+
+p_tm + p_pe + patchwork::plot_layout(widths = c(1, 1)) + sim_annotation()
+```
+
+The transition matrix in @fig-transition-matrix gives the 1995-to-2025 exchange as numbers that can go in a table.
+The persistence map picks out corridors that held through the whole series against those that appeared or vanished, which is probably the most direct product for planning.
+
+## Choices for the team
+
+- **All seven snapshots or a subset.** The alluvial plot is clearer with three or four (e.g. 1995, 2010, 2025).
+- **Agreement statistics.** Cohen's kappa [@Cohen:1960] between pairs of class maps is a one-number summary of class stability, and we already use it for the resolution comparison.
+- **Class edges.** Cells near a threshold flip class with small changes in flow; the persistence map and the transition counts both inherit this.
+  A minimum change, or a buffer around the cut-offs, would separate real transitions from noise.
+
+# Patch metrics {#sec-fragstats}
+
+## What it measures
+
+Patch layers can be summarized directly with landscape pattern metrics, the set popularized by FRAGSTATS [@McGarigal:1995] and available in R through landscapemetrics [@Hesselbarth:2019].
+These describe the amount and arrangement of patches at each snapshot, without any model of movement.
+They are cheap to compute, familiar to reviewers, and comparable to other studies.
+
+@tbl-metrics lists a candidate set that bears on connectivity.
+FRAGSTATS also has a "connectance" index, defined by a threshold distance between patches; landscapemetrics does not implement it, but the pipeline's interpatch-distance chain measures much the same thing on the actual polygons.
+
+```{r tbl-metrics}
+#| tbl-cap: "Candidate class-level metrics."
+metric_tbl <- data.frame(
+  Metric = c(
+    "Percentage of landscape (PLAND)",
+    "Number of patches (NP)",
+    "Largest patch index (LPI)",
+    "Core area percentage (CPLAND)",
+    "Mean nearest-neighbour distance (ENN)",
+    "Patch cohesion (COHESION)",
+    "Effective mesh size (MESH)",
+    "Aggregation index (AI)"
+  ),
+  Meaning = c(
+    "Amount of the class",
+    "Count of separate patches; rises with fragmentation, falls with outright loss",
+    "Share of the landscape in the single largest patch",
+    "Interior area beyond an edge depth, as a share of the landscape",
+    "Mean edge-to-edge distance from each patch to the nearest of the same class",
+    "Physical connectedness of the class; near 100 when patches are large and compact",
+    "Expected size of the patch a randomly placed point falls in; drops sharply as large patches split",
+    "How clumped the class's cells are, relative to the most clumped arrangement possible"
+  )
+)
+knitr::kable(metric_tbl, format = "pipe")
+```
+
+## Which pixels make a patch?
+
+The metrics are only as meaningful as the patch definition, and there is more than one reasonable choice.
+Each answers a slightly different question:
+
+1. **Old and mature forest patches**, as the pipeline already defines them (by BEC variant and natural disturbance type, with minimum sizes).
+   This is the habitat the analysis is about, and it is what most readers will expect.
+2. **Interior old forest**: the same patches less an edge buffer.
+   Interior area is often what drops first, and the pipeline already computes it.
+3. **High source weight**: cells above a source-weight threshold.
+   These are the cells Omniscape starts movement from, so the patches match the model exactly, including non-forest habitat that carries source weight.
+4. **Low resistance**: cells below a resistance threshold, from the resistance map that went into Omniscape.
+   This is the landscape that is easy to move *through*, which includes matrix that is not habitat (e.g. mid-seral forest); it describes permeability rather than habitat.
+5. **Corridor patches from Omniscape**: cells classed Intensified or Channelized.
+   Patch metrics on these describe the corridor network itself -- how much there is, and whether it is breaking up -- and pair naturally with the persistence map in @fig-transition-matrix.
+
+For any of the threshold-based definitions (3--5), the threshold has to stay fixed across snapshots, or a change in the threshold is read as a change in the landscape.
+@fig-patchdefs shows four metrics under each definition on the simulated landscape.
+
+```{r patch-metrics}
+## Patch metrics on a two-class raster (1 = patch, 0 = not), class 1 only
+lsm_patch <- function(is_patch, what, mask = NULL) {
+  r <- template
+  v <- as.integer(is_patch)
+  if (!is.null(mask)) {
+    v[!mask] <- NA
+  }
+  terra::values(r) <- v
+  landscapemetrics::calculate_lsm(
+    r,
+    what = what,
+    edge_depth = 1,
+    directions = 8
+  ) |>
+    dplyr::filter(class == 1)
+}
+
+seral_rasters <- lapply(ages, function(a) {
+  r <- template
+  terra::values(r) <- as.integer(seral_of(a))
+  r
+})
+
+METRICS <- c(
+  "lsm_c_pland",
+  "lsm_c_np",
+  "lsm_c_lpi",
+  "lsm_c_cpland",
+  "lsm_c_enn_mn",
+  "lsm_c_cohesion",
+  "lsm_c_mesh",
+  "lsm_c_ai"
+)
+pm <- dplyr::bind_rows(lapply(seq_along(EPOCHS), function(i) {
+  landscapemetrics::calculate_lsm(
+    seral_rasters[[i]],
+    what = METRICS,
+    edge_depth = 1,
+    directions = 8
+  ) |>
+    dplyr::mutate(epoch = EPOCHS[i])
+})) |>
+  dplyr::mutate(seral = SERAL_CLASSES[class]) |>
+  dplyr::filter(seral %in% c("Mature", "Old"))
+
+## an old-forest metric value for inline text, rounded for reading
+om <- function(m, yr) {
+  v <- pm$value[pm$seral == "Old" & pm$metric == m & pm$epoch == yr]
+  format(signif(v, 3), big.mark = ",")
+}
+
+## Thresholds fixed across snapshots. In the simulation resistance is 1 / conductance.
+SRC_MIN <- 0.3
+RES_MAX <- 2
+patch_defs <- list(
+  "Old forest" = function(i) ages[[i]] >= 140,
+  "High source weight" = function(i) source_wt(ages[[i]]) >= SRC_MIN,
+  "Low resistance" = function(i) 1 / conductance(ages[[i]]) <= RES_MAX,
+  "Corridors (Omniscape)" = function(i) {
+    conn[[i]] %in% c("Intensified", "Channelized")
+  }
+)
+pdefs <- dplyr::bind_rows(lapply(names(patch_defs), function(def) {
+  dplyr::bind_rows(lapply(seq_along(EPOCHS), function(i) {
+    lsm_patch(
+      patch_defs[[def]](i),
+      c("lsm_c_pland", "lsm_c_np", "lsm_c_mesh", "lsm_c_enn_mn")
+    ) |>
+      dplyr::mutate(definition = def, epoch = EPOCHS[i])
+  }))
+}))
+```
+
+```{r fig-patchdefs}
+#| fig-cap: "**Simulated data.** Four patch metrics under four patch definitions, with thresholds held fixed across snapshots: old forest (140 years and older), source weight of at least 0.3, resistance of at most 2 (simulation units), and cells classed Intensified or Channelized."
+#| fig-width: 7.5
+#| fig-height: 4.6
+def_labels <- c(
+  pland = "Percentage of landscape (%)",
+  np = "Number of patches",
+  mesh = "Effective mesh size (ha)",
+  enn_mn = "Mean nearest-neighbour dist. (m)"
+)
+pdefs$metric <- factor(def_labels[pdefs$metric], levels = def_labels)
+pdefs$definition <- factor(pdefs$definition, levels = names(patch_defs))
+
+ggplot(pdefs, aes(epoch, value, colour = definition, shape = definition)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.8) +
+  facet_wrap(~metric, scales = "free_y", ncol = 2) +
+  scale_colour_manual(
+    values = stats::setNames(
+      c("#009E73", "#CC79A7", "#D55E00", "#0072B2"),
+      names(patch_defs)
+    ),
+    name = NULL
+  ) +
+  scale_shape_manual(
+    values = stats::setNames(c(16, 17, 15, 18), names(patch_defs)),
+    name = NULL
+  ) +
+  scale_x_continuous(breaks = c(1995, 2010, 2025)) +
+  labs(x = "Snapshot", y = NULL) +
+  theme(legend.position = "bottom") +
+  guides(colour = guide_legend(nrow = 2), shape = guide_legend(nrow = 2)) +
+  sim_caption()
+```
+
+```{r patchdef-text}
+pd <- function(def, m, yr) {
+  v <- pdefs$value[
+    pdefs$definition == def &
+      pdefs$metric == def_labels[[m]] &
+      pdefs$epoch == yr
+  ]
+  format(signif(v, 3), big.mark = ",")
+}
+```
+
+The definitions disagree in ways that matter.
+In the simulation, old forest falls from `r pd("Old forest", "pland", 1995)`% to `r pd("Old forest", "pland", 2025)`% of the landscape, low-resistance land from `r pd("Low resistance", "pland", 1995)`% to `r pd("Low resistance", "pland", 2025)`%, and corridor cells go from `r pd("Corridors (Omniscape)", "pland", 1995)`% to `r pd("Corridors (Omniscape)", "pland", 2025)`%.
+High source weight is close to old forest here only because the simulation derives source weight from stand age alone; in the real data the two differ wherever non-forest habitat carries source weight.
+Corridor area can *grow* while habitat shrinks, because as forest is lost the flow concentrates into what remains; the corridor metrics describe the network the model routes movement through, not the habitat behind it.
+
+## Old and mature forest in more detail
+
+@fig-metrics shows all eight metrics for old and mature forest (definition 1).
+
+```{r fig-metrics}
+#| fig-cap: "**Simulated data.** Class-level landscape metrics for old and mature forest at each snapshot, with cells joined to all eight neighbours and a one-cell (90 m) edge depth for core area."
+#| fig-width: 7.5
+#| fig-height: 5
+metric_labels <- c(
+  pland = "Percentage of landscape (%)",
+  np = "Number of patches",
+  lpi = "Largest patch index (%)",
+  cpland = "Core area percentage (%)",
+  enn_mn = "Mean nearest-neighbour dist. (m)",
+  cohesion = "Patch cohesion",
+  mesh = "Effective mesh size (ha)",
+  ai = "Aggregation index (%)"
+)
+pm_plot <- dplyr::mutate(
+  pm,
+  metric = factor(metric_labels[metric], levels = metric_labels)
+)
+
+ggplot(pm_plot, aes(epoch, value, colour = seral)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.6) +
+  facet_wrap(~metric, scales = "free_y", ncol = 4) +
+  scale_colour_manual(
+    values = c(Mature = "#31A354", Old = "#00441B"),
+    name = NULL
+  ) +
+  scale_x_continuous(breaks = c(1995, 2010, 2025)) +
+  labs(x = "Snapshot", y = NULL) +
+  theme(legend.position = "bottom") +
+  sim_caption()
+```
+
+In the simulation, old forest falls from `r om("pland", 1995)`% to `r om("pland", 2025)`% of the landscape, and its number of patches rises from `r om("np", 1995)` to `r om("np", 2025)` as large patches break up.
+Effective mesh size shows the break-up most strongly, falling from `r om("mesh", 1995)` ha to `r om("mesh", 2025)` ha, while cohesion barely moves (`r om("cohesion", 1995)` to `r om("cohesion", 2025)`).
+Mean nearest-neighbour distance *falls*, from `r om("enn_mn", 1995)` m to `r om("enn_mn", 2025)` m, because the fragments of a broken patch sit close to one another.
+A shorter distance here is a sign of break-up, not of better connectivity, so distance metrics need reading alongside patch number and mesh size.
+Patch number has the opposite ambiguity: it rises when patches split and falls when small ones are lost outright.
+
+## Choices for the team
+
+- **Which pixels make a patch** (definitions 1--5 above), and, for the threshold-based ones, which threshold.
+  More than one can be reported; old forest and corridor patches together would show habitat and the network routed through it.
+- **Rasterizing the patches.**
+  The pipeline builds patches as polygons; these metrics work on rasters, so the pixel size and the eight- versus four-neighbour rule change patch counts and distances.
+  Rasterizing at the same 30 m or 90 m as the Omniscape inputs would keep the two families consistent.
+- **Edge depth for core area.**
+  The pipeline already defines interior forest; the core-area metrics should use the same edge depth.
+- **Landscape boundary.**
+  Patches cut by the district boundary look smaller and more isolated than they are.
+  A buffered landscape, or excluding boundary patches from distance metrics, avoids this.
+- **How many metrics.**
+  Many of these are strongly correlated.
+  Three or four -- amount, patch number, mesh size, and a distance measure -- probably cover what the others say.
+  Cohesion barely moved in the simulation while the old forest lost most of its mesh size, which suggests it is the least informative here.
+
+# Summaries by reporting area {#sec-areas}
+
+Almost every summary above can be broken down by reporting area, and for planning that is usually the form that gets used.
+We assume BEC zone and landscape unit will be among them.
+The current-condition outputs already summarize normalized current per landscape unit x BEC zone combination, and inside versus outside moose wetlands, mule deer winter ranges, old growth management areas, parks, wetlands and wildlife habitat areas; any of these could be carried through the series too.
+
+@tbl-areas lists, for each method, what a per-area summary would be and what to watch for.
+
+```{r tbl-areas}
+#| tbl-cap: "Summaries by reporting area, by method."
+areas_tbl <- data.frame(
+  Method = c(
+    "Change in cumulative current",
+    "Lee's L",
+    "Change by disturbance agent",
+    "Class shares and transitions",
+    "Corridor persistence",
+    "Patch metrics",
+    "Per-cell trends"
+  ),
+  `Per-area summary` = c(
+    "Mean percentage change; share of area losing more than a set amount",
+    "Global L within each area, or mean local L",
+    "Dominant agent; change against area disturbed",
+    "Class shares per snapshot; transition matrix or alluvial plot per area",
+    "Share of area that was a corridor in all (or most) snapshots",
+    "Class metrics on the patches within each area",
+    "Share of area with a significant decline or increase"
+  ),
+  Caveat = c(
+    "Small areas are dominated by edge effects of the moving window",
+    "Needs enough cells per area; neighbours across the boundary are cut",
+    "Dominance needs a rule (area or effect)",
+    "Alluvial plots get unreadable with many areas",
+    "Inherits class-edge noise",
+    "Patches cut at area boundaries look smaller and more isolated; mesh and distance most affected",
+    "Multiple-testing correction across cells"
+  ),
+  check.names = FALSE
+)
+knitr::kable(areas_tbl, format = "pipe")
+```
+
+@fig-areas shows two of these on the simulated landscape units and zones.
+
+```{r fig-areas}
+#| fig-cap: "**Simulated data.** Left: mean change in cumulative current since 1995, by landscape unit and snapshot, grouped by the BEC zone each unit mostly falls in. Right: old-forest area and effective mesh size by BEC zone, with patches cut at the zone boundary."
+#| fig-width: 7.5
+#| fig-height: 4.6
+lu_epoch <- cells |>
+  dplyr::group_by(cell) |>
+  dplyr::mutate(dcum = lcum - lcum[epoch == 1995]) |>
+  dplyr::group_by(lu, epoch) |>
+  dplyr::summarise(dcum = mean(dcum), .groups = "drop") |>
+  dplyr::mutate(bec = lu_zone[lu])
+
+p_heat <- ggplot(lu_epoch, aes(factor(epoch), lu, fill = dcum)) +
+  geom_tile(colour = "white", linewidth = 0.4) +
+  facet_grid(bec ~ ., scales = "free_y", space = "free_y") +
+  diverging(
+    1,
+    "Change\nsince 1995",
+    labels = pct_lab,
+    breaks = log2(c(0.5, 0.8, 1, 1.25, 2))
+  ) +
+  labs(x = "Snapshot", y = NULL) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.key.size = unit(0.35, "cm"),
+    legend.text = element_text(size = 7)
+  )
+
+zone_pm <- dplyr::bind_rows(lapply(sort(unique(zone)), function(z) {
+  dplyr::bind_rows(lapply(seq_along(EPOCHS), function(i) {
+    lsm_patch(
+      ages[[i]] >= 140,
+      c("lsm_c_pland", "lsm_c_mesh"),
+      mask = zone == z
+    ) |>
+      dplyr::mutate(zone = z, epoch = EPOCHS[i])
+  }))
+})) |>
+  dplyr::mutate(
+    metric = c(pland = "Old forest (%)", mesh = "Mesh size (ha)")[metric]
+  )
+
+p_zone <- ggplot(zone_pm, aes(epoch, value, colour = zone)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.5) +
+  facet_wrap(~metric, scales = "free_y", ncol = 1) +
+  scale_colour_manual(values = ZONE_COLOURS, name = NULL) +
+  scale_x_continuous(breaks = c(1995, 2010, 2025)) +
+  labs(x = "Snapshot", y = NULL) +
+  theme(legend.position = "bottom")
+
+p_heat + p_zone + patchwork::plot_layout(widths = c(1.3, 1)) + sim_annotation()
+```
+
+# Other options worth considering {#sec-other}
+
+## Per-cell trends
+
+A rank-based trend at each cell across the seven snapshots gives a single map of the direction and rate of change: the Theil-Sen slope (the median of the slopes between every pair of snapshots), with a Mann-Kendall test for whether there is a monotonic trend at all.
+With only seven points per cell the test has little power, and testing thousands of cells needs a correction for multiple testing; here the false discovery rate is controlled at 5%.
+
+```{r trend}
+lmat <- do.call(cbind, lcum)
+pairs <- utils::combn(length(EPOCHS), 2)
+slopes <- sapply(seq_len(ncol(pairs)), function(j) {
+  (lmat[, pairs[2, j]] - lmat[, pairs[1, j]]) /
+    (EPOCHS[pairs[2, j]] - EPOCHS[pairs[1, j]])
+})
+## per decade, as a log2 ratio
+sen <- apply(slopes, 1, stats::median) * 10
+mk_p <- apply(lmat, 1, function(v) {
+  suppressWarnings(
+    stats::cor.test(EPOCHS, v, method = "kendall", exact = TRUE)$p.value
+  )
+})
+mk_q <- stats::p.adjust(mk_p, method = "BH")
+trend <- data.frame(
+  x = xy[, 1],
+  y = xy[, 2],
+  sen = sen,
+  sig = ifelse(mk_q < 0.05, sen, NA)
+)
+share_sig_down <- mean(mk_q < 0.05 & sen < 0)
+share_sig_up <- mean(mk_q < 0.05 & sen > 0)
+```
+
+```{r fig-trend}
+#| fig-cap: "**Simulated data.** Left: Theil-Sen trend in cumulative current per decade, 1995-2025. Right: the same, showing only cells with a significant Mann-Kendall trend after false-discovery-rate correction (5%); grey cells have none."
+#| fig-width: 7.5
+#| fig-height: 3.6
+lim_s <- stats::quantile(abs(trend$sen), 0.99)
+sen_scale <- diverging(
+   lim_s,
+   "Change per\ndecade",
+   labels = pct_lab,
+   breaks = log2(c(0.5, 0.8, 1, 1.25, 2))
+)
+(map_layer(trend, "sen", "Theil-Sen trend") + sen_scale) +
+   (map_layer(trend, "sig", "Significant trends only") +
+      sen_scale +
+      theme(panel.background = element_rect(fill = "grey85", colour = NA))) +
+   patchwork::plot_layout(guides = "collect") +
+   sim_annotation()
+```
+
+In the simulation `r scales::label_percent(accuracy = 1)(share_sig_down)` of cells have a significant decline and `r scales::label_percent(accuracy = 1)(share_sig_up)` a significant increase.
+The trend map is the one-map summary of the whole series; it cannot show change that reverses partway (loss followed by recovery), which the snapshot comparisons in @sec-lee can.
+
+## Linking the two families
+
+The Omniscape surfaces and the patch metrics should tell a consistent story: where habitat was lost or broken up, modelled flow should fall.
+Comparing the change in each over the same reporting areas tests that, and flags areas where the model responds differently from what the habitat change suggests.
+@fig-link does this for the simulated landscape units.
+
+```{r link}
+lu_ids <- sort(unique(lu))
+lu_pm <- dplyr::bind_rows(lapply(lu_ids, function(u) {
+  dplyr::bind_rows(lapply(c(1, length(EPOCHS)), function(i) {
+    lsm_patch(
+      ages[[i]] >= 140,
+      c("lsm_c_pland", "lsm_c_mesh"),
+      mask = lu == u
+    ) |>
+      dplyr::mutate(lu = u, epoch = EPOCHS[i])
+  }))
+})) |>
+  dplyr::select(lu, epoch, metric, value) |>
+  tidyr::pivot_wider(names_from = c(metric, epoch), values_from = value) |>
+  ## a unit with no old forest left has no class-1 row, i.e. zero area and zero mesh
+  dplyr::mutate(dplyr::across(
+    dplyr::matches("^(pland|mesh)_"),
+    ~ dplyr::coalesce(.x, 0)
+  )) |>
+  dplyr::mutate(
+    d_pland = pland_2025 - pland_1995,
+    ## mesh size can reach zero when the old forest in a unit is lost entirely
+    d_mesh = log2((mesh_2025 + 1) / (mesh_1995 + 1))
+  ) |>
+  dplyr::left_join(lu_change, by = "lu") |>
+  dplyr::mutate(bec = lu_zone[lu])
+
+rho <- function(v) {
+  sprintf("%.2f", stats::cor(lu_pm[[v]], lu_pm$dcum, method = "spearman"))
+}
+```
+
+```{r fig-link}
+#| fig-cap: "**Simulated data.** Landscape units: change in old-forest area (left) and in old-forest effective mesh size (right), 1995-2025, against mean change in cumulative current."
+#| fig-width: 7.5
+#| fig-height: 3.6
+link_plot <- function(
+  xvar,
+  xlab,
+  xlabels = ggplot2::waiver(),
+  xbreaks = ggplot2::waiver()
+) {
+  ggplot(lu_pm, aes(.data[[xvar]], dcum, colour = bec)) +
+    geom_hline(yintercept = 0, colour = "grey60") +
+    geom_point(size = 2.4) +
+    scale_colour_manual(values = ZONE_COLOURS, name = "BEC zone") +
+    scale_x_continuous(labels = xlabels, breaks = xbreaks) +
+    scale_y_continuous(breaks = PCT_BREAKS, labels = pct_lab) +
+    labs(x = xlab, y = "Mean change in cumulative current")
+}
+link_plot("d_pland", "Change in old forest (percentage points)") +
+  link_plot(
+    "d_mesh",
+    "Change in old-forest mesh size",
+    pct_lab,
+    log2(c(0.125, 0.25, 0.5, 1, 2))
+  ) +
+  patchwork::plot_layout(guides = "collect") +
+  sim_annotation() &
+  theme(legend.position = "bottom")
+```
+
+In the simulation the rank correlation between change in old-forest area and change in cumulative current across units is `r rho("d_pland")`, and `r rho("d_mesh")` for mesh size.
+On real data, a unit well off the general relationship is worth a look: it may be where something other than old forest (resistance from roads, or non-forest sources) drives the change.
+With a few dozen units, this is a descriptive check, not a test.
+
+# Questions for the team
+
+1. Do we agree to measure change in amount with cumulative current, and keep normalized current for the connectivity classes (@sec-layer)?
+2. Which of the approaches are worth carrying to the real series?
+3. For Lee's L: which of options A--C, and at what neighbourhood scale?
+4. For the disturbance analysis: how do we define the dominant agent, and do we report the change around disturbances separately?
+5. For transitions: all seven snapshots or a subset?
+6. For patch metrics: which patch definition(s), and for threshold-based ones, which thresholds? Which three or four metrics, at what resolution and edge depth?
+7. **What reporting areas do we care about?** We assume BEC zone and landscape unit will be included; which of the others (moose wetlands, mule deer winter ranges, OGMAs, parks, wetlands, WHAs, or others) should be carried through the series?
+
+# Appendix: implementation notes {#sec-appendix}
+
+```{r versions}
+pkg_ver <- function(p) as.character(utils::packageVersion(p))
+```
+
+This appendix is for whoever implements the chosen methods.
+
+- **Simulation.**
+  All data are generated in the `simulate` chunk of this document from a fixed seed; nothing reads pipeline outputs.
+  Normalized current is a cell's conductance divided by its Gaussian-weighted neighbourhood mean, raised to 0.75; flow potential is source weight summed over a Gaussian window; cumulative current is their product.
+  Landscape units are the Voronoi cells of 16 random points.
+- **Omniscape outputs.**
+  The three surfaces are `cum_currmap.tif`, `flow_potential.tif` and `normalized_cum_currmap.tif` in each run directory.
+  Each epoch's run takes its own `resistance_composite_<epoch>_*.tif` and `sourcewt_composite_<epoch>_*.tif`; the radius comes from the district's pinned interpatch-distance quantiles and does not vary by epoch.
+  The existing zonal summaries (`zonal_summaries()`) read only `normalized_cum_currmap.tif`.
+- **Lee's L** uses spdep (`r pkg_ver("spdep")`), on log2 cumulative current.
+  `spdep::lee.mc()` runs the permutation test and `spdep::lee()` returns the local values.
+  Avoid `spdep::lee.test()`, the analytical test, on raster data: it builds a dense cell-by-cell matrix.
+  On a 150 x 150 grid (22,500 cells) it took 167 s and about 4,700 CPU-seconds, and needs about 4 GB; memory grows with the square of the number of cells.
+  `lee.mc()` on the same grid with 99 permutations took 3 s.
+  Neighbours: `spdep::cell2nb()` for adjacent cells, which numbers cells column by column from the bottom-left, unlike terra's row-by-row from the top-left, so values must be reordered to match; `spdep::dnearneigh()` for a distance band.
+- **Disturbance agents.**
+  In the pipeline these would come from the disturbance history the epoch back-cast already parses (most recent stand-replacing event per interval).
+  Distance to the nearest disturbance is `terra::distance()`, once per agent.
+- **Transitions.**
+  `LandR::plotVegTransitions()` draws one `ggalluvial::geom_flow()` band per *pixel*, which is slow at district scale.
+  Collapsing cells to their unique class paths first and weighting by area, as done here, gives the same plot from at most 4^7^ = 16,384 rows per zone.
+  ggalluvial `r pkg_ver("ggalluvial")`.
+- **Patch metrics** use landscapemetrics (`r pkg_ver("landscapemetrics")`), `landscapemetrics::calculate_lsm()` with the `lsm_c_*` functions listed in @tbl-metrics.
+  It requires a projected raster with units in metres.
+  Per-area metrics mask cells outside the area to `NA`.
+- **Trends.**
+  Theil-Sen slopes are the median of the 21 pairwise slopes per cell; Mann-Kendall p-values are from `stats::cor.test(method = "kendall", exact = TRUE)`, adjusted with `stats::p.adjust(method = "BH")`.
+- **Packages.**
+  spdep, landscapemetrics, ggalluvial, ggrepel and patchwork are not yet in the project's `renv.lock`; this draft was rendered against a separate library.
+  They would be added before any of this goes into the pipeline.
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
