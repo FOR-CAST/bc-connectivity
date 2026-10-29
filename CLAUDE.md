@@ -70,7 +70,7 @@ A bare `targets::tar_make()` resolves to `_targets.R` -- the retired Quesnel pip
 `_targets.yaml` has no `main:` entry, but that alone is not protection: with no entry `targets` falls back to its built-in defaults, which are exactly that script and the `_targets/` store.
 Hence the guard at the top of the file.
 
-Environment variables (documented in `README.md`): `BC_CONN_WORKERS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_JULIA_THREADS_MAX`, `BC_CONN_OMNISCAPE`.
+Environment variables (documented in `README.md`): `BC_CONN_EPOCHS`, `BC_CONN_JULIA_THREADS`, `BC_CONN_JULIA_THREADS_MAX`, `BC_CONN_OMNISCAPE`, `BC_CONN_WORKERS`.
 On a shared host, cap Omniscape with `BC_CONN_JULIA_THREADS_MAX` rather than pinning `BC_CONN_JULIA_THREADS`: the ceiling clips the large-window runs, which is where the memory is, while leaving the small-window ones at the 8 threads they are fastest at.
 Omniscape runs are opt-in because a single one can take days and hundreds of GB of RAM.
 
@@ -129,7 +129,7 @@ Nothing else catches a command naming a target that belongs to a *different* pro
 It went unnoticed because the function returns early when no runs exist and R's lazy evaluation never forced the arguments, so the target reported as built without ever having read a layer.
 `connectivity_categories` failed the same way for the same reason.
 **A target that returns early on an empty input is not evidence that its arguments resolve.**
-Three environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118; `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts; and `BC_CONN_EPOCHS` adds the historical epochs -- 2 shared targets plus 28 per epoch, so 142 for one epoch and 226 for `all`.
+Three environment variables move those counts on purpose: `BC_CONN_INTERPATCH_DISTANCES=1` adds the interpatch-distance chain, taking dataprep to 118; `BC_CONN_RESOLUTION_STUDY=1` adds Quesnel's 30 m series, which changes branch counts but not target counts; and `BC_CONN_EPOCHS` adds the historical epochs -- in dataprep 2 shared targets plus 28 per epoch (142 for one epoch, 226 for `all`), in omniscape 9 per epoch (34, 61).
 
 The legacy `main` project is retired and deliberately absent from `_targets.yaml`, so it is not in the sweep. `_targets/` is kept as a frozen archive; see "The retired `main` project" below.
 

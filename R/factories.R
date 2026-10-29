@@ -1363,6 +1363,220 @@ historical_epoch_targets <- function(epochs) {
   )
 }
 
+#' One district's Omniscape runs and what is read off them, shared by the current condition and every
+#' historical epoch
+#'
+#' From the composite rasters the prep project publishes, through the configurations and runs, to
+#' the connectivity categories and zonal summaries. Each epoch builds it again inside `tar_map()`
+#' (plan §D, task D4); see [seral_chain_targets()] for why the parts that differ -- composite file
+#' names, run name and map label -- are filled in with `bquote()`: the current condition's command
+#' text is unchanged, so nothing is invalidated.
+#'
+#' The epoch run name carries the epoch, and the category rasters, maps and zonal tables are all
+#' named from the run directory, so no epoch writes over the current condition. The district
+#' benchmark table is one fixed file and stays current-condition only; every run still writes its
+#' own `omniscape_metrics.csv`.
+#'
+#' @param epoch logical; `TRUE` when called inside the epoch `tar_map()`
+#'
+#' @returns list of targets
+omniscape_run_targets <- function(epoch = FALSE) {
+  if (isTRUE(epoch)) {
+    composite_file <- function(stem) bquote(paste0(.(stem), epoch, "_", 30 * agg_fact_lcc, ".tif"))
+    run_name <- quote(paste(OMNISCAPE_VINTAGE, district$key, epoch, sep = "_"))
+    map_label <- quote(paste(district$label, epoch))
+  } else {
+    composite_file <- function(stem) bquote(paste0(.(stem), 30 * agg_fact_lcc, ".tif"))
+    run_name <- quote(paste(OMNISCAPE_VINTAGE, district$key, sep = "_"))
+    map_label <- quote(district$label)
+  }
+
+  eval(bquote(list(
+    tar_target(
+      name = resistance_composite,
+      command = file.path(
+        district_path("rasters", district),
+        .(composite_file("resistance_composite_"))
+      ),
+      format = "file",
+      pattern = map(agg_fact_lcc)
+    ),
+
+    tar_target(
+      name = sourcewt_composite,
+      command = file.path(
+        district_path("rasters", district),
+        .(composite_file("sourcewt_composite_"))
+      ),
+      format = "file",
+      pattern = map(agg_fact_lcc)
+    ),
+
+    ## Omniscape --------------------------------------------------------------------------------
+    ##
+    ## Runs are now launched from R (see `run_omniscape()` / `julia_env()`), so the whole analysis is
+    ## one `tar_make()`. They are still expensive -- hours to days each -- so which configurations
+    ## actually run is controlled by `omniscape_runs` below rather than by launching everything.
+    tar_target(
+      name = omniscape_config_alldist,
+      command = write_omniscape_config(
+        res = resistance_composite,
+        srcwt = sourcewt_composite,
+        patch_distances = quantiles_all_dists,
+        q = 25, ## ~45 km
+        ## District-qualified, because the run name is what separates one district's *configuration*
+        ## from another's: the config directory under `Omniscape/` is named from it and is not
+        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
+        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
+        ## -- and silently overwrites the previous district's config.
+        run_name = .(run_name),
+        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
+        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
+        outputs_dir = district_path("outputs", district),
+        ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
+        ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
+        ntiles = omniscape_tiles()
+      ),
+      format = "file",
+      pattern = map(resistance_composite, sourcewt_composite),
+      iteration = "list"
+    ),
+
+    tar_target(
+      name = omniscape_config_nndist,
+      command = write_omniscape_config(
+        res = resistance_composite,
+        srcwt = sourcewt_composite,
+        patch_distances = quantiles_nn_dists,
+        q = 100, ## could reasonably use e.g., 90, 95, 99, 100
+        ## District-qualified, because the run name is what separates one district's *configuration*
+        ## from another's: the config directory under `Omniscape/` is named from it and is not
+        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
+        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
+        ## -- and silently overwrites the previous district's config.
+        run_name = .(run_name),
+        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
+        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
+        outputs_dir = district_path("outputs", district),
+        ntiles = omniscape_tiles()
+      ),
+      format = "file",
+      pattern = map(resistance_composite, sourcewt_composite),
+      iteration = "list"
+    ),
+
+    ## Which launch scripts to actually run, and with how many Julia threads.
+    ##
+    ## `BC_CONN_OMNISCAPE` selects the configurations: "none" (default -- write configs only),
+    ## "nn", "alldist", or "all". Leaving it unset means a full `tar_make()` prepares every input and
+    ## stops short of committing the machine to a multi-day Omniscape run.
+    tar_target(
+      name = omniscape_scripts_to_run,
+      command = select_omniscape_runs(
+        omniscape_config_nndist,
+        omniscape_config_alldist,
+        which = Sys.getenv("BC_CONN_OMNISCAPE", "none")
+      ),
+      deployment = "main",
+      cue = tar_cue(mode = "always") ## the env var is not a target dependency
+    ),
+
+    ## One branch per Omniscape configuration, so a failed run does not discard the others and a
+    ## completed one is not repeated -- the previous single target wrapped every run in one command,
+    ## so any failure threw away days of finished work.
+    ##
+    ## `deployment = "main"` keeps the branches *sequential*: each run takes 32 Julia threads and
+    ## 100-650 GB, so two at once only thrash. Branching buys granularity here, not parallelism.
+    ## Bounded concurrency across hosts is the separate `omniscape` targets project driven by
+    ## `crew.ssh` (see docs/cariboo-extension-plan.md B2'.1), deliberately *not* a controller group.
+    ##
+    ## Defined conditionally because `targets` fails with "cannot branch over empty target", and the
+    ## default `BC_CONN_OMNISCAPE=none` selects no runs -- the usual `tar_make()` path.
+    if (omniscape_any_selected()) {
+      tar_target(
+        name = omniscape_run,
+        command = run_omniscape(
+          omniscape_scripts_to_run,
+          julia_threads = omniscape_thread_setting()
+        ),
+        format = "file",
+        pattern = map(omniscape_scripts_to_run),
+        deployment = "main"
+      )
+    } else {
+      tar_target(
+        name = omniscape_run,
+        command = character(0),
+        format = "file",
+        deployment = "main"
+      )
+    },
+
+    tar_target(
+      name = connectivity_categories,
+      command = connectivity_category_rasters(
+        omniscape_run,
+        study_area = study_area_boundary,
+        dest_dir = district_path("outputs", district)
+      ),
+      format = "file"
+    ),
+
+    tar_target(
+      name = connectivity_category_pngs,
+      command = connectivity_category_maps(
+        omniscape_run,
+        study_area = study_area_boundary,
+        dest_dir = district_path("figures", district),
+        label = .(map_label)
+      ),
+      format = "file"
+    ),
+
+    ## Clipped to `study_area_boundary`, the UNBUFFERED district. The layers above were derived
+    ## against the buffered one so the moving window has room; summarising over that margin would
+    ## report land outside the district.
+    tar_target(
+      name = omniscape_summary,
+      command = zonal_summaries(
+        omniscape_run,
+        study_area_boundary,
+        LCC_tif,
+        LU_gpkg,
+        BEC_gpkg,
+        moose_wetlands_gpkg,
+        MDWR_gpkg,
+        OGMA_gpkg,
+        parks_gpkg,
+        wetlands_gpkg,
+        WHA_gpkg
+      ),
+      format = "file"
+    )
+  )))
+}
+
+#' Omniscape targets for the historical epochs (plan §D, task D4)
+#'
+#' [omniscape_run_targets()] once per epoch. `BC_CONN_OMNISCAPE` decides whether any run launches,
+#' for the epochs exactly as for the current condition.
+#'
+#' @param epochs integer years, from [historical_epochs()]; none builds no targets
+#'
+#' @returns list of targets
+historical_omniscape_targets <- function(epochs) {
+  if (length(epochs) == 0L) {
+    return(list())
+  }
+
+  tarchetypes::tar_map(
+    values = list(epoch = epochs),
+    names = "epoch",
+    omniscape_run_targets(epoch = TRUE)
+  )
+}
+
+
 #' Targets for one district's Omniscape project
 #'
 #' Consumes the prep project's outputs as `format = "file"` inputs, so this project's expensive
@@ -1407,24 +1621,10 @@ omniscape_targets <- function() {
       ),
       deployment = "main"
     ),
-    tar_target(
-      name = resistance_composite,
-      command = file.path(
-        district_path("rasters", district),
-        paste0("resistance_composite_", 30 * agg_fact_lcc, ".tif")
-      ),
-      format = "file",
-      pattern = map(agg_fact_lcc)
-    ),
-    tar_target(
-      name = sourcewt_composite,
-      command = file.path(
-        district_path("rasters", district),
-        paste0("sourcewt_composite_", 30 * agg_fact_lcc, ".tif")
-      ),
-      format = "file",
-      pattern = map(agg_fact_lcc)
-    ),
+    omniscape_run_targets(),
+
+    ## Historical epochs (plan §D): off unless `BC_CONN_EPOCHS` asks for them
+    historical_omniscape_targets(historical_epochs()),
     tar_target(
       name = quantiles_nn_dists,
       command = read_csv_file(
@@ -1437,105 +1637,6 @@ omniscape_targets <- function() {
         file.path(district_path("inputs", district), "quantiles_all_dists.csv")
       )
     ),
-
-    ## Omniscape --------------------------------------------------------------------------------
-    ##
-    ## Runs are now launched from R (see `run_omniscape()` / `julia_env()`), so the whole analysis is
-    ## one `tar_make()`. They are still expensive -- hours to days each -- so which configurations
-    ## actually run is controlled by `omniscape_runs` below rather than by launching everything.
-    tar_target(
-      name = omniscape_config_alldist,
-      command = write_omniscape_config(
-        res = resistance_composite,
-        srcwt = sourcewt_composite,
-        patch_distances = quantiles_all_dists,
-        q = 25, ## ~45 km
-        ## District-qualified, because the run name is what separates one district's *configuration*
-        ## from another's: the config directory under `Omniscape/` is named from it and is not
-        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
-        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
-        ## -- and silently overwrites the previous district's config.
-        run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
-        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
-        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
-        outputs_dir = district_path("outputs", district),
-        ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
-        ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
-        ntiles = omniscape_tiles()
-      ),
-      format = "file",
-      pattern = map(resistance_composite, sourcewt_composite),
-      iteration = "list"
-    ),
-
-    tar_target(
-      name = omniscape_config_nndist,
-      command = write_omniscape_config(
-        res = resistance_composite,
-        srcwt = sourcewt_composite,
-        patch_distances = quantiles_nn_dists,
-        q = 100, ## could reasonably use e.g., 90, 95, 99, 100
-        ## District-qualified, because the run name is what separates one district's *configuration*
-        ## from another's: the config directory under `Omniscape/` is named from it and is not
-        ## district-aware. The radii are pinned across districts (see `reference_distances()`), so
-        ## without this every district produces the IDENTICAL run name -- `2026-08-26_p90_r477_bs49`
-        ## -- and silently overwrites the previous district's config.
-        run_name = paste(OMNISCAPE_VINTAGE, district$key, sep = "_"),
-        ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
-        ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
-        outputs_dir = district_path("outputs", district),
-        ntiles = omniscape_tiles()
-      ),
-      format = "file",
-      pattern = map(resistance_composite, sourcewt_composite),
-      iteration = "list"
-    ),
-
-    ## Which launch scripts to actually run, and with how many Julia threads.
-    ##
-    ## `BC_CONN_OMNISCAPE` selects the configurations: "none" (default -- write configs only),
-    ## "nn", "alldist", or "all". Leaving it unset means a full `tar_make()` prepares every input and
-    ## stops short of committing the machine to a multi-day Omniscape run.
-    tar_target(
-      name = omniscape_scripts_to_run,
-      command = select_omniscape_runs(
-        omniscape_config_nndist,
-        omniscape_config_alldist,
-        which = Sys.getenv("BC_CONN_OMNISCAPE", "none")
-      ),
-      deployment = "main",
-      cue = tar_cue(mode = "always") ## the env var is not a target dependency
-    ),
-    ## One branch per Omniscape configuration, so a failed run does not discard the others and a
-    ## completed one is not repeated -- the previous single target wrapped every run in one command,
-    ## so any failure threw away days of finished work.
-    ##
-    ## `deployment = "main"` keeps the branches *sequential*: each run takes 32 Julia threads and
-    ## 100-650 GB, so two at once only thrash. Branching buys granularity here, not parallelism.
-    ## Bounded concurrency across hosts is the separate `omniscape` targets project driven by
-    ## `crew.ssh` (see docs/cariboo-extension-plan.md B2'.1), deliberately *not* a controller group.
-    ##
-    ## Defined conditionally because `targets` fails with "cannot branch over empty target", and the
-    ## default `BC_CONN_OMNISCAPE=none` selects no runs -- the usual `tar_make()` path.
-    if (omniscape_any_selected()) {
-      tar_target(
-        name = omniscape_run,
-        command = run_omniscape(
-          omniscape_scripts_to_run,
-          julia_threads = omniscape_thread_setting()
-        ),
-        format = "file",
-        pattern = map(omniscape_scripts_to_run),
-        deployment = "main"
-      )
-    } else {
-      tar_target(
-        name = omniscape_run,
-        command = character(0),
-        format = "file",
-        deployment = "main"
-      )
-    },
 
     ## Measured resource use for every run made.
     ##
@@ -1570,25 +1671,6 @@ omniscape_targets <- function() {
     tar_target(
       name = study_area_boundary,
       command = district_study_area(district),
-      format = "file"
-    ),
-    tar_target(
-      name = connectivity_categories,
-      command = connectivity_category_rasters(
-        omniscape_run,
-        study_area = study_area_boundary,
-        dest_dir = district_path("outputs", district)
-      ),
-      format = "file"
-    ),
-    tar_target(
-      name = connectivity_category_pngs,
-      command = connectivity_category_maps(
-        omniscape_run,
-        study_area = study_area_boundary,
-        dest_dir = district_path("figures", district),
-        label = district$label
-      ),
       format = "file"
     ),
 
@@ -1646,27 +1728,6 @@ omniscape_targets <- function() {
     tar_target(
       name = WHA_gpkg,
       command = district_input_layer(district, "WHA.gpkg"),
-      format = "file"
-    ),
-
-    ## Clipped to `study_area_boundary`, the UNBUFFERED district. The layers above were derived
-    ## against the buffered one so the moving window has room; summarising over that margin would
-    ## report land outside the district.
-    tar_target(
-      name = omniscape_summary,
-      command = zonal_summaries(
-        omniscape_run,
-        study_area_boundary,
-        LCC_tif,
-        LU_gpkg,
-        BEC_gpkg,
-        moose_wetlands_gpkg,
-        MDWR_gpkg,
-        OGMA_gpkg,
-        parks_gpkg,
-        wetlands_gpkg,
-        WHA_gpkg
-      ),
       format = "file"
     ),
 

@@ -85,15 +85,15 @@ Environment variables control how much of the machine the run takes:
 
 | Variable | Default | Effect |
 |----|----|----|
-| `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
-| `BC_CONN_JULIA_THREADS` | *(per configuration)* | Julia threads per Omniscape run. Unset, each run is sized from its window: 8 threads for small windows (more threads make those *slower*), 16 for medium, 64 for large. Set it to force one value everywhere. |
-| `BC_CONN_JULIA_THREADS_MAX` | `64` | ceiling on that per-configuration choice, and so on memory, which is linear in threads: 2.32 GB/thread at the 90 m regional radius. Set it on a shared host instead of forcing `BC_CONN_JULIA_THREADS`, which would also slow the small-window runs. |
-| `BC_CONN_OMNISCAPE_MEMMAX` | `50%` | memory cap for an Omniscape run, enforced with a systemd/cgroup scope; `none` disables it |
-| `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
-| `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
-| `BC_CONN_RESOLUTION_STUDY` | unset | `1` rebuilds the 30 m series alongside 90 m, for the resolution-equivalence comparison. Only Quesnel has one. |
 | `BC_CONN_AGG_FACTORS` | *(per district)* | set the resolutions directly, e.g. `1` for 30 m alone or `1 3` for both. Overrides `BC_CONN_RESOLUTION_STUDY`. |
 | `BC_CONN_EPOCHS` | unset | historical epochs to build in the `dataprep` projects: `all` (2005, 2010, 2015, 2020) or a list such as `2005,2010`. Each re-runs the patch chain from back-cast stand ages; 2025 is the current condition. |
+| `BC_CONN_JULIA_THREADS` | *(per configuration)* | Julia threads per Omniscape run. Unset, each run is sized from its window: 8 threads for small windows (more threads make those *slower*), 16 for medium, 64 for large. Set it to force one value everywhere. |
+| `BC_CONN_JULIA_THREADS_MAX` | `64` | ceiling on that per-configuration choice, and so on memory, which is linear in threads: 2.32 GB/thread at the 90 m regional radius. Set it on a shared host instead of forcing `BC_CONN_JULIA_THREADS`, which would also slow the small-window runs. |
+| `BC_CONN_OMNISCAPE` | `none` | which Omniscape configurations to run: `none`, `nn`, `alldist`, or `all` |
+| `BC_CONN_OMNISCAPE_BENCH` | unset | e.g. `2x3` to also write tiled configurations for benchmarking |
+| `BC_CONN_OMNISCAPE_MEMMAX` | `50%` | memory cap for an Omniscape run, enforced with a systemd/cgroup scope; `none` disables it |
+| `BC_CONN_RESOLUTION_STUDY` | unset | `1` rebuilds the 30 m series alongside 90 m, for the resolution-equivalence comparison. Only Quesnel has one. |
+| `BC_CONN_WORKERS` | `min(availableCores() - 2, 64)` | number of `crew` workers |
 
 By default the `dataprep` project prepares every Omniscape input, and
 the `omniscape` project stops short of launching the runs themselves,
