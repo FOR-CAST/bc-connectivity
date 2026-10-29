@@ -219,3 +219,39 @@ test_that("donors exclude ages within the VRI-update tolerance and before `since
   ## 109 - 9 = 100 at harvest; 12 is a regeneration age; the 2000 cut predates `since`
   expect_equal(d$age, 100)
 })
+
+test_that("one age is drawn per unit, not per polygon", {
+  d <- data.frame(NDT_BEC = "NDT3-SBS", agent = "CUT", age = seq(60, 300, by = 10), weight = 1)
+  x <- lost_fixture(rep("NDT3-SBS", 400), "CUT", 2010)
+  unit <- rep(1:100, each = 4)
+
+  out <- impute_lost_age(x, 2010, d, min_donors = 1, unit = unit)
+
+  ## every piece of a unit shares its age, and the units still differ from one another
+  expect_true(all(tapply(out$SIFA, unit, function(a) length(unique(a))) == 1))
+  expect_gt(length(unique(out$SIFA)), 10)
+})
+
+test_that("contiguous lost pieces with the same replacement are one stand", {
+  skip_if_not_installed("terra")
+  skip_if_not_installed("spatialutils")
+
+  sq_at <- function(x0) {
+    sprintf("POLYGON ((%d 0, %d 0, %d 100, %d 100, %d 0))", x0, x0 + 100, x0 + 100, x0, x0)
+  }
+  ## a and b abut and share a 2015 cut; c has the same cut but stands apart; d abuts b but was
+  ## cut in 2016; e is not lost at all
+  v <- terra::vect(sapply(c(0, 100, 500, 200, 800), sq_at), crs = CRS_FIXTURE)
+  x <- data.frame(
+    age_source = c("lost", "lost", "lost", "lost", "undisturbed"),
+    replaced_year = c(2015, 2015, 2015, 2016, NA),
+    MRSRD_A = "CUT",
+    NDT_BEC = "NDT3-SBS"
+  )
+  u <- lost_age_units(v, x)
+
+  expect_equal(u[1], u[2])
+  expect_false(u[3] == u[1])
+  expect_false(u[4] == u[2])
+  expect_equal(length(unique(u)), 4L)
+})

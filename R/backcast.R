@@ -183,8 +183,12 @@ donor_ages <- function(
 ## between the epoch and the replacement, floored at 0. Donors are matched on (`NDT_BEC`, agent); a
 ## group with fewer than `min_donors` falls back to `NDT_BEC` alone, then to every donor.
 ##
-## `method = "draw"` samples one donor per polygon, area-weighted, so the filled ages follow the
-## donor distribution -- which is what seral-class areas depend on. `method = "quantile"` gives every
+## `method = "draw"` samples one donor per `unit`, area-weighted, so the filled ages follow the
+## donor distribution -- which is what seral-class areas depend on. A unit is a stand (see
+## `lost_age_units()`); without one, every polygon draws on its own. That is wrong on the real layer:
+## CEF splits a cutblock into many pieces, and drawing per piece turned one harvest into a patchwork
+## of seral classes -- 2.2-4.3x the polygons after dissolving on three 100 Mile House tiles, and so
+## spurious edges in exactly the historical landscape being compared. `method = "quantile"` gives every
 ## polygon in a group the area-weighted `prob` quantile, for bounding runs (e.g. 0.1 and 0.9).
 impute_lost_age <- function(
   x,
@@ -193,7 +197,8 @@ impute_lost_age <- function(
   method = c("draw", "quantile"),
   prob = 0.5,
   seed = epoch,
-  min_donors = 30L
+  min_donors = 30L,
+  unit = NULL
 ) {
   method <- match.arg(method)
   lost <- which(x$age_source %in% "lost")
@@ -218,13 +223,17 @@ impute_lost_age <- function(
     donors[if (grepl(" ", g, fixed = TRUE)) key_full == g else donors$NDT_BEC == g, , drop = FALSE]
   }
 
+  unit <- if (is.null(unit)) seq_along(lost) else unit[lost]
+
   at_replacement <- rep(NA_real_, length(lost))
   withr::with_seed(seed, {
     for (g in sort(unique(group))) {
       i <- which(group == g)
       d <- pool(g)
       at_replacement[i] <- if (method == "draw") {
-        d$age[sample.int(nrow(d), length(i), replace = TRUE, prob = d$weight)]
+        u <- unique(unit[i])
+        draws <- d$age[sample.int(nrow(d), length(u), replace = TRUE, prob = d$weight)]
+        draws[match(unit[i], u)]
       } else {
         weighted_quantile(d$age, d$weight, prob)
       }
@@ -299,6 +308,35 @@ create_forest_disturbance_history <- function(for_dist_gpkg, vri_gpkg, tile) {
   v
 }
 
+## Stand membership for the `lost` pieces of `v`, so `impute_lost_age()` draws one age per stand.
+##
+## A stand is a contiguous group of lost pieces replaced in the same year by the same agent within
+## one NDT-BEC: dissolve on that key, explode, and give each piece the stand its interior point falls
+## in. Pieces that are not lost, or whose point finds no stand, are their own unit. Stands crossing a
+## tile seam are split there, so the two halves draw separately -- a small, bounded effect at 64 tiles.
+lost_age_units <- function(v, x) {
+  unit <- seq_len(nrow(x))
+  lost <- which(x$age_source %in% "lost")
+  if (length(lost) < 2L) {
+    return(unit)
+  }
+
+  pieces <- v[lost, ]
+  pieces$key <- paste(x$replaced_year[lost], x$MRSRD_A[lost], x$NDT_BEC[lost])
+  pieces <- pieces[, "key"]
+  stands <- spatialutils::dissolve_by(pieces, "key", explode = TRUE)
+  stands$stand <- seq_len(nrow(stands))
+
+  pts <- terra::centroids(pieces, inside = TRUE)
+  hit <- terra::relate(pts, stands, "intersects", pairs = TRUE)
+  ## a point on a shared boundary can touch two stands; take the one with the piece's own key
+  hit <- hit[pieces$key[hit[, 1]] == stands$key[hit[, 2]], , drop = FALSE]
+  hit <- hit[!duplicated(hit[, 1]), , drop = FALSE]
+
+  unit[lost[hit[, 1]]] <- nrow(x) + hit[, 2]
+  unit
+}
+
 ## One tile's seral layer at `epoch`: back-cast the age, fill the ages CEF does not record, then
 ## classify exactly as `create_forest_disturbance_seral()` does for the current condition.
 ##
@@ -326,7 +364,8 @@ create_forest_disturbance_seral_epoch <- function(
     donors,
     method = lost_method,
     prob = lost_prob,
-    seed = epoch * 100L + tile$tile[[1]]
+    seed = epoch * 100L + tile$tile[[1]],
+    unit = lost_age_units(v, x)
   )
 
   max_age <- max(max_age, x$SIFA, na.rm = TRUE)
