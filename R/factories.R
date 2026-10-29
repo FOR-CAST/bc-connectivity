@@ -1327,7 +1327,8 @@ historical_epoch_targets <- function(epochs) {
     return(list())
   }
 
-  list(
+  ## `bquote()` fills in `.(c(epochs, 2024L))` from this frame; see `seral_chain_targets()`
+  eval(bquote(list(
     tar_terra_vect(
       name = forest_disturbance_history_tiles,
       command = create_forest_disturbance_history(
@@ -1342,6 +1343,29 @@ historical_epoch_targets <- function(epochs) {
       name = lost_age_donors,
       command = donor_ages(terra::as.data.frame(forest_disturbance_history_tiles)),
       pattern = map(forest_disturbance_history_tiles)
+    ),
+
+    ## What happened between epochs (task D8): every recorded disturbance placed in its interval, by
+    ## landscape unit and BEC zone, with major events flagged -- the context each epoch-to-epoch
+    ## change is read against. The breaks are the epochs plus the 2024 data year.
+    tar_target(
+      name = interval_disturbance_tiles,
+      command = interval_disturbance_tile(
+        forest_disturbance_history_tiles,
+        .(c(epochs, 2024L)),
+        LU_gpkg,
+        study_area_gpkg,
+        study_area_tiles
+      ),
+      pattern = map(forest_disturbance_history_tiles, study_area_tiles)
+    ),
+    tar_target(
+      name = interval_disturbance_csv,
+      command = write_interval_disturbance(
+        interval_disturbance_tiles,
+        file.path(district_path("outputs", district), "interval_disturbance.csv")
+      ),
+      format = "file"
     ),
 
     tarchetypes::tar_map(
@@ -1360,7 +1384,7 @@ historical_epoch_targets <- function(epochs) {
       ),
       seral_chain_targets(epoch = TRUE)
     )
-  )
+  )))
 }
 
 #' One district's Omniscape runs and what is read off them, shared by the current condition and every

@@ -154,11 +154,12 @@ latest_reset <- function(history, epoch, reset_rule) {
 
 ## Ages at disturbance where VRI genuinely kept the pre-disturbance age: the donors for
 ## `impute_lost_age()`. `x` needs `NDT_BEC`, `MRSRD_A`, `MRSRD_Y`, `PROJ_AGE_1` and an area column.
-## Only disturbances from `since` on are used -- the period whose lost ages are being filled.
+## Only disturbances from `since` on are kept; each epoch then narrows to those after it (see
+## `create_forest_disturbance_seral_epoch()`), because a stand lost at an epoch was replaced after it.
 donor_ages <- function(
   x,
   weight = "ha",
-  since = 2005,
+  since = 1995,
   data_year = 2024,
   vri_update_tolerance = 10
 ) {
@@ -172,6 +173,7 @@ donor_ages <- function(
   data.frame(
     NDT_BEC = x$NDT_BEC[ok],
     agent = x$MRSRD_A[ok],
+    year = x$MRSRD_Y[ok],
     age = x$PROJ_AGE_1[ok] - since_dist[ok],
     weight = x[[weight]][ok]
   )
@@ -254,8 +256,10 @@ weighted_quantile <- function(v, w, prob) {
 # Epoch targets (plan §D, task D4) ---------------------------------------------------------------
 
 ## Which historical epochs to build, from `BC_CONN_EPOCHS`: unset or empty builds none, `"all"` builds
-## 2005, 2010, 2015 and 2020, and a comma-separated list builds those. 2025 is the current condition
-## (plan §D.3a) and is never an epoch. Off by default because each epoch re-runs the patch chain,
+## 1995 to 2020 in 5-year steps, and a comma-separated list builds those. 2025 is the current
+## condition (plan §D.3a) and is never an epoch. The series reaches 1995 so that its first epoch
+## predates the mountain pine beetle epidemic (decided 2026-10-29); the CEF record barely covers the
+## 1999-2002 onset, so 2000 is the weak epoch until CanLaD is added (plan §5.1). Off by default because each epoch re-runs the patch chain,
 ## ~16 h on Cariboo-Chilcotin.
 historical_epochs <- function(flag = Sys.getenv("BC_CONN_EPOCHS", "")) {
   flag <- tolower(trimws(flag))
@@ -263,7 +267,7 @@ historical_epochs <- function(flag = Sys.getenv("BC_CONN_EPOCHS", "")) {
     return(integer(0))
   }
   if (flag == "all") {
-    return(c(2005L, 2010L, 2015L, 2020L))
+    return(seq(1995L, 2020L, by = 5L))
   }
 
   epochs <- suppressWarnings(as.integer(trimws(strsplit(flag, ",", fixed = TRUE)[[1]])))
@@ -361,7 +365,7 @@ create_forest_disturbance_seral_epoch <- function(
   x <- impute_lost_age(
     x,
     epoch,
-    donors,
+    donors[donors$year > epoch, , drop = FALSE],
     method = lost_method,
     prob = lost_prob,
     seed = epoch * 100L + tile$tile[[1]],
@@ -383,4 +387,137 @@ create_forest_disturbance_seral_epoch <- function(
       Seral = !!seral$Seral,
       early_less_20yrs = dplyr::if_else(SIFA < 20, "under_20", NA_character_)
     )
+}
+
+# Disturbance between epochs (plan §D, task D8) --------------------------------------------------
+
+## Every recorded event placed in the interval between the epochs it falls between, so a change
+## between two epochs can be read alongside what happened in between: a beetle outbreak, a fire year.
+##
+## `x` is one row per polygon piece with `DSTRB_HIST`, `ha` and zone columns; `breaks` are the epoch
+## years plus the data year. An event in year `y` belongs to the interval `(b[i], b[i + 1]]`; undated
+## events and those outside the series are dropped. A piece is counted once per interval, agent and
+## severity, however many events of that kind it records there.
+interval_events <- function(x, breaks, zones = c("LANDSCAPE_UNIT_NAME", "BEC_ZONE")) {
+  breaks <- sort(unique(breaks))
+  ev <- parse_disturbance_history(x$DSTRB_HIST)
+  k <- findInterval(ev$year, breaks, left.open = TRUE)
+  ev$interval_end <- ifelse(k >= 1L & k < length(breaks), breaks[pmin(k + 1L, length(breaks))], NA)
+  ev <- ev[!is.na(ev$interval_end), , drop = FALSE]
+  ev$interval_start <- breaks[match(ev$interval_end, breaks) - 1L]
+  ev <- unique(ev[, c("id", "interval_start", "interval_end", "agent", "severity")])
+  ## each piece once per agent too, under severity "ALL": summing the severity rows would count a
+  ## piece with, say, both trace and very severe beetle in an interval twice
+  all_sev <- unique(ev[, c("id", "interval_start", "interval_end", "agent")])
+  all_sev$severity <- "ALL"
+  ev <- rbind(ev, all_sev)
+
+  long <- lapply(zones, function(z) {
+    data.frame(
+      zone_type = z,
+      zone = x[[z]][ev$id],
+      interval_start = ev$interval_start,
+      interval_end = ev$interval_end,
+      agent = ev$agent,
+      severity = ev$severity,
+      ha = x$ha[ev$id]
+    )
+  })
+  area <- lapply(zones, function(z) data.frame(zone_type = z, zone = x[[z]], ha = x$ha))
+
+  list(
+    disturbed = stats::aggregate(
+      ha ~ zone_type + zone + interval_start + interval_end + agent + severity,
+      data = do.call(rbind, long),
+      FUN = sum
+    ),
+    zone_area = stats::aggregate(ha ~ zone_type + zone, data = do.call(rbind, area), FUN = sum)
+  )
+}
+
+## One tile's piece table for `interval_events()`: the history overlay clipped to the UNBUFFERED
+## district (as the zonal summaries are), each piece given the landscape unit its interior point
+## falls in. Returns `interval_events()`'s two tables row-bound with a `measure` column, since a
+## branched target row-binds data frames.
+interval_disturbance_tile <- function(history, breaks, lu_gpkg, study_area_gpkg, tile) {
+  empty <- data.frame(
+    measure = character(0),
+    zone_type = character(0),
+    zone = character(0),
+    interval_start = integer(0),
+    interval_end = integer(0),
+    agent = character(0),
+    severity = character(0),
+    ha = numeric(0)
+  )
+  if (nrow(history) == 0L) {
+    return(empty)
+  }
+
+  pts <- terra::centroids(history, inside = TRUE)
+  sa <- terra::project(terra::vect(study_area_gpkg), terra::crs(history))
+  aoi <- terra::project(tidyterra::as_spatvector(tile), terra::crs(history))
+  lu <- spatialutils::read_vector_aoi(lu_gpkg, aoi, fields = "LANDSCAPE_UNIT_NAME")
+  lu <- terra::project(lu, terra::crs(history))
+
+  inside <- terra::relate(pts, terra::aggregate(sa), "intersects")[, 1]
+  if (!any(inside)) {
+    return(empty)
+  }
+  x <- terra::as.data.frame(history)[inside, , drop = FALSE]
+  pts <- pts[inside]
+
+  x$LANDSCAPE_UNIT_NAME <- NA_character_
+  if (nrow(lu) > 0L) {
+    hit <- terra::relate(pts, lu, "intersects", pairs = TRUE)
+    hit <- hit[!duplicated(hit[, 1]), , drop = FALSE]
+    x$LANDSCAPE_UNIT_NAME[hit[, 1]] <- lu$LANDSCAPE_UNIT_NAME[hit[, 2]]
+  }
+
+  out <- interval_events(x, breaks)
+  rbind(
+    cbind(measure = "disturbed", out$disturbed),
+    cbind(
+      measure = "zone_area",
+      out$zone_area[, c("zone_type", "zone")],
+      interval_start = NA_integer_,
+      interval_end = NA_integer_,
+      agent = NA_character_,
+      severity = NA_character_,
+      ha = out$zone_area$ha
+    )
+  )
+}
+
+## Combine the tiles into one table per zone, interval, agent and severity, with the share of the
+## zone affected, and flag an agent as a major disturbance in a zone and interval when, over all its
+## severities, it touched at least `threshold` of the zone's area (5%, decided 2026-10-29) -- read
+## from the `ALL` rows, which count each piece once. Every interval is reported whether flagged or
+## not; the threshold only sets the flag.
+summarise_interval_disturbance <- function(tiles, threshold = 0.05) {
+  sum_by <- function(d, by) stats::aggregate(d["ha"], d[by], sum)
+
+  area <- sum_by(tiles[tiles$measure == "zone_area", ], c("zone_type", "zone"))
+  names(area)[names(area) == "ha"] <- "zone_ha"
+
+  by <- c("zone_type", "zone", "interval_start", "interval_end", "agent", "severity")
+  d <- sum_by(tiles[tiles$measure == "disturbed", ], by) |>
+    dplyr::left_join(area, by = c("zone_type", "zone")) |>
+    dplyr::mutate(share = ha / zone_ha) |>
+    dplyr::group_by(zone_type, zone, interval_start, interval_end, agent) |>
+    dplyr::mutate(
+      agent_share = share[severity == "ALL"],
+      major = agent_share >= !!threshold
+    ) |>
+    dplyr::ungroup() |>
+    dplyr::arrange(zone_type, zone, interval_start, agent, severity)
+
+  as.data.frame(d)
+}
+
+## Write the interval disturbance table for a district; returns the path, for a `format = "file"`
+## target.
+write_interval_disturbance <- function(tiles, dst, threshold = 0.05) {
+  utils::write.csv(summarise_interval_disturbance(tiles, threshold), dst, row.names = FALSE)
+  dst
 }

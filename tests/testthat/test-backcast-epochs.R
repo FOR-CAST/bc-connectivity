@@ -51,7 +51,7 @@ epoch_overlay_fixture <- function(dir) {
 }
 
 ## every lost age falls back to this single donor, 150 at harvest
-one_donor <- data.frame(NDT_BEC = "NDT3-SBS", agent = "CUT", age = 150, weight = 1)
+one_donor <- data.frame(NDT_BEC = "NDT3-SBS", agent = "CUT", year = 2016, age = 150, weight = 1)
 
 seral_table <- function(v) {
   d <- terra::as.data.frame(v)
@@ -107,8 +107,19 @@ test_that("an epoch age past the current maximum still gets a seral stage", {
 
 test_that("BC_CONN_EPOCHS selects the epochs", {
   expect_equal(historical_epochs(""), integer(0))
-  expect_equal(historical_epochs("all"), c(2005L, 2010L, 2015L, 2020L))
+  expect_equal(historical_epochs("all"), c(1995L, 2000L, 2005L, 2010L, 2015L, 2020L))
   expect_equal(historical_epochs(" 2010, 2005,2010 "), c(2005L, 2010L))
   expect_error(historical_epochs("2025"), "before 2024")
   expect_error(historical_epochs("soon"), "before 2024")
+})
+
+test_that("an epoch draws only from donors disturbed after it", {
+  ## a stand lost at 2010 was replaced after 2010, so a 2008 donor says nothing about it: with only
+  ## that donor's 300 and the 2016 donor's 150 available, the cut stand must take 150 - 5
+  fx <- epoch_overlay_fixture(withr::local_tempdir())
+  h <- create_forest_disturbance_history(fx$fd, fx$vri, fx$tile)
+  donors <- rbind(one_donor, transform(one_donor, year = 2008, age = 300, weight = 100))
+  d <- terra::as.data.frame(create_forest_disturbance_seral_epoch(h, 2010, donors, 400, fx$tile))
+
+  expect_setequal(d$SIFA[d$age_source == "imputed"], 145)
 })

@@ -216,8 +216,11 @@ test_that("donors exclude ages within the VRI-update tolerance and before `since
   )
   d <- donor_ages(x)
 
-  ## 109 - 9 = 100 at harvest; 12 is a regeneration age; the 2000 cut predates `since`
-  expect_equal(d$age, 100)
+  ## 109 - 9 = 100 at harvest; 12 is a regeneration age; the 2000 cut is kept from 1995 on, and
+  ## predates a later `since`
+  expect_equal(d$age, c(100, 126))
+  expect_equal(d$year, c(2015, 2000))
+  expect_equal(donor_ages(x, since = 2005)$age, 100)
 })
 
 test_that("one age is drawn per unit, not per polygon", {
@@ -254,4 +257,65 @@ test_that("contiguous lost pieces with the same replacement are one stand", {
   expect_false(u[3] == u[1])
   expect_false(u[4] == u[2])
   expect_equal(length(unique(u)), 4L)
+})
+
+## Disturbance between epochs ------------------------------------------------------------------------
+
+interval_fixture <- function() {
+  data.frame(
+    DSTRB_HIST = c(
+      "2017_BRN_H_FSH,2003_IBM_V_VRI,2002_IBM_T_VRI",
+      "2003_IBM_V_VRI,2004_IBM_V_VRI",
+      "1990_CUT_N_VRI,NA_IBM_V_VRI",
+      NA
+    ),
+    ha = c(10, 20, 30, 40),
+    LANDSCAPE_UNIT_NAME = c("A", "A", "B", "B"),
+    BEC_ZONE = "SBS"
+  )
+}
+
+test_that("events fall in the interval that ends at or after them", {
+  out <- interval_events(interval_fixture(), c(1995, 2000, 2005, 2024))
+  d <- out$disturbed[out$disturbed$zone_type == "LANDSCAPE_UNIT_NAME", ]
+
+  ## (2000, 2005]: piece 1's IBM V and T (10 ha each) and piece 2's two IBM V events counted once
+  ## (20 ha); (2005, 2024]: piece 1's fire. 1990 predates the series; the NA event is undated.
+  key <- paste(d$interval_end, d$agent, d$severity, d$zone)
+  expect_setequal(
+    key,
+    c("2005 IBM V A", "2005 IBM T A", "2005 IBM ALL A", "2024 BRN H A", "2024 BRN ALL A")
+  )
+  expect_equal(d$ha[key == "2005 IBM V A"], 30)
+  ## piece 1 carries both V and T, but the agent total counts it once
+  expect_equal(d$ha[key == "2005 IBM ALL A"], 30)
+  expect_equal(d$interval_start[key == "2024 BRN H A"], 2005)
+
+  a <- out$zone_area[out$zone_area$zone_type == "LANDSCAPE_UNIT_NAME", ]
+  expect_equal(a$ha[order(a$zone)], c(30, 70))
+})
+
+test_that("an agent is major where it touches the threshold share of the zone", {
+  out <- interval_events(interval_fixture(), c(1995, 2000, 2005, 2024))
+  tiles <- rbind(
+    cbind(measure = "disturbed", out$disturbed),
+    cbind(
+      measure = "zone_area",
+      out$zone_area[, c("zone_type", "zone")],
+      interval_start = NA,
+      interval_end = NA,
+      agent = NA,
+      severity = NA,
+      ha = out$zone_area$ha
+    )
+  )
+  s <- summarise_interval_disturbance(tiles, threshold = 0.5)
+  a <- s[s$zone_type == "LANDSCAPE_UNIT_NAME" & s$zone == "A", ]
+
+  ## zone A is 30 ha: beetle touched all of it (100%, though its severity rows sum to 40 ha),
+  ## fire 10 ha (33%)
+  expect_equal(unique(a$agent_share[a$agent == "IBM"]), 1)
+  expect_true(all(a$major[a$agent == "IBM"]))
+  expect_false(any(a$major[a$agent == "BRN"]))
+  expect_equal(unique(a$agent_share[a$agent == "BRN"]), 10 / 30)
 })
