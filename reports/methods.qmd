@@ -1,0 +1,440 @@
+---
+title: "Old-forest connectivity in the Cariboo Natural Resource Region: methods"
+subtitle: "Current condition and a thirty-year reconstruction, 1995 to 2025"
+author: "Alex Chubaty"
+date: last-modified
+date-format: "[Draft for team review --] YYYY-MM-DD"
+## audience: forest and landscape ecologists on the project team who do not program; they review
+##   the method and its rationale before the historical series is produced. Ecological terms need
+##   no gloss; code identifiers are confined to Appendix D. Internal draft of the method note.
+bibliography:
+  - ../citations/references.bib
+  - ../citations/r-packages.bib
+  - ../citations/data-sources.bib
+csl: ../citations/ecology-letters.csl
+format:
+  pdf:
+    output-file: methods.pdf
+    documentclass: article
+    geometry: margin=2.5cm
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    fig-pos: "H"
+    pdf-engine: pdflatex
+    urlcolor: blue
+    include-in-header:
+      text: |
+        \usepackage{float}
+        \floatplacement{table}{H}
+        \usepackage{draftwatermark}
+        \SetWatermarkText{DRAFT}
+        \SetWatermarkScale{1}
+        \SetWatermarkColor[gray]{0.92}
+        \DeclareUnicodeCharacter{2192}{$\rightarrow$}
+        \DeclareUnicodeCharacter{00D7}{$\times$}
+        \DeclareUnicodeCharacter{2265}{$\geq$}
+        \DeclareUnicodeCharacter{2264}{$\leq$}
+        \DeclareUnicodeCharacter{2013}{--}
+        \DeclareUnicodeCharacter{2014}{---}
+        \DeclareUnicodeCharacter{00E1}{\'{a}}
+        \DeclareUnicodeCharacter{00F3}{\'{o}}
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+## Walk up to the project root, so the report renders from reports/ or from the root.
+.root <- normalizePath(".")
+while (!file.exists(file.path(.root, "renv.lock")) && dirname(.root) != .root) {
+  .root <- dirname(.root)
+}
+## The tables below are built from the pipeline's own definitions, not retyped, so the report
+## cannot drift from what the code does.
+withr::with_dir(.root, targets::tar_source(file.path(.root, "R")))
+
+lock <- jsonlite::read_json(file.path(.root, "renv.lock"))
+pkg_version <- function(p) lock$Packages[[p]]$Version
+num <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = ",")
+
+radii <- reference_distances()
+radius_px <- function(m, pixel = 90) ceiling(round(m) / pixel)
+block_px <- function(r) {
+  x <- round(r * 0.1)
+  if (x %% 2 == 0) x + 1 else x
+}
+r_reg <- radius_px(radii$all_dists[["25%"]])
+r_loc <- radius_px(radii$nn_dists[["100%"]])
+epochs <- historical_epochs("all")
+```
+
+::: {.callout-warning}
+**Draft -- pending team review.**
+Portions of this document were drafted with generative-AI assistance from the project's code, plan and data records.
+Every number that depends on the pipeline is computed from the pipeline's own definitions when the document is rendered.
+Literature and dataset citations were checked against their publishers and catalogue records; items marked as open questions have not been settled and are listed in @sec-open.
+:::
+
+# Summary {.unnumbered}
+
+This analysis maps how well old and mature forest is connected across three natural resource districts of the Cariboo Region -- Quesnel, Cariboo-Chilcotin and 100 Mile House -- and reconstructs how that connectivity has changed since 1995.
+
+Forest stands are classified into seral stages from the province's Cumulative Effects Framework (CEF) forest disturbance record, using the Biodiversity Guidebook age thresholds for each natural disturbance type and biogeoclimatic zone.
+Old and mature patches, with their interior forest, are built following the CEF forest biodiversity protocol.
+Each location is then given a resistance to movement and a source strength, and Omniscape, a circuit-theory model, estimates how much movement each location carries within a moving window.
+Two window sizes are used, a regional one of about 43 km and a local one of about 2.6 km, both fixed from Quesnel's patch spacing and held constant everywhere.
+Results are sorted into the four connectivity categories of @Cameron:2022 and summarised by landscape unit, biogeoclimatic zone and designated area.
+
+The historical series rebuilds the landscape at five-year steps from 1995 to 2020, with the present (2025) as the sixth state.
+Stand age at each date is recovered by reversing the disturbances the CEF record holds.
+Where the record does not hold the age a stand had before it was harvested or burned, an age is drawn from stands whose pre-disturbance age is recorded.
+Every historical landscape then goes through exactly the same patch, resistance and connectivity steps as the present one, so the dates are comparable by construction.
+A table of the disturbances between each pair of dates accompanies the series, flagging events large enough to explain a change.
+
+The main uncertainties are the beetle record before 2003, which is too sparse to support the 2000 landscape fully until a second disturbance source is added; the share of the historical landscape whose age has to be filled in, which grows from about a quarter at 2005 to about a third at 1995; and roads, whose construction dates are largely unrecorded.
+@sec-open lists the decisions still open.
+
+# Study area and scope {#sec-area}
+
+The study area is the three natural resource districts of the Cariboo Natural Resource Region [@BCDC:nr_districts]: Quesnel, Cariboo-Chilcotin and 100 Mile House.
+Each district is analysed on its own, within a buffer around its boundary that gives the moving window room to work; all reported areas, categories and summaries are clipped back to the unbuffered district.
+
+Quesnel is the reference landscape.
+It was analysed first, and the two quantities that must be the same everywhere for results to be comparable -- the window radii and the pixel size -- were fixed on it (@sec-radii, @sec-resolution).
+
+The current condition is produced for all three districts.
+The historical series covers Cariboo-Chilcotin and 100 Mile House.
+
+# Forest condition: seral stage and patches {#sec-seral}
+
+## Stand age
+
+Stand age comes from the CEF Forest Disturbance layer [@CEF:ForestDisturbance2024], a compilation that pairs each polygon's Vegetation Resource Inventory age with its record of harvest, fire and insect disturbance.
+For each polygon it records a dated history of disturbance events and identifies the most recent stand-replacing one, and from that derives the stand's age as of the compilation (the layer's *Simple Inferred Forest Age*).
+That age, rather than the inventory's projected age, is what this analysis uses, because it already accounts for disturbances the inventory has not yet been updated for.
+
+The layer is overlaid -- not spatially joined -- with the Vegetation Resource Inventory [@BCDC:vri], the biogeoclimatic ecosystem classification [@BCDC:bec] and, for the Interior Douglas-fir zone, the Cariboo Leading Group layer [@BCDC:leading_group].
+An overlay splits each stand at zone boundaries so that every piece is classified on its own zone's thresholds; a join would have kept whole stands and counted a stand spanning two zones twice.
+
+## Seral stages
+
+Each piece is assigned a seral stage by its age against the thresholds of the Biodiversity Guidebook [@BritishColumbia:1995] for its natural disturbance type and biogeoclimatic zone (@tbl-seral).
+The Interior Douglas-fir zone in natural disturbance type 4 is split by leading species group, because fir- and pine-leading stands there reach old-forest condition at different ages.
+
+```{r}
+#| label: tbl-seral
+#| tbl-cap: "Minimum stand age (years) of each seral stage, by natural disturbance type and biogeoclimatic zone, after the Biodiversity Guidebook. Read from the pipeline's threshold table."
+s <- seral_stages()
+names(s)[1] <- "NDT-BEC"
+knitr::kable(s, align = "lrrrr")
+```
+
+## Patches and interior forest
+
+Patches are built following section 3.2.2 of the CEF interim assessment protocol for forest biodiversity [@CEF:2020], ported from the province's own geoprocessing scripts.
+Stands of the same seral stage are dissolved into patches.
+Old-only and mature-plus-old patches are formed, and residual slivers of other stages under 1 ha inside them are absorbed, so that small inclusions and narrow corridors do not split a patch.
+Interior forest is what remains of a patch once an edge-influence buffer is removed along each neighbouring younger stage: 200 m from early forest under 20 years, 101 m from older early forest, 52 m from mid-seral forest, and 25 m from mature forest where old-only interior is concerned.
+Forest edges alter stand structure and composition some distance into the adjoining forest [@Harper:2005], which is the reason for removing that margin before treating a patch as interior habitat.
+Every piece of the landscape then carries its seral stage and whether it is old or mature-plus-old interior.
+
+# Resistance and source strength {#sec-resistance}
+
+Omniscape needs two surfaces: a *resistance* to movement, from 1 (no impediment) to 1000 (strong impediment), and a *source strength*, from 0 (no habitat) to 1, which sets how much movement starts at each location [@McRae:2016; @Landau:2021].
+Both are built from vector layers rasterised onto a common grid aligned with the 2020 Land Cover of Canada [@NRCan:LCC2020].
+
+Forest is the base surface.
+Old forest offers least resistance and strongest source, and resistance rises and source strength falls through mature, mid and early seral stages (@tbl-values).
+Non-forest and unclassified land is given the maximum resistance and no source strength.
+
+Roads and railways [@BCDC:roads; @BCDC:railways], lakes, rivers and streams [@BCDC:lakes; @BCDC:rivers; @BCDC:streams] and wetlands [@BCDC:wetlands] are laid over the forest surface, each buffered to a width that represents its footprint.
+Road values are tiered by road class and tenure, so a highway is a stronger impediment than a resource road under a non-forestry tenure.
+Stream values rise with stream order, and first-order streams are left out; streams of order 2 and 3 are buffered more widely than their channel so that they are not lost at the raster's pixel size.
+
+These layers combine under one rule each.
+For resistance, a road or water feature can only *raise* the value beneath it, never lower it, so a road through old forest is an impediment and a road through a clearcut is no better than the clearcut.
+For source strength the rule is the reverse: a road or water feature can only *lower* it.
+Cells with no value end up at maximum resistance and zero source strength.
+
+```{r}
+#| label: tbl-values
+#| tbl-cap: "Resistance and source strength by feature. Buffers are total half-widths applied to line features. Values as set in the pipeline."
+v <- tibble::tribble(
+  ~Feature, ~Resistance, ~`Source strength`, ~`Buffer (m)`,
+  "Old forest", "1", "1", "--",
+  "Mature forest", "250", "0.75", "--",
+  "Mid-seral forest", "500", "0.5", "--",
+  "Early seral forest", "750", "0.25", "--",
+  "Non-forest or unclassified", "1000", "0", "--",
+  "Highway, arterial", "1000", "0", "250",
+  "Local, recreation, driveway", "750", "0", "50",
+  "Forest service road (resource, forestry tenure)", "750", "0", "50",
+  "Resource road, other tenure", "500", "0.5", "25",
+  "Trail, other, unknown", "500", "0.5", "25",
+  "Railway", "750", "0", "50",
+  "Lake, river", "1000", "0", "--",
+  "Stream, order 5 to 9", "1000", "0", "15 to 300",
+  "Stream, order 4", "750", "0", "15",
+  "Stream, order 3", "500", "0", "15",
+  "Stream, order 2", "250", "0", "15",
+  "Wetland", "250", "0.75", "--"
+)
+knitr::kable(v, align = "lrrr")
+```
+
+The values follow the project's original Quesnel assessment.
+**The rationale recorded for each value in that assessment is not reproduced here** (@sec-open).
+
+Parks and protected areas [@BCDC:parks], legal old growth management areas [@BCDC:ogma], wildlife habitat areas [@BCDC:wha], mule deer winter range [@BCDC:mdwr] and high-value moose wetlands [@BCDC:moose_wetlands] do not change resistance or source strength.
+They are used to summarise results (@sec-outputs), so that connectivity can be compared inside and outside them without the comparison being built into the inputs.
+
+# Connectivity model {#sec-omniscape}
+
+Connectivity is estimated with Omniscape [@Landau:2021], which applies circuit theory [@McRae:2008] in a moving window [@McRae:2016].
+Within a circular window around each block of cells, current is injected in proportion to source strength and flows towards the window's centre through the resistance surface.
+Summing over all windows gives the *cumulative current*: how much movement each location carries.
+Running the same model with uniform resistance gives the *flow potential*, the movement each location would carry with nothing in the way.
+The ratio of the two, *normalised current*, is what the categories in @sec-outputs are defined on.
+
+## Window radii {#sec-radii}
+
+The window radius sets the distance over which connectivity is assessed.
+Two radii are used, both from the spacing of old-forest patches in Quesnel:
+
+- **Regional**, `r num(radii$all_dists[["25%"]] / 1000, 1)` km: the 25th percentile of edge-to-edge distances between all pairs of patches.
+  It spans the distances over which most patch-to-patch movement in the district would have to occur.
+- **Local**, `r num(radii$nn_dists[["100%"]] / 1000, 2)` km: the largest distance from any patch to its nearest neighbour.
+  It is the shortest window within which every patch can reach another.
+
+The radii are held fixed, in metres, for every district and every date.
+A radius re-derived for each district would describe each district's own patch spacing, but it would also make every comparison between districts, or between dates, a comparison of two different models.
+Fixing it on one reference landscape keeps the question constant, so that a difference in the maps is a difference in the landscape.
+
+Omniscape solves blocks of cells together rather than every cell individually, which makes large windows tractable.
+The block width is set to 10% of the radius, as recommended for a good balance of accuracy and run time [@Phillips:2021]: `r block_px(r_reg)` cells for the regional window (`r r_reg` cells radius) and `r block_px(r_loc)` cells for the local one (`r r_loc` cells), at 90 m.
+Omniscape's artefact correction for block solving is on.
+
+## Pixel size {#sec-resolution}
+
+All results are at 90 m.
+Quesnel was run at both 30 m and 90 m, and the comparison (documented separately) found that the share of the district in each category is nearly unchanged by pixel size, and that Channelized land -- the category the framework exists to find -- is stable in both extent and location.
+The exception is the narrow Intensified band, whose extent is reproduced but whose individual locations are not; conclusions resting on Intensified land at specific places should be treated as provisional.
+At 90 m a district's runs take hours instead of the week or more a 30 m regional run needs.
+Connectivity surfaces of this kind are largely robust to grid resolution [@Dertien:2023], which the Quesnel comparison bears out.
+
+# Outputs {#sec-outputs}
+
+## Connectivity categories
+
+Each location is placed in one of four categories by its normalised current, using the cut-offs of @Cameron:2022, who took them unchanged from @McRae:2016:
+
+| Category | Normalised current | Meaning |
+|---|---|---|
+| Impeded | 0.7 or less | carries less movement than it could; something is in the way |
+| Diffuse | above 0.7, below 1.3 | carries about as much movement as it could |
+| Intensified | 1.3 to 1.7 | movement is moderately concentrated here |
+| Channelized | above 1.7 | movement is funnelled through here |
+
+The cut-offs are not tuned to this study area, deliberately: using a published scheme means the categories mean here what they mean elsewhere.
+@Cameron:2022 go on to split low-flow land into Impeded, Limited and Permeable using a human modification index.
+That index is not built here, so only the four categories the model outputs determine on their own are reported.
+
+## Zonal summaries
+
+Mean normalised current is summarised for every combination of landscape unit [@BCDC:landscape_units] and biogeoclimatic zone, and inside versus outside each class of designated area listed in @sec-resistance.
+
+# Historical reconstruction {#sec-history}
+
+## Dates
+
+The series covers `r paste(epochs, collapse = ", ")` and the present, which stands as 2025.
+The CEF layer is the 2024 compilation, so a separate 2025 reconstruction would be the present landscape aged by one year; the present-condition results are used instead.
+
+Five-year steps are the coarsest that keep the mountain pine beetle epidemic apart from the salvage harvest that followed it.
+Those have opposite effects on forest structure -- beetle-killed stands keep their standing structure for years, salvage removes it -- and a ten-year step would place the epidemic's peak and its salvage in a single interval.
+Steps finer than five years would be defeated by the beetle survey's one-year lag and by unflown areas.
+
+The series begins in 1995 so that its first date predates the mountain pine beetle epidemic, far larger than any earlier recorded outbreak in the province [@Kurz:2008].
+**The 2000 date is the weak one.**
+Measured over the whole provincial layer, the CEF beetle record holds about 2,500 events for all of 1990 to 2002 against over 900,000 for 2003 to 2010, a step of more than two orders of magnitude at 2003.
+Beetle kill in 1999 to 2002 is therefore largely absent, and stands killed in those years appear as live forest at 2000.
+The record also holds no fire events in 1998.
+A 1995 baseline is unaffected, because reconstructing 1995 removes everything recorded after it.
+Adding the Canada Landsat Disturbance database (CanLaD) [@Perbet:CanLaD; @Perbet:2025], an annual 30 m record from 1985 that includes insect disturbance, is the planned remedy (@sec-open).
+
+## Reconstructing stand age
+
+For each date, a stand's age is recovered from its disturbance record (@tbl-backcast).
+The present age is shifted back by the years between the date and the 2024 compilation, unless a stand-replacing disturbance intervenes.
+
+```{r}
+#| label: tbl-backcast
+#| tbl-cap: "How a stand's age at a historical date is recovered. 'Shift' is the number of years between the date and the 2024 compilation."
+b <- tibble::tribble(
+  ~`Stand's record`, ~`Age at the date`,
+  "No stand-replacing disturbance", "present age minus the shift",
+  "Most recent stand-replacing disturbance on or before the date", "present age minus the shift (at least 0)",
+  "Stand-replaced after the date, and an earlier stand-replacing event on or before it", "years since that earlier event",
+  "Stand-replaced after the date, and the inventory still holds the pre-disturbance age", "inventory age minus the shift",
+  "Stand-replaced after the date, pre-disturbance age not recorded", "filled from comparable stands (below)"
+)
+knitr::kable(b, align = "ll")
+```
+
+Which disturbances replace a stand follows the CEF layer's own judgement, so every date uses the same rule as the present condition: every harvest; fire of moderate or high severity; and, almost always, very severe beetle attack.
+Light fire is almost never treated as stand-replacing in the layer.
+The rule is held as a single setting so that it can be changed if the data steward advises otherwise.
+
+Two details matter for accuracy.
+First, where the inventory *was* updated after a harvest, its age is the regenerating stand's, which can exceed the years since harvest by the age of the planting stock.
+An inventory age within ten years of the time since disturbance is therefore read as a regeneration age, not a surviving pre-harvest age; on Cariboo-Chilcotin the updated stands form a clear peak in that range, above a flat background of genuine pre-harvest ages.
+Second, the reconstruction reproduces the present condition exactly when run for 2024, on every polygon of both districts, which confirms the rules against the layer's own ages.
+
+## Ages the record does not hold
+
+Harvest usually updates the inventory, so for most stands harvested after a date, the age they had at that date is no longer recorded anywhere.
+@tbl-lost gives the area affected.
+
+```{r}
+#| label: tbl-lost
+#| tbl-cap: "Area (ha, buffered district extent) whose age at each date has to be filled in, from a reconstruction over the full layer (measured 2026-10-28/29)."
+l <- tibble::tribble(
+  ~District, ~`1995`, ~`2000`, ~`2005`, ~`2010`, ~`2015`, ~`2020`,
+  "Cariboo-Chilcotin", 1173404, 973954, 742337, 465944, 225211, 80000,
+  "100 Mile House", 434509, 375293, 282158, 174009, 88248, 16381
+)
+l[-1] <- lapply(l[-1], num)
+knitr::kable(l, align = "lrrrrrr")
+```
+
+These ages are filled from stands whose pre-disturbance age *is* recorded: those where the inventory kept it, a donor pool of about 157,000 ha in Cariboo-Chilcotin and 66,000 ha in 100 Mile House for harvest since 2005.
+A stand is given the age at disturbance of a donor of the same biogeoclimatic unit and disturbance agent, drawn in proportion to area, less the years between the date and its disturbance.
+Donors are restricted to stands disturbed after the date, matching the stands being filled.
+
+An earlier version of this rule assumed that a harvested stand must have been at least mature.
+The donor ages contradict it: one fifth of recorded harvest in Cariboo-Chilcotin, and nearly a third in 100 Mile House, was of stands under 80 years old.
+
+The draw is made once per stand, not once per mapped polygon.
+The CEF layer splits a single cutblock into many polygons, and drawing for each would turn one harvest into a patchwork of seral stages: on test tiles it multiplied the number of patches two- to four-fold, an artificial fragmentation of exactly the historical landscapes being compared.
+A stand here is a contiguous group of polygons replaced in the same year by the same agent within one biogeoclimatic unit.
+
+To bound the effect of the fill, one date will also be built with every filled stand at the 10th and at the 90th percentile of its donor ages.
+
+## What is held constant
+
+Only forest age changes between dates.
+Roads, railways, water and every designated area are taken as they are today.
+For water this is a reasonable approximation.
+For roads it is not: the Cariboo consolidated roads layer records the current network, mostly without construction dates, and decommissioned roads are absent.
+Road-driven change is therefore absent from the series as it stands.
+Dating the roads that carry tenure award dates, and treating the rest as present throughout, is planned, and would make road-driven change a lower bound rather than absent.
+
+## Disturbance between dates
+
+A comparison between two dates is read alongside what happened between them.
+Every recorded disturbance event is placed in the interval between the dates it falls between, and the area affected is tallied by agent and severity for each landscape unit and biogeoclimatic zone, within the unbuffered district.
+An agent is flagged as a major disturbance in a zone and interval where it touched at least 5% of the zone's area; each polygon is counted once per agent, however many events or severities it records.
+Every interval is reported, flagged or not.
+
+# Limitations and open questions {#sec-open}
+
+**For the data steward.**
+Whether beetle events are stamped with the year of the survey or the year of attack.
+The aerial overview survey maps only damage visible in the survey year, and beetle-killed trees turn red the summer after attack [@Westfall:2019], so a survey-year stamp would place every beetle event one year late, a fifth of a five-year interval.
+What the source code `FSG` denotes; it appears only on fire events, alongside two other fire-severity sources.
+The steward's preferred citation and release date for the forest disturbance layer.
+
+**Reconstruction.**
+The 2000 landscape understates beetle kill until CanLaD is added.
+In the central part of Quesnel the inventory baseline is a 2013 Landsat-based inventory whose ages are partly extrapolated; reversing disturbance on top of it may double-count disturbance already reflected in those ages, and has not yet been checked.
+Road change is absent (above).
+
+**Inputs.**
+The inventory record used now carries the title of the 2025 inventory, while the project's own notes describe the 2024 one; which was retrieved needs confirming.
+The rationale behind each resistance and source value (@tbl-values) is held in the original assessment spreadsheet and should be cited or summarised here.
+The mule deer winter range record was not accessible when this draft was prepared, so its title is unverified.
+
+**Transfer between districts.**
+The radii, pixel size and category cut-offs are established on Quesnel and applied unchanged to the other districts.
+Cariboo-Chilcotin in particular differs from Quesnel in size and structure, and the 90 m comparison has not been repeated there.
+
+**Change analysis.**
+Landscape metrics of patch structure for each date are planned with landscapemetrics [@Hesselbarth:2019], alongside the zonal summaries; per-pixel change mapping is not part of this work, but all dates share one grid, so any two can be differenced directly.
+
+\clearpage
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
+
+\clearpage
+
+\appendix
+
+# Data sources {#sec-app-data}
+
+All layers except the CEF forest disturbance layer are public.
+Access dates are those on which the Cariboo-Chilcotin analysis retrieved them.
+
+| Layer | Use | Source |
+|---|---|---|
+| CEF Forest Disturbance 2024 | stand age, disturbance history | @CEF:ForestDisturbance2024 |
+| Vegetation Resource Inventory, rank 1 | leading species | @BCDC:vri |
+| BEC map | natural disturbance type and zone | @BCDC:bec |
+| Leading Group, Cariboo | fir/pine split of IDF in NDT 4 | @BCDC:leading_group |
+| 2020 Land Cover of Canada | analysis grid | @NRCan:LCC2020 |
+| Cariboo Consolidated Roads | resistance, source | @BCDC:roads |
+| Railway track lines | resistance, source | @BCDC:railways |
+| Freshwater Atlas lakes, rivers, streams, wetlands | resistance, source | @BCDC:lakes; @BCDC:rivers; @BCDC:streams; @BCDC:wetlands |
+| Parks and protected areas | summaries | @BCDC:parks |
+| Old growth management areas | summaries | @BCDC:ogma |
+| Wildlife habitat areas | summaries | @BCDC:wha |
+| Mule deer winter range | summaries | @BCDC:mdwr |
+| High-value moose wetlands | summaries | @BCDC:moose_wetlands |
+| Landscape units | summaries | @BCDC:landscape_units |
+| Natural resource districts | study area | @BCDC:nr_districts |
+
+Three further layers are retrieved but used in no connectivity surface: the CEF human disturbance layer, the wildland-urban interface buffer, and a digital elevation model.
+
+# Model settings {#sec-app-settings}
+
+| Setting | Regional | Local |
+|---|---|---|
+| Radius | `r num(round(radii$all_dists[["25%"]]))` m (`r r_reg` cells) | `r num(round(radii$nn_dists[["100%"]]))` m (`r r_loc` cells) |
+| Block size | `r block_px(r_reg)` cells | `r block_px(r_loc)` cells |
+| Pixel size | 90 m | 90 m |
+| Artefact correction | on | on |
+| Flow potential and normalised current | computed | computed |
+| Solver | conjugate gradient with algebraic multigrid | same |
+| Connectivity | eight neighbours | eight neighbours |
+
+# Software {#sec-app-software}
+
+The analysis is a reproducible pipeline in R `r lock$R$Version` [@RCore:2025] built with targets `r pkg_version("targets")` [@Landau:2021targets], tarchetypes `r pkg_version("tarchetypes")` [@Landau:tarchetypes], geotargets `r pkg_version("geotargets")` [@Tierney:geotargets] and crew `r pkg_version("crew")` [@Landau:crew].
+Spatial work uses terra `r pkg_version("terra")` [@Hijmans:terra], sf `r pkg_version("sf")` [@Pebesma:2018; @Pebesma:2023], tidyterra `r pkg_version("tidyterra")` [@Hernangomez:2023] and spatialutils `r pkg_version("spatialutils")` [@Chubaty:spatialutils]; data are retrieved with bcdata `r pkg_version("bcdata")` [@Teucher:2021] and bcmaps `r pkg_version("bcmaps")` [@Teucher:2024].
+Connectivity is computed with Omniscape 0.6.2 and Circuitscape 5.15.0 [@Landau:2021; @Anantharaman:2020] under Julia 1.11.7, pinned together because newer releases change the artefact correction and so the results.
+This document was produced with Quarto through the quarto R package [@Allaire:quarto].
+
+# Where things are in the code {#sec-app-code}
+
+For readers who will run or extend the pipeline.
+
+| Step | Function or target |
+|---|---|
+| Seral stage, present | `create_forest_disturbance_seral()` |
+| Seral thresholds | `seral_stages()` |
+| Patches and interior forest | `patches_*()` in `R/data_prep.R`; `seral_chain_targets()` |
+| Resistance and source values | `define_forest_seral_patch_conn_vals()`, `create_roads_railways()`, `get_streams()` and related in `R/data_prep.R` |
+| Composite surfaces | `create_composite_resistance_raster()`, `create_composite_sourcewt_raster()` |
+| Window radii | `reference_distances()` |
+| Omniscape configuration | `write_omniscape_config()` |
+| Categories | `connectivity_category_rasters()` |
+| Zonal summaries | `zonal_summaries()` |
+| Historical dates | `historical_epochs()`; `BC_CONN_EPOCHS` |
+| Age reconstruction | `backcast_age()`, `cef_reset_rule()` |
+| Filled ages | `donor_ages()`, `impute_lost_age()`, `lost_age_units()` |
+| Disturbance between dates | `interval_events()`, `summarise_interval_disturbance()` |
