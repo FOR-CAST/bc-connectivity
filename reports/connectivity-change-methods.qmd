@@ -1718,6 +1718,8 @@ With a few dozen units, this is a descriptive check, not a test.
 6. For patch metrics: which patch definition(s), and for threshold-based ones, which thresholds? Which three or four metrics, at what resolution and edge depth?
 7. **What reporting areas do we care about?** We assume BEC zone and landscape unit will be included; which of the others (moose wetlands, mule deer winter ranges, OGMAs, parks, wetlands, WHAs, or others) should be carried through the series?
 
+{{< pagebreak >}}
+
 # Appendix: implementation notes {#sec-appendix}
 
 ```{r versions}
@@ -1757,6 +1759,8 @@ This appendix is for whoever implements the chosen methods.
   Theil-Sen slopes are the median of the 21 pairwise slopes per cell; Mann-Kendall p-values are from `stats::cor.test(method = "kendall", exact = TRUE)`, adjusted with `stats::p.adjust(method = "BH")`.
 - **Packages.**
   spdep, landscapemetrics, ggalluvial, ggrepel, patchwork, lme4 and lmerTest are recorded in the project's `renv.lock`.
+
+{{< pagebreak >}}
 
 # References {.unnumbered}
 

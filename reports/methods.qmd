@@ -364,14 +364,14 @@ Cariboo-Chilcotin in particular differs from Quesnel in size and structure, and 
 **Change analysis.**
 Landscape metrics of patch structure for each date are planned with landscapemetrics [@Hesselbarth:2019], alongside the zonal summaries; per-pixel change mapping is not part of this work, but all dates share one grid, so any two can be differenced directly.
 
-\clearpage
+{{< pagebreak >}}
 
 # References {.unnumbered}
 
 ::: {#refs}
 :::
 
-\clearpage
+{{< pagebreak >}}
 
 \appendix
 
