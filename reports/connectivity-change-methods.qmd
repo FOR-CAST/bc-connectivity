@@ -96,7 +96,7 @@ AGENT_COLOURS <- c(
 ZONE_COLOURS <- c("Zone A" = "#0072B2", "Zone B" = "#D55E00")
 
 ## Changes in cumulative current are analysed as log2 ratios; label them as percent changes.
-pct_lab <- function(b) sprintf("%+.0f%%", 100 * (2^b - 1))
+pct_lab <- function(b) ifelse(abs(b) < 1e-9, "0%", sprintf("%+.0f%%", 100 * (2^b - 1)))
 PCT_BREAKS <- log2(c(0.25, 0.5, 0.8, 1, 1.25, 2, 4))
 diverging <- function(
   lim,
@@ -687,15 +687,69 @@ In the simulation, L between 1995 and 2025 is `r gL("base", WIDE, "1995-2025")` 
 lee_figure("base", "Comparison")
 ```
 
+## Choosing the neighbourhood size {#sec-lee-scale}
+
+Lee's L depends on the neighbourhood it averages over.
+It is the correlation between the neighbourhood-averaged values, multiplied by a factor for each map that measures how spatially smooth it is at that neighbourhood size.
+That factor shrinks as neighbourhoods widen, so values computed with different neighbourhoods cannot be compared with each other.
+
+An obvious candidate is the Omniscape moving-window radius, but the larger of our two radii (42.9 km) is a poor choice:
+
+- Each cell's current already sums the flow from every source within that radius.
+  Averaging it again over the same area means each local L describes the whole region that produced the value, so it mostly reflects how much habitat there is regionally, and the corridor-scale pattern that makes local L worth mapping is lost.
+- L shrinks towards zero as the neighbourhood widens, so values at that scale would be small and the local maps nearly uniform.
+- At 90 m it is about 700,000 neighbours per cell, which cannot be computed without heavy aggregation.
+
+The smaller radius, 2.57 km, is easier to defend.
+It is the largest nearest-neighbour gap between old-forest patches, so it ties the neighbourhood to the scale at which patches link up, and it makes a reasonable upper bound.
+
+Rather than fix one value in advance, we can compute L across a range of neighbourhood sizes and look at how it changes (@fig-lee-scale).
+A size where the curve levels off, or one with an ecological meaning, can then be chosen, and the figure itself shows how much the conclusions depend on that choice.
+
+```{r lee-scale}
+## Global L only (no permutation test), so wide neighbourhoods stay cheap
+radii <- c(1, 2, 4, 6, 8, 12, 16)
+lee_scale <- dplyr::bind_rows(lapply(radii, function(k) {
+  lw_k <- spdep::nb2listw(spdep::dnearneigh(xy, 0, k * RES * 1.001), style = "W")
+  L <- function(x, y) spdep::lee(x, y, lw_k, n = length(x))$L
+  data.frame(
+    radius = k * RES,
+    `B: consecutive (mean of six)` = mean(vapply(
+      comparisons$consec, function(p) L(p$x, p$y), numeric(1)
+    )),
+    `C: 1995 against 2025` = L(lcum[[1]], lcum[[length(lcum)]]),
+    check.names = FALSE
+  )
+})) |>
+  tidyr::pivot_longer(-radius, names_to = "comparison", values_to = "L")
+L_at <- function(cmp, r) sprintf("%.2f", lee_scale$L[lee_scale$comparison == cmp & lee_scale$radius == r])
+```
+
+```{r fig-lee-scale}
+#| fig-cap: "**Simulated data.** Global Lee's L against neighbourhood radius, for two of the comparisons above. The dashed line marks the scale (one standard deviation of the Gaussian window) at which the simulation builds flow potential, the stand-in for Omniscape's moving window."
+#| fig-width: 6.5
+#| fig-height: 3.6
+ggplot(lee_scale, aes(radius, L, colour = comparison, shape = comparison)) +
+  geom_vline(xintercept = 8 * RES, linetype = "dashed", colour = "grey50") +
+  annotate("text", x = 8 * RES, y = Inf, label = "simulated window", vjust = 1.5, hjust = -0.05, size = 3, colour = "grey35") +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 2) +
+  scale_colour_manual(values = c("#D55E00", "#009E73"), name = NULL) +
+  scale_shape_manual(values = c(16, 17), name = NULL) +
+  scale_x_continuous(breaks = radii * RES) +
+  labs(x = "Neighbourhood radius (m)", y = "Lee's L (global)") +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1)) +
+  sim_caption()
+```
+
+In the simulation, the mean consecutive L falls from `r L_at("B: consecutive (mean of six)", 90)` at 90 m to `r L_at("B: consecutive (mean of six)", 1440)` at 1.44 km, and L between 1995 and 2025 from `r L_at("C: 1995 against 2025", 90)` to `r L_at("C: 1995 against 2025", 1440)`.
+
 ## Choices for the team
 
 - **Which of options A to C.**
   They are not alternatives so much as answers to different questions: which years were unusual (A), when the pattern changed (B), and how far it has moved (C).
-- **Neighbourhood size.**
-  L depends on it.
-  Lee's L is the correlation between the neighbourhood-averaged values, multiplied by a factor for each map that measures how spatially smooth it is at that neighbourhood size.
-  That factor shrinks as neighbourhoods widen, so values computed with different neighbourhoods cannot be compared, and the timing of change can differ between them.
-  Omniscape surfaces are already smoothed by the moving window, so a neighbourhood tied to a movement scale of interest is easier to defend than adjacent cells.
+- **Neighbourhood size** (@sec-lee-scale).
+  Not the 42.9 km Omniscape radius; the 2.57 km nearest-neighbour radius as an upper bound, with the final choice informed by a scale-sensitivity curve on the real surfaces.
 - **Resolution.**
   A district raster has many more cells than this example.
   Aggregating to a coarser grid first, or using a regular sample of cells, keeps the computation manageable; the permutation test scales well, but see @sec-appendix on the analytical test.
@@ -750,17 +804,111 @@ nearest <- dplyr::bind_rows(lapply(seq_along(agents), function(k) {
 }))
 ```
 
+```{r agent-model}
+## Replicates are landscape-unit means, not pixels: cells are spatially autocorrelated and each
+## appears in every interval. Units with fewer than 10 cells of an agent in an interval are dropped.
+lu_means <- change |>
+  dplyr::mutate(lu = lu[cell]) |>
+  dplyr::group_by(lu, interval, agent) |>
+  dplyr::summarise(dcum = mean(dcum), ncell = dplyr::n(), .groups = "drop") |>
+  dplyr::filter(ncell >= 10) |>
+  dplyr::mutate(
+    interval = factor(interval),
+    group = interaction(agent, interval, drop = TRUE, sep = ":")
+  )
+
+## Main effects: additive model
+m_add <- lmerTest::lmer(dcum ~ agent + interval + (1 | lu), data = lu_means)
+a_add <- stats::anova(m_add)
+
+## One mean per observed agent x interval combination, so the comparisons below use only the
+## combinations that occur (fire, for one, is missing from four intervals)
+m_cell <- lmerTest::lmer(dcum ~ 0 + group + (1 | lu), data = lu_means)
+grp <- levels(lu_means$group)
+stopifnot(identical(names(lme4::fixef(m_cell)), paste0("group", grp)))
+
+## contrast weights over the group means
+cvec <- function(w) {
+  v <- stats::setNames(numeric(length(grp)), grp)
+  for (k in names(w)) v[k] <- v[k] + w[[k]]
+  v
+}
+## agent minus undisturbed, within one interval
+effect_w <- function(ag, iv) stats::setNames(c(1, -1), paste(c(ag, "None"), iv, sep = ":"))
+
+DISTURBED <- setdiff(AGENTS, "None")
+intervals_with <- function(ag) {
+  Filter(function(iv) all(paste(c(ag, "None"), iv, sep = ":") %in% grp), levels(lu_means$interval))
+}
+
+## Each agent against undisturbed cells in the same interval, Holm-adjusted across all of them
+contrasts <- dplyr::bind_rows(lapply(DISTURBED, function(ag) {
+  dplyr::bind_rows(lapply(intervals_with(ag), function(iv) {
+    t <- lmerTest::contest(m_cell, cvec(effect_w(ag, iv)), joint = FALSE)
+    data.frame(
+      interval = iv, agent = ag, est = t$Estimate, t = t$`t value`, df = t$df, p = t$`Pr(>|t|)`,
+      units = sum(lu_means$group == paste(ag, iv, sep = ":"))
+    )
+  }))
+})) |>
+  dplyr::mutate(p_adj = stats::p.adjust(p, method = "holm"))
+
+## Does each agent's effect differ among intervals? Joint test that every interval's effect equals
+## the first interval's.
+between <- dplyr::bind_rows(lapply(DISTURBED, function(ag) {
+  ivs <- intervals_with(ag)
+  if (length(ivs) < 2) {
+    return(NULL)
+  }
+  L <- do.call(rbind, lapply(ivs[-1], function(iv) {
+    cvec(c(effect_w(ag, iv), -effect_w(ag, ivs[1])))
+  }))
+  t <- lmerTest::contest(m_cell, L, joint = TRUE)
+  data.frame(
+    term = paste(ag, "effect differs among intervals"),
+    F = t$`F value`, df1 = t$NumDF, df2 = t$DenDF, p = t$`Pr(>F)`
+  )
+}))
+
+anova_tbl <- dplyr::bind_rows(
+  data.frame(
+    term = c("Agent", "Interval"),
+    F = a_add$`F value`, df1 = a_add$NumDF, df2 = a_add$DenDF, p = a_add$`Pr(>F)`
+  ),
+  between
+)
+
+stars <- function(p) {
+  as.character(cut(p, c(-Inf, 0.001, 0.01, 0.05, Inf), labels = c("***", "**", "*", "ns")))
+}
+fmt_p <- function(p) format.pval(p, digits = 2, eps = 0.001)
+```
+
 ```{r fig-agent-box}
-#| fig-cap: "**Simulated data.** Change in cumulative current over each five-year interval, for cells disturbed during that interval by each agent, and for undisturbed cells. Boxes span the interquartile range; whiskers extend to 1.5 times it. Intervals with no disturbance by an agent have no box for it."
+#| fig-cap: "**Simulated data.** Change in cumulative current over each five-year interval, for cells disturbed during that interval by each agent, and for undisturbed cells. Boxes show the cells (interquartile range; whiskers to 1.5 times it); black dots are landscape-unit means, the replicates the statistical model uses. Stars give the difference from undisturbed cells in the same interval (@tbl-agent-contrasts), Holm-adjusted: * p < 0.05, ** p < 0.01, *** p < 0.001, ns not significant. Intervals with no disturbance by an agent have no box for it; a box with no dots or stars had too few cells in any landscape unit to form a replicate."
 #| fig-width: 7.5
-#| fig-height: 4.2
+#| fig-height: 4.6
+ylim_box <- stats::quantile(change$dcum, c(0.005, 0.995))
+star_df <- contrasts |>
+  dplyr::mutate(
+    agent = factor(agent, levels = AGENTS),
+    label = stars(p_adj),
+    ## above the bulk of the data, in headroom added to the panel below
+    y = ylim_box[2] + 0.06 * diff(ylim_box)
+  )
+
 ggplot(change, aes(agent, dcum, fill = agent)) +
   geom_hline(yintercept = 0, colour = "grey50") +
   geom_boxplot(outlier.shape = NA, width = 0.6, linewidth = 0.3) +
+  geom_point(
+    data = lu_means, aes(agent, dcum), inherit.aes = FALSE,
+    position = position_jitter(width = 0.15, height = 0, seed = 1), size = 0.7, colour = "grey10"
+  ) +
+  geom_text(data = star_df, aes(agent, y, label = label), inherit.aes = FALSE, size = 3.2, vjust = 0.5) +
   facet_wrap(~interval, nrow = 2) +
   scale_fill_manual(values = AGENT_COLOURS, guide = "none") +
-  scale_y_continuous(breaks = PCT_BREAKS, labels = pct_lab) +
-  coord_cartesian(ylim = stats::quantile(change$dcum, c(0.005, 0.995))) +
+  scale_y_continuous(breaks = log2(c(0.125, 0.25, 0.5, 1, 2)), labels = pct_lab) +
+  coord_cartesian(ylim = c(ylim_box[1], ylim_box[2] + 0.1 * diff(ylim_box))) +
   labs(x = NULL, y = "Change in cumulative current") +
   sim_caption()
 ```
@@ -771,6 +919,69 @@ The median change in the simulation is `r med_pct("Harvest")` for harvest, `r me
 The choice of layer matters here.
 Measured in normalized current, the same fire cells change by a median of only `r med_norm("Fire")`, against `r med_norm("Harvest")` for harvest, which would make fire look the least damaging agent.
 That is an artefact of the ratio: a large burn removes the sources over the whole neighbourhood, so flow and flow potential fall together, while a cutblock is a young cell in a neighbourhood whose potential is largely intact.
+
+## Testing differences among agents and intervals {#sec-agent-model}
+
+The comparison in @fig-agent-box can be tested formally, but not with the cells as replicates.
+Neighbouring cells are strongly autocorrelated and each cell appears in every interval, so an ANOVA on cells would treat tens of thousands of dependent values as independent and find almost any difference significant.
+
+The structure proposed here:
+
+- **Replicate:** the mean change over the cells of one agent, in one reporting area, in one interval.
+  Here the reporting areas are landscape units, and an area needs at least 10 cells of an agent in an interval to count.
+- **Response:** change in log cumulative current over the interval.
+- **Fixed effects:** disturbance agent (none, harvest, fire, beetle) and interval.
+- **Random effect:** an intercept for each landscape unit, because the same unit contributes to every interval and agent.
+- **Comparisons:** each agent against *undisturbed* cells in the same interval.
+  Comparing within the interval removes change that happens everywhere, such as stands ageing into higher source weight.
+  These comparisons give the stars in @fig-agent-box, adjusted for multiple comparisons by Holm's method.
+
+The design is unbalanced and incomplete: harvest occurs in every interval, beetle in four, and fire in two.
+A single agent-by-interval interaction term cannot be estimated where combinations are missing, so whether each agent's effect changes over time is tested agent by agent, using only the intervals where it occurs.
+@tbl-agent-anova gives the F tests and @tbl-agent-contrasts the individual comparisons.
+
+```{r tbl-agent-anova}
+#| tbl-cap: "**Simulated data.** F tests from the mixed model. Degrees of freedom by Satterthwaite's method."
+anova_tbl |>
+  dplyr::transmute(
+    Term = term,
+    F = sprintf("%.1f", F),
+    df = sprintf("%d, %.0f", as.integer(df1), df2),
+    p = fmt_p(p)
+  ) |>
+  knitr::kable(format = "pipe", align = "lrrr")
+```
+
+```{r tbl-agent-contrasts}
+#| tbl-cap: "**Simulated data.** Change in cumulative current for each agent relative to undisturbed cells in the same interval (ratio of geometric means), with Holm-adjusted p-values. Units: landscape units contributing a mean."
+contrasts |>
+  dplyr::transmute(
+    Interval = interval,
+    Agent = agent,
+    `Relative change` = sprintf("%+.0f%%", 100 * (2^est - 1)),
+    t = sprintf("%.1f", t),
+    df = sprintf("%.0f", df),
+    `p (Holm)` = fmt_p(p_adj),
+    Units = units
+  ) |>
+  knitr::kable(format = "pipe", align = "llrrrrr")
+```
+
+Every comparison is highly significant in the simulation, because the simulated effects are large and uniform.
+On real data, the number of reporting areas and the variation between them will decide that.
+
+Points to settle before applying this:
+
+- **Fire is a handful of events.**
+  Each interval's fire is one fire, so "fire in 2015--2020" cannot be separated from that particular fire, and its landscape units are not independent of one another.
+  The same applies, less severely, to a beetle outbreak.
+  If the disturbance record identifies individual events (each cutblock or fire), events could be the replicate instead, with landscape unit as a grouping above them.
+- **Spatial dependence between units.**
+  Neighbouring landscape units are themselves correlated.
+  A spatially structured random effect would address this; with a few dozen units it may not be estimable, and the p-values should be read as approximate.
+- **Pixel-level alternative.**
+  A regular sample of cells spaced farther apart than the autocorrelation range of the current surface, with cell as a random effect across intervals, uses the cells directly while keeping them close to independent.
+- **Checks.** Residuals should be inspected for skew and unequal variance between agents; the log ratio helps, but unequal variances may need modelling.
 
 The less obvious effect is on the cells **around** a disturbance.
 Omniscape is not a cell-by-cell model: a disturbance removes sources and raises resistance, which changes the flow through the forest around it as well.
@@ -1501,8 +1712,8 @@ With a few dozen units, this is a descriptive check, not a test.
 
 1. Do we agree to measure change in amount with cumulative current, and keep normalized current for the connectivity classes (@sec-layer)?
 2. Which of the approaches are worth carrying to the real series?
-3. For Lee's L: which of options A--C, and at what neighbourhood scale?
-4. For the disturbance analysis: how do we define the dominant agent, and do we report the change around disturbances separately?
+3. For Lee's L: which of options A--C, and at what neighbourhood scale (up to the 2.57 km nearest-neighbour radius)?
+4. For the disturbance analysis: how do we define the dominant agent, and do we report the change around disturbances separately? For the statistical test, what is the replicate -- reporting-area means, individual disturbance events, or a spaced sample of cells?
 5. For transitions: all seven snapshots or a subset?
 6. For patch metrics: which patch definition(s), and for threshold-based ones, which thresholds? Which three or four metrics, at what resolution and edge depth?
 7. **What reporting areas do we care about?** We assume BEC zone and landscape unit will be included; which of the others (moose wetlands, mule deer winter ranges, OGMAs, parks, wetlands, WHAs, or others) should be carried through the series?
@@ -1529,6 +1740,9 @@ This appendix is for whoever implements the chosen methods.
   On a 150 x 150 grid (22,500 cells) it took 167 s and about 4,700 CPU-seconds, and needs about 4 GB; memory grows with the square of the number of cells.
   `lee.mc()` on the same grid with 99 permutations took 3 s.
   Neighbours: `spdep::cell2nb()` for adjacent cells, which numbers cells column by column from the bottom-left, unlike terra's row-by-row from the top-left, so values must be reordered to match; `spdep::dnearneigh()` for a distance band.
+- **Agent model.**
+  `lmerTest::lmer(dcum ~ agent + interval + (1 | lu))` for the main effects (`anova()` gives Type III F tests with Satterthwaite degrees of freedom), and a cell-means model `dcum ~ 0 + group + (1 | lu)`, where `group` is the observed agent x interval combination, for the comparisons; contrasts and joint F tests by `lmerTest::contest()`, adjusted with `stats::p.adjust(method = "holm")`.
+  lmerTest `r pkg_ver("lmerTest")`, lme4 `r pkg_ver("lme4")`.
 - **Disturbance agents.**
   In the pipeline these would come from the disturbance history the epoch back-cast already parses (most recent stand-replacing event per interval).
   Distance to the nearest disturbance is `terra::distance()`, once per agent.
@@ -1542,7 +1756,7 @@ This appendix is for whoever implements the chosen methods.
 - **Trends.**
   Theil-Sen slopes are the median of the 21 pairwise slopes per cell; Mann-Kendall p-values are from `stats::cor.test(method = "kendall", exact = TRUE)`, adjusted with `stats::p.adjust(method = "BH")`.
 - **Packages.**
-  spdep, landscapemetrics, ggalluvial, ggrepel and patchwork are not yet in the project's `renv.lock`; this draft was rendered against a separate library.
+  spdep, landscapemetrics, ggalluvial, ggrepel, patchwork, lme4 and lmerTest are not yet in the project's `renv.lock`; this draft was rendered against a separate library.
   They would be added before any of this goes into the pipeline.
 
 # References {.unnumbered}
