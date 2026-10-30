@@ -1756,8 +1756,7 @@ This appendix is for whoever implements the chosen methods.
 - **Trends.**
   Theil-Sen slopes are the median of the 21 pairwise slopes per cell; Mann-Kendall p-values are from `stats::cor.test(method = "kendall", exact = TRUE)`, adjusted with `stats::p.adjust(method = "BH")`.
 - **Packages.**
-  spdep, landscapemetrics, ggalluvial, ggrepel, patchwork, lme4 and lmerTest are not yet in the project's `renv.lock`; this draft was rendered against a separate library.
-  They would be added before any of this goes into the pipeline.
+  spdep, landscapemetrics, ggalluvial, ggrepel, patchwork, lme4 and lmerTest are recorded in the project's `renv.lock`.
 
 # References {.unnumbered}
 
