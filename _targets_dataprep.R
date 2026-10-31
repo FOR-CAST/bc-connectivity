@@ -65,6 +65,9 @@ tar_option_set(
     workers = n_workers,
     seconds_idle = 600,
     crashes_max = 20L,
+    ## Needs crew >= 1.3.2. Earlier versions launched workers with processx `cleanup = TRUE`, so
+    ## garbage-collecting a launch handle killed the worker -- busy ones included -- and targets
+    ## restarted the task from zero, logged only as a repeated "dispatched" (crew #253).
     ## Keep the workers' stdout/stderr. crew's default DISCARDS it, and a worker that dies mid-task
     ## then takes its only diagnostic with it: Chilcotin lost `patches_interior_forest_*` eleven
     ## times each over six days with no error recorded anywhere, because of this. They go under `Outputs/`, which is
