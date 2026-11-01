@@ -863,8 +863,13 @@ dataprep_targets <- function() {
 
     ## biodiversity features
     tar_target(
+      name = MDWR_snapshot,
+      command = mdwr_snapshot_path(district),
+      format = "file"
+    ),
+    tar_target(
       name = MDWR,
-      command = get_mdwr(study_area_buffered, LCC)
+      command = read_mdwr_snapshot(MDWR_snapshot)
     ),
     tar_target(
       name = MDWR_gpkg,

@@ -190,6 +190,7 @@ The values follow the project's original Quesnel assessment.
 
 Parks and protected areas [@BCDC:parks], legal old growth management areas [@BCDC:ogma], wildlife habitat areas [@BCDC:wha], mule deer winter range [@BCDC:mdwr] and high-value moose wetlands [@BCDC:moose_wetlands] do not change resistance or source strength.
 They are used to summarise results (@sec-outputs), so that connectivity can be compared inside and outside them without the comparison being built into the inputs.
+The mule deer winter range record stopped being publicly accessible on or before 29 October 2026, so the analysis uses the copy each district downloaded in September 2026.
 
 # Connectivity model {#sec-omniscape}
 

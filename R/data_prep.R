@@ -424,6 +424,30 @@ get_mdwr <- function(studyArea, rasterToMatch) {
   )
 }
 
+## The MDWR record has returned HTTP 403 from the BC Data Catalogue since at least 2026-10-29, metadata
+## included, so `get_mdwr()` can no longer run. Each district reads instead the copy `get_mdwr()`
+## fetched before then: the `MDWR` object from that district's store, copied byte for byte into
+## `Data/raw/MDWR/<district>.rds`. It is already cropped to the buffered study area and projected.
+mdwr_snapshot_path <- function(district) {
+  path <- file.path(district_path("download", district), "MDWR", paste0(district$key, ".rds"))
+
+  if (!file.exists(path)) {
+    stop(glue::glue(
+      "Required input `MDWR/{basename(path)}` not found at:\n  {path}\n\n",
+      "The Mule Deer Winter Range layer (BC Data Catalogue a60d7b6e-88b2-4105-95e2-aaf6cc3468cf) ",
+      "is no longer publicly available and cannot be downloaded automatically.\n",
+      "To request a copy, contact Travis Heckford <Travis.Heckford@gov.bc.ca>.\n",
+      "See the 'Data access' section of the README for details."
+    ))
+  }
+
+  path
+}
+
+read_mdwr_snapshot <- function(path) {
+  readRDS(path)
+}
+
 get_wha <- function(studyArea, rasterToMatch) {
   get_bcdata(
     id = "b19ff409-ef71-4476-924e-b3bcf26a0127",

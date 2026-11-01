@@ -1,6 +1,6 @@
 # Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes
 
-Last updated: 2026-09-14
+Last updated: 2026-10-31
 
 This repository contains code to produce a connectivity map for the
 intactness of old forests to inform biodiversity management for the
@@ -225,7 +225,8 @@ Pebesma & Bivand 2023).
   [🔗](https://catalogue.data.gov.bc.ca/dataset/2c02040c-d7c5-4960-8d04-dea01d6d3e9f);
 
 - Mule Deer Winter Range Habitat Management Zones - Cariboo Region
-  [🔗](https://catalogue.data.gov.bc.ca/dataset/a60d7b6e-88b2-4105-95e2-aaf6cc3468cf);
+  [🔗](https://catalogue.data.gov.bc.ca/dataset/a60d7b6e-88b2-4105-95e2-aaf6cc3468cf)
+  – **no longer publicly available**; see [Data access](#data-access);
 
 - Freshwater Atlas Wetlands
   [🔗](https://catalogue.data.gov.bc.ca/dataset/93b413d8-1840-4770-9629-641d74bd1cc6);
@@ -263,8 +264,9 @@ No input data are distributed with this repository. The `Data/`
 directory is created locally when the workflow runs.
 
 **Publicly available layers.** Everything listed above except the Forest
-Disturbance layer downloads automatically as part of the `targets`
-workflow, via the [`bcdata`](https://github.com/bcgov/bcdata) and
+Disturbance and Mule Deer Winter Range layers downloads automatically as
+part of the `targets` workflow, via the
+[`bcdata`](https://github.com/bcgov/bcdata) and
 [`bcmaps`](https://github.com/bcgov/bcmaps) packages or by direct
 download from the BC Data Catalogue and Open Government Portal. No
 account, API key, or credential is required.
@@ -300,6 +302,19 @@ The workflow will then proceed normally. Note that the Forest
 Disturbance layer drives the Simple Inferred Forest Age (SIFA) and seral
 stage calculations, so the connectivity results cannot be reproduced
 without it.
+
+**Withdrawn layer.** The **Mule Deer Winter Range Habitat Management
+Zones - Cariboo Region** layer was downloaded from the BC Data Catalogue
+until its record began returning HTTP 403 (first seen 2026-10-29). The
+workflow now reads the copy each district downloaded before then
+(Cariboo-Chilcotin on 2026-09-02, 100 Mile House on 2026-09-09, Quesnel
+on 2026-09-16), already clipped to that district’s buffered study area,
+from:
+
+    Data/raw/MDWR/<district>.rds
+
+The workflow will stop with an error if the file for a district is
+missing; contact the data steward above for a copy.
 
 ## Data licence and attribution
 
