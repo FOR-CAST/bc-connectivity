@@ -418,6 +418,9 @@ write_omniscape_config <- function(
 #' @param overwrite if `TRUE`, remove a pre-existing Omniscape output directory before running.
 #'   Omniscape refuses to write into a directory that already exists, so a rerun of this target
 #'   cannot otherwise proceed. Only directories that look like Omniscape output are removed.
+#' @param inputs unused. The resistance and source rasters the run reads, passed only so that
+#'   `targets` records them as dependencies: the config holds their *paths*, so a raster whose values
+#'   change at the same path leaves the config, the script and so the run looking current.
 #'
 #' @returns character vector of the output files produced by the run
 #'
@@ -427,7 +430,8 @@ run_omniscape <- function(
   julia_threads = NULL,
   julia_version = "1.11.7",
   overwrite = TRUE,
-  memory_max = omniscape_memory_max()
+  memory_max = omniscape_memory_max(),
+  inputs = NULL
 ) {
   stopifnot(length(julia_script) == 1L, file.exists(julia_script))
 

@@ -1526,7 +1526,10 @@ omniscape_run_targets <- function(epoch = FALSE) {
         name = omniscape_run,
         command = run_omniscape(
           omniscape_scripts_to_run,
-          julia_threads = omniscape_thread_setting()
+          julia_threads = omniscape_thread_setting(),
+          ## dependency only: without it a composite rebuilt with new values at the same path
+          ## leaves every run looking current (see `run_omniscape()`)
+          inputs = c(resistance_composite, sourcewt_composite)
         ),
         format = "file",
         pattern = map(omniscape_scripts_to_run),

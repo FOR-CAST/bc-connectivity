@@ -74,6 +74,11 @@ Environment variables (documented in `README.md`): `BC_CONN_EPOCHS`, `BC_CONN_JU
 On a shared host, cap Omniscape with `BC_CONN_JULIA_THREADS_MAX` rather than pinning `BC_CONN_JULIA_THREADS`: the ceiling clips the large-window runs, which is where the memory is, while leaving the small-window ones at the 8 threads they are fastest at.
 Omniscape runs are opt-in because a single one can take days and hundreds of GB of RAM.
 
+`omniscape_run` depends on the composite rasters directly, through an unused `inputs` argument.
+Before 2026-11-03 it saw them only through the config, which holds their paths, so a composite rebuilt with new values left every run looking current.
+Adding that argument changed the run's command, so **Quesnel's Omniscape runs show as outdated without needing a rerun**: its composites have not changed since those runs.
+Do not rerun them for that reason alone.
+
 This is a shared machine.
 Check free RAM, load average, and what else is running before starting a long job, and cap `BC_CONN_WORKERS` accordingly rather than taking every core.
 
