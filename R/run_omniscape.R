@@ -155,6 +155,10 @@ systemd_scope <- function() {
 #'   repository-level `Outputs/`, which is district-blind; the district factories pass
 #'   `district_path("outputs", district)` so each district's runs land under its own subdirectory
 #'   alongside its category rasters and figures.
+#' @param config_dir directory the run's `config.ini` and `script.jl` are written under, in a
+#'   subdirectory named for the run. Defaults to the repository-level `Omniscape/`, which is
+#'   district-blind; the district factories pass `district_path("omniscape", district)`. The script
+#'   embeds the config's path, so moving one means rewriting both.
 #'
 #' @returns character vector specifying the file paths of the saved configuration and launch script files
 #' (`config.ini` and `script.jl`, respectively)
@@ -167,7 +171,8 @@ write_omniscape_config <- function(
   q = 100L,
   run_name = Sys.Date(),
   ntiles = c(2, 3),
-  outputs_dir = get_path("outputs")
+  outputs_dir = get_path("outputs"),
+  config_dir = get_path("omniscape")
 ) {
   q <- as.integer(q)
 
@@ -300,7 +305,7 @@ write_omniscape_config <- function(
       run_name_tile <- glue::glue("{run_name}_t{tile_id}")
     }
 
-    omni_path <- fs::dir_create(get_path("omniscape"), run_name)
+    omni_path <- fs::dir_create(config_dir, run_name)
     omni_path_rel <- fs::path_rel(omni_path, get_path("project"))
 
     output_dir <- fs::path(outputs_dir, run_name_tile) ## don't create the dir, Omniscape needs to do it!

@@ -1462,6 +1462,7 @@ omniscape_run_targets <- function(epoch = FALSE) {
         ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
         ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
         outputs_dir = district_path("outputs", district),
+        config_dir = district_path("omniscape", district),
         ## untiled by default; `BC_CONN_OMNISCAPE_BENCH="2x3"` also writes tiled variants for
         ## benchmarking. See write_omniscape_config() on why tile overlap limits their usefulness.
         ntiles = omniscape_tiles()
@@ -1487,6 +1488,7 @@ omniscape_run_targets <- function(epoch = FALSE) {
         ## Run output goes under the district's own `Outputs/<key>/`, beside its category rasters
         ## and figures, rather than into the repository-level `Outputs/` the function defaults to.
         outputs_dir = district_path("outputs", district),
+        config_dir = district_path("omniscape", district),
         ntiles = omniscape_tiles()
       ),
       format = "file",
