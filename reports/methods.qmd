@@ -116,7 +116,8 @@ Stand age comes from the CEF Forest Disturbance layer [@CEF:ForestDisturbance202
 For each polygon it records a dated history of disturbance events and identifies the most recent stand-replacing one, and from that derives the stand's age as of the compilation (the layer's *Simple Inferred Forest Age*).
 That age, rather than the inventory's projected age, is what this analysis uses, because it already accounts for disturbances the inventory has not yet been updated for.
 
-The layer is overlaid -- not spatially joined -- with the Vegetation Resource Inventory [@BCDC:vri], the biogeoclimatic ecosystem classification [@BCDC:bec] and, for the Interior Douglas-fir zone, the Cariboo Leading Group layer [@BCDC:leading_group].
+The layer is overlaid -- not spatially joined -- with the 2025 Vegetation Resource Inventory [@BCDC:vri], the biogeoclimatic ecosystem classification [@BCDC:bec] and, for the Interior Douglas-fir zone, the Cariboo Leading Group layer [@BCDC:leading_group].
+The inventory supplies leading species only; it is the 2025 release, with ages projected to 31 December 2025.
 An overlay splits each stand at zone boundaries so that every piece is classified on its own zone's thresholds; a join would have kept whole stands and counted a stand spanning two zones twice.
 
 ## Seral stages
@@ -185,8 +186,18 @@ v <- tibble::tribble(
 knitr::kable(v, align = "lrrr")
 ```
 
-The values follow the project's original Quesnel assessment.
-**The rationale recorded for each value in that assessment is not reproduced here** (@sec-open).
+The values follow the project's original Quesnel assessment, an unpublished worksheet ("Quesnel TSA Connectivity Model Data Treatment", November 2025) that records the reasoning for each.
+The analysis emphasises old-forest biodiversity, and the values follow from that.
+Seral stages use the Biodiversity Guidebook thresholds [@BritishColumbia:1995]; the guidebook sets no lower bound for the mid-seral stage, so the assessment set it at 40 years.
+Non-forest land is at maximum resistance for the same reason; the assessment notes that natural grasslands and meadows may need different treatment in later work.
+Lakes and rivers are at maximum resistance because they offer no habitat to most terrestrial species and break the forest canopy.
+Road classes and buffer widths follow the road disturbance classes of the BC Human Footprint connectivity work, with buffers at half that work's widths to suit the biodiversity emphasis.
+Wetlands take the moderate value the assessment gives to areas with less protection than old growth management areas and protected areas.
+
+The pipeline departs from the assessment in two places.
+Streams are ranked by stream order, where the assessment ranked them by the Cariboo stream classification (S1 to S3, after the Riparian Management Area Guidebook).
+Roads of unknown type are kept at the low-use value, where the assessment excluded them as possibly not being roads.
+Both are listed in @sec-open.
 
 Parks and protected areas [@BCDC:parks], legal old growth management areas [@BCDC:ogma], wildlife habitat areas [@BCDC:wha], mule deer winter range [@BCDC:mdwr] and high-value moose wetlands [@BCDC:moose_wetlands] do not change resistance or source strength.
 They are used to summarise results (@sec-outputs), so that connectivity can be compared inside and outside them without the comparison being built into the inputs.
@@ -354,9 +365,8 @@ In the central part of Quesnel the inventory baseline is a 2013 Landsat-based in
 Road change is absent (above).
 
 **Inputs.**
-The inventory record used now carries the title of the 2025 inventory, while the project's own notes describe the 2024 one; which was retrieved needs confirming.
-The rationale behind each resistance and source value (@tbl-values) is held in the original assessment spreadsheet and should be cited or summarised here.
-The mule deer winter range record was not accessible when this draft was prepared, so its title is unverified.
+Two departures from the original assessment need a decision (@sec-resistance): ranking streams by stream order rather than by the Cariboo stream classification, and keeping roads of unknown type rather than excluding them.
+The BC Human Footprint connectivity work and the Riparian Management Area Guidebook, which the assessment relies on, are named but not yet cited.
 
 **Transfer between districts.**
 The radii, pixel size and category cut-offs are established on Quesnel and applied unchanged to the other districts.

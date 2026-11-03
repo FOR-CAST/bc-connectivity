@@ -1,6 +1,6 @@
 # Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes
 
-Last updated: 2026-10-31
+Last updated: 2026-11-03
 
 This repository contains code to produce a connectivity map for the
 intactness of old forests to inform biodiversity management for the
@@ -208,7 +208,7 @@ Pebesma & Bivand 2023).
   [🔗](https://catalogue.data.gov.bc.ca/dataset/leading-group-for-the-cariboo-region);
 
 - Vegetation Resource Inventory (VRI) Forest Vegetation Composite Rank 1
-  Layer (R1) (2024)
+  Layer (R1) (2025)
   [🔗](https://catalogue.data.gov.bc.ca/dataset/2ebb35d8-c82f-4a17-9c96-612ac3532d55);
 
 **Primary Biodiversity Features:**
