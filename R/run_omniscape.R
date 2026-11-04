@@ -476,31 +476,7 @@ run_omniscape <- function(
   output_dir <- file.path(project_dir, read_omniscape_option(config_file, "project_name"))
   run_name <- basename(output_dir)
 
-  ## Omniscape errors out rather than overwrite an existing output directory. Deleting it
-  ## pre-emptively and unconditionally is what b8949de rightly backed out, so only clear a
-  ## directory that actually holds output from a previous Omniscape run of this configuration.
-  if (dir.exists(output_dir)) {
-    looks_like_output <- length(fs::dir_ls(output_dir, glob = "*.tif")) > 0 ||
-      file.exists(file.path(output_dir, "omniscape_run.log"))
-
-    if (!isTRUE(overwrite)) {
-      stop(
-        glue::glue(
-          "Omniscape output directory already exists and `overwrite = FALSE`:\n  {output_dir}"
-        )
-      )
-    }
-    if (!looks_like_output) {
-      stop(
-        glue::glue(
-          "refusing to remove {output_dir}: it exists but does not look like Omniscape output.\n",
-          "Move it aside by hand, then rerun."
-        )
-      )
-    }
-
-    unlink(output_dir, recursive = TRUE)
-  }
+  clear_omniscape_output_dir(output_dir, overwrite = overwrite)
 
   ## Omniscape creates the output directory itself, so it cannot exist yet -- log to a temp file
   ## and move the log into place once the run is done.
@@ -672,6 +648,42 @@ run_omniscape <- function(
   }
 
   return(output_files)
+}
+
+## Clear a previous run's output directory so Omniscape can write it afresh.
+##
+## Omniscape errors out rather than overwrite an existing output directory. Deleting it
+## pre-emptively and unconditionally is what b8949de rightly backed out, so only clear a
+## directory that holds output from a previous Omniscape run, or nothing at all: a run stopped
+## before its first write leaves an empty directory, and refusing that stopped both epoch
+## pipelines on 2026-11-03.
+clear_omniscape_output_dir <- function(output_dir, overwrite = TRUE) {
+  if (!dir.exists(output_dir)) {
+    return(invisible(output_dir))
+  }
+
+  is_empty <- length(fs::dir_ls(output_dir, all = TRUE)) == 0
+  looks_like_output <- length(fs::dir_ls(output_dir, glob = "*.tif")) > 0 ||
+    file.exists(file.path(output_dir, "omniscape_run.log"))
+
+  if (!isTRUE(overwrite)) {
+    stop(
+      glue::glue(
+        "Omniscape output directory already exists and `overwrite = FALSE`:\n  {output_dir}"
+      )
+    )
+  }
+  if (!is_empty && !looks_like_output) {
+    stop(
+      glue::glue(
+        "refusing to remove {output_dir}: it exists but does not look like Omniscape output.\n",
+        "Move it aside by hand, then rerun."
+      )
+    )
+  }
+
+  unlink(output_dir, recursive = TRUE)
+  invisible(output_dir)
 }
 
 ## The run directories behind a set of Omniscape outputs.
