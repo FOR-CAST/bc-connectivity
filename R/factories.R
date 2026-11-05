@@ -833,6 +833,24 @@ dataprep_targets <- function() {
       command = save_gpkg(forest_disturbance, district_dst(district, "forest_disturbance.gpkg")),
       format = "file"
     ),
+    ## Stand-replacing fire and insect mortality CEF does not record, from CanLaD and CanLaBS
+    ## (see `R/landsat_resets.R`). The national rasters come in with the other shared inputs; the
+    ## polygons are built per district on the rasters' own grid.
+    tar_target(
+      name = landsat_disturbance_rasters,
+      command = landsat_disturbance_files(shared_inputs),
+      format = "file"
+    ),
+    tar_target(
+      name = landsat_resets_gpkg,
+      command = write_landsat_resets(
+        landsat_disturbance_rasters,
+        study_area_buffered,
+        LCC,
+        district_dst(district, "landsat_resets.gpkg")
+      ),
+      format = "file"
+    ),
     ## Seral stage assignment is an overlay, and overlays are embarrassingly parallel over space:
     ## tile the study area and let the crew workers do it. Each branch reads only the features
     ## overlapping its tile straight from the GeoPackages, so no worker ever holds the 4 M-polygon
@@ -852,7 +870,8 @@ dataprep_targets <- function() {
         forest_disturbance_gpkg,
         VRI_BECNDT_gpkg,
         study_area_tiles,
-        sifa_max
+        sifa_max,
+        landsat_resets_gpkg
       ),
       pattern = map(study_area_tiles) ## no `iteration =`; see VRI_BECNDT_tiles above
     ),
@@ -1339,7 +1358,8 @@ historical_epoch_targets <- function(epochs) {
       command = create_forest_disturbance_history(
         forest_disturbance_gpkg,
         VRI_BECNDT_gpkg,
-        study_area_tiles
+        study_area_tiles,
+        landsat_resets_gpkg
       ),
       pattern = map(study_area_tiles) ## no `iteration =`; see VRI_BECNDT_tiles
     ),

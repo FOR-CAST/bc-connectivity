@@ -31,7 +31,7 @@ backcast_age <- function(
   x,
   epoch,
   data_year = 2024,
-  reset_rule = cef_reset_rule(),
+  reset_rule = stand_reset_rule(),
   vri_update_tolerance = 10,
   lost_age = NA_real_
 ) {
@@ -282,8 +282,9 @@ historical_epochs <- function(flag = Sys.getenv("BC_CONN_EPOCHS", "")) {
 ## and classified per epoch by `create_forest_disturbance_seral_epoch()`.
 ##
 ## `PROJ_AGE_1` comes from the CEF layer, which carries VRI's, so the VRI read leaves it out rather
-## than producing two columns of the same name.
-create_forest_disturbance_history <- function(for_dist_gpkg, vri_gpkg, tile) {
+## than producing two columns of the same name. Landsat resets CEF does not record are merged in
+## first (`add_landsat_resets()`), exactly as for the current condition.
+create_forest_disturbance_history <- function(for_dist_gpkg, vri_gpkg, tile, resets_gpkg = NULL) {
   aoi <- tidyterra::as_spatvector(tile)
 
   fd <- spatialutils::read_vector_aoi(
@@ -301,7 +302,9 @@ create_forest_disturbance_history <- function(for_dist_gpkg, vri_gpkg, tile) {
     return(fd[integer(0)])
   }
 
-  fd <- terra::crop(fd, aoi) |> spatialutils::repair_geoms()
+  fd <- terra::crop(fd, aoi) |>
+    spatialutils::repair_geoms() |>
+    add_landsat_resets(resets_gpkg, aoi)
   v <- spatialutils::intersect_relate(fd, vri) |> spatialutils::repair_geoms()
 
   if (nrow(v) == 0L) {

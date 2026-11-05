@@ -852,7 +852,16 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
 ## inflated the layer from 4.02 M polygons / 4.09 Mha to 7.78 M polygons / 39.5 Mha, and left
 ## ~165,000 ha (6% of the landscape) belonging to two or more seral stages at once, resolved
 ## arbitrarily by whichever union happened to run first downstream.
-create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_age) {
+##
+## `resets_gpkg` adds the stand-replacing fire and insect mortality CEF does not record, from
+## CanLaD/CanLaBS, before ages are classified; see `R/landsat_resets.R`. `NULL` uses CEF alone.
+create_forest_disturbance_seral <- function(
+  for_dist_gpkg,
+  vri_gpkg,
+  tile,
+  max_age,
+  resets_gpkg = NULL
+) {
   aoi <- tidyterra::as_spatvector(tile)
 
   ## Push the spatial filter down to the GDAL read: only the features overlapping this tile are
@@ -862,7 +871,12 @@ create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_a
   ## because `forest_disturbance_seral.gpkg` is a deliverable in its own right and they are what
   ## make it interpretable. The source-system artifacts (`id`, `FEATURE_ID`, `OBJECTID`) are
   ## deliberately not carried, and `NATURAL_DISTURBANCE`/`ZONE` are recoverable from `NDT_BEC`.
-  fd <- spatialutils::read_vector_aoi(for_dist_gpkg, aoi, fields = "SIFA")
+  ## the history fields are read only to merge in the Landsat resets, and dropped once they are
+  fd <- spatialutils::read_vector_aoi(
+    for_dist_gpkg,
+    aoi,
+    fields = c("SIFA", if (!is.null(resets_gpkg)) c("DSTRB_HIST", "MRSRD_Y", "MRSRD_A"))
+  )
   vri <- spatialutils::read_vector_aoi(
     vri_gpkg,
     aoi,
@@ -874,7 +888,10 @@ create_forest_disturbance_seral <- function(for_dist_gpkg, vri_gpkg, tile, max_a
   }
 
   ## clip to the tile so tiles partition the study area rather than overlapping at their edges
-  fd <- terra::crop(fd, aoi) |> spatialutils::repair_geoms()
+  fd <- terra::crop(fd, aoi) |>
+    spatialutils::repair_geoms() |>
+    add_landsat_resets(resets_gpkg, aoi)
+  fd <- fd[, "SIFA"]
 
   v <- spatialutils::intersect_relate(fd, vri) |> spatialutils::repair_geoms()
 
