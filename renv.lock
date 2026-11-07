@@ -4650,22 +4650,44 @@
     },
     "spatialutils": {
       "Package": "spatialutils",
-      "Version": "0.0.1",
+      "Version": "0.0.1.9001",
       "Source": "GitHub",
+      "Type": "Package",
+      "Title": "Utilities for Working with Spatial Data",
+      "Authors@R": "person(c(\"Alex\", \"M\"), \"Chubaty\", , \"achubaty@for-cast.ca\", role = c(\"aut\", \"cre\"), comment = c(ORCID = \"0000-0001-7146-8135\"))",
+      "Description": "Miscellaneous utilities to facilitate working with spatial data.",
+      "License": "Apache License (>= 2)",
+      "URL": "https://github.com/FOR-CAST/spatialutils",
+      "BugReports": "https://github.com/FOR-CAST/spatialutils/issues",
+      "Depends": [
+        "R (>= 4.3)"
+      ],
+      "Imports": [
+        "dplyr",
+        "rlang",
+        "sf (>= 1.0-17)",
+        "terra"
+      ],
+      "Suggests": [
+        "ggplot2",
+        "spelling",
+        "testthat (>= 3.0.0)",
+        "units",
+        "withr"
+      ],
+      "Config/testthat/edition": "3",
+      "Encoding": "UTF-8",
+      "Language": "en-CA",
+      "Roxygen": "list(markdown = TRUE)",
+      "Config/roxygen2/version": "8.1.0",
+      "Author": "Alex M Chubaty [aut, cre] (ORCID: <https://orcid.org/0000-0001-7146-8135>)",
+      "Maintainer": "Alex M Chubaty <achubaty@for-cast.ca>",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
       "RemoteUsername": "FOR-CAST",
       "RemoteRepo": "spatialutils",
       "RemoteRef": "main",
-      "RemoteSha": "1d1dc46ed95e8b8a7a4ffeb773802b02a6c83170",
-      "Requirements": [
-        "R",
-        "dplyr",
-        "rlang",
-        "sf",
-        "terra"
-      ],
-      "Hash": "7bdd4a1720639b3a1d7466dd4da71cba"
+      "RemoteSha": "24ba37dfd0a68ef761393dfbb7ca14e60ce81d91"
     },
     "spdep": {
       "Package": "spdep",
