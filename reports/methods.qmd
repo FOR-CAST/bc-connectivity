@@ -69,6 +69,20 @@ block_px <- function(r) {
 r_reg <- radius_px(radii$all_dists[["25%"]])
 r_loc <- radius_px(radii$nn_dists[["100%"]])
 epochs <- historical_epochs("all")
+
+## Landsat resets (@sec-landsat): settings read from the pipeline's own defaults
+dnbr_threshold <- formals(write_landsat_resets)$dnbr_threshold
+min_insect_age <- formals(apply_landsat_resets)$min_insect_age
+insect_gap <- formals(landsat_reset_cells)$insect_gap
+cap_dnbr <- paste0("Agreement between CanLaBS at dNBR ", dnbr_threshold, " and CEF's stand-replacing fire (moderate or high severity), per burned 30 m pixel where both record the fire (measured 2026-11-05). 2015-2024: agreement on all fires both record. Area ratio: the area CanLaBS treats as stand-replacing over the area CEF does. Insect-damaged: agreement in stands CanLaD shows as insect-damaged before the fire. 1985-2014: agreement just outside the district, where CEF's earlier product exists. Salvage-logged pixels are excluded.")
+
+FIGDIR <- file.path(.root, "reports", "figures")
+dir.create(FIGDIR, showWarnings = FALSE, recursive = TRUE)
+fig_rel <- function(f) file.path(basename(FIGDIR), basename(f))
+DISTRICTS <- c(quesnel = "Quesnel", chilcotin = "Cariboo-Chilcotin", hundred_mile = "100 Mile House")
+cov_dir <- file.path(.root, "Outputs", "cef-coverage")
+cov_ok <- all(file.exists(file.path(cov_dir, paste0(names(DISTRICTS), ".tif"))))
+prov_ok <- all(file.exists(file.path(cov_dir, c("province_fsg.tif", "province_boundary.gpkg"))))
 ```
 
 ::: {.callout-warning}
@@ -83,18 +97,19 @@ Literature and dataset citations were checked against their publishers and catal
 This analysis maps how well old and mature forest is connected across three natural resource districts of the Cariboo Region -- Quesnel, Cariboo-Chilcotin and 100 Mile House -- and reconstructs how that connectivity has changed since 1995.
 
 Forest stands are classified into seral stages from the province's Cumulative Effects Framework (CEF) forest disturbance record, using the Biodiversity Guidebook age thresholds for each natural disturbance type and biogeoclimatic zone.
+That record has no fire severity before 2015 inside any of the three districts and an incomplete record of insect mortality, so stand-replacing fire and insect mortality it does not hold are added from two national Landsat products, CanLaBS and CanLaD.
 Old and mature patches, with their interior forest, are built following the CEF forest biodiversity protocol.
 Each location is then given a resistance to movement and a source strength, and Omniscape, a circuit-theory model, estimates how much movement each location carries within a moving window.
 Two window sizes are used, a regional one of about 43 km and a local one of about 2.6 km, both fixed from Quesnel's patch spacing and held constant everywhere.
 Results are sorted into the four connectivity categories of @Cameron:2022 and summarised by landscape unit, biogeoclimatic zone and designated area.
 
 The historical series rebuilds the landscape at five-year steps from 1995 to 2020, with the present (2025) as the sixth state.
-Stand age at each date is recovered by reversing the disturbances the CEF record holds.
+Stand age at each date is recovered by reversing the disturbances on record, the CEF record's own and those added from Landsat.
 Where the record does not hold the age a stand had before it was harvested or burned, an age is drawn from stands whose pre-disturbance age is recorded.
 Every historical landscape then goes through exactly the same patch, resistance and connectivity steps as the present one, so the dates are comparable by construction.
 A table of the disturbances between each pair of dates accompanies the series, flagging events large enough to explain a change.
 
-The main uncertainties are the beetle record before 2003, which is too sparse to support the 2000 landscape fully until a second disturbance source is added; the share of the historical landscape whose age has to be filled in, which grows from about a quarter at 2005 to about a third at 1995; and roads, whose construction dates are largely unrecorded.
+The main uncertainties are insect mortality, where the CEF and Landsat records agree poorly with each other; the share of the historical landscape whose age has to be filled in, which grows from about a quarter at 2005 to about a third at 1995; and roads, whose construction dates are largely unrecorded.
 @sec-open lists the decisions still open.
 
 # Study area and scope {#sec-area}
@@ -119,6 +134,158 @@ That age, rather than the inventory's projected age, is what this analysis uses,
 The layer is overlaid -- not spatially joined -- with the 2025 Vegetation Resource Inventory [@BCDC:vri], the biogeoclimatic ecosystem classification [@BCDC:bec] and, for the Interior Douglas-fir zone, the Cariboo Leading Group layer [@BCDC:leading_group].
 The inventory supplies leading species only; it is the 2025 release, with ages projected to 31 December 2025.
 An overlay splits each stand at zone boundaries so that every piece is classified on its own zone's thresholds; a join would have kept whole stands and counted a stand spanning two zones twice.
+
+## Disturbance the CEF record misses {#sec-landsat}
+
+The CEF layer takes fire severity from three products.
+The one covering 1985 to 2014 covers only a band along the eastern side of the province, which reaches the eastern edges of 100 Mile House and Cariboo-Chilcotin and stops at their boundaries; it does not extend into any of the three districts (@fig-fsg-province; @fig-cef-coverage).
+The layer was shared as a work in progress, so that product is most likely incomplete rather than absent here by design.
+Inside the districts the layer therefore holds no stand-replacing fire before 2015, and a stand that burned in those thirty years keeps the age it had before the fire.
+Its record of insect mortality is incomplete too: it begins in 1999 in Cariboo-Chilcotin and in 2006 in 100 Mile House, and it agrees poorly with an independent satellite record of insect damage.
+
+Two national products, both annual 30 m records built from Landsat imagery, fill these gaps.
+The Canada Landsat Burned Severity product (CanLaBS) [@Guindon:CanLaBS; @Guindon:2021] gives the burn severity -- the change in normalised burn ratio, dNBR -- of every pixel within the National Burned Area Composite fire perimeters [@Skakun:2022] from 1985 to 2024, together with the year of the most recent fire.
+The Canada Landsat Disturbance database (CanLaD) [@Perbet:CanLaD; @Perbet:2025] records for every year whether a pixel was burned, harvested or defoliated, with defoliation in three severity classes.
+
+**Fire.**
+A fire is stand-replacing where its dNBR is at least `r dnbr_threshold`.
+That threshold reproduces the area CEF itself treats as stand-replacing -- fire of moderate or high severity -- on the 2015 to 2024 fires both sources record (@tbl-dnbr).
+It holds equally for the earlier fires: just outside the districts, where CEF's 1985 to 2014 product does exist, the two agree on 89 to 90% of burned pixels.
+CanLaBS cautions that dNBR can read low where trees were already killed by mountain pine beetle [@Guindon:CanLaBS].
+In stands CanLaD shows as insect-damaged before the fire, agreement is two to four points lower and the area is reproduced to within 17%, without a consistent direction, so one threshold is used throughout.
+Salvage-logged pixels, which CanLaBS identifies, are stand-replacing whatever their dNBR.
+Where CanLaBS has no dNBR -- gaps in the Landsat record, or the earlier fire on a pixel that burned twice, since CanLaBS keeps one value per pixel -- a fire CanLaD detects is treated as stand-replacing.
+
+```{r}
+#| label: tbl-dnbr
+#| tbl-cap: !expr cap_dnbr
+d <- tibble::tribble(
+  ~District, ~`2015-2024`, ~`Area ratio`, ~`Insect-damaged`, ~`1985-2014`,
+  "Quesnel", "86%", "0.97", "84%", "89%",
+  "Cariboo-Chilcotin", "85%", "1.00", "83%", "90%",
+  "100 Mile House", "86%", "0.92", "82%", "90%"
+)
+## a LaTeX tabular rather than Markdown's longtable, which split this short table across a page
+kableExtra::kbl(d, format = "latex", booktabs = TRUE, align = "lrrrr") |>
+  kableExtra::kable_styling(latex_options = "hold_position")
+```
+
+**Insect mortality.**
+Insect mortality is taken from CanLaD's high-severity defoliation class.
+CanLaD does not name the agent; in these districts it is overwhelmingly mountain pine beetle.
+CanLaD flags a stand year after year through an outbreak, so detections within `r insect_gap` years of each other are one event, dated by the first.
+High-severity defoliation in a stand under `r min_insect_age` years old at the time is ignored: such stands are not beetle hosts, and the signal there is more likely the spectral recovery of a young stand.
+
+**Precedence.**
+The CEF record wins wherever it holds the same event.
+A Landsat fire is dropped where CEF records a fire on the polygon within a year of it, whatever severity CEF gives it; an insect event is dropped where CEF records a stand-replacing event in the two years before it or the year after.
+A Landsat event later than CEF's most recent stand-replacing disturbance becomes the stand's most recent one, and the stand's age becomes the years since it, unless the inventory already has the stand younger -- the rule CEF applies to its own ages.
+Earlier Landsat events join the stand's disturbance history, where the historical reconstruction uses them (@sec-history).
+
+**Mapping.**
+The Landsat events are turned into polygons, one set per year and agent, with clumps under 1 ha removed -- the protocol's own threshold for residual patches -- and overlaid on the CEF layer, so that a polygon is split at the edge of a disturbance.
+Resetting whole CEF polygons when most of their area was disturbed would have been simpler, but it would have missed 28 to 36% of the disturbed area and reset 14,000 to 52,000 ha per district that was not disturbed.
+
+```{r}
+#| label: fig-fsg-province
+#| fig-cap: "Where the CEF layer records fire severity from its 1985-2014 product (blue), across the province, at 1 km. The three Cariboo districts are outlined."
+#| eval: !expr isTRUE(prov_ok && cov_ok)
+#| out-width: "70%"
+f <- file.path(FIGDIR, "cef-fsg-province.png")
+if (!file.exists(f)) {
+  fsg <- terra::rast(file.path(cov_dir, "province_fsg.tif"))
+  bc <- terra::vect(file.path(cov_dir, "province_boundary.gpkg"))
+  bnd <- do.call(rbind, lapply(names(DISTRICTS), function(k) {
+    terra::vect(file.path(cov_dir, paste0(k, "_boundary.gpkg")))
+  })) |>
+    terra::project(terra::crs(fsg))
+
+  grDevices::png(f, width = 1400, height = 1250, res = 170)
+  terra::plot(bc, col = "#EBEBE8", border = "#9A9A96", lwd = 0.6, axes = FALSE, mar = c(0.5, 0.5, 0.5, 0.5))
+  terra::plot(terra::classify(fsg > 0, cbind(0, NA)), col = "#2F6DB5", legend = FALSE, axes = FALSE, add = TRUE)
+  terra::lines(bnd, col = "#1F1F1F", lwd = 1.2)
+  terra::add_legend(
+    "topright",
+    legend = c("1985-2014 fire-severity product", "Cariboo districts"),
+    fill = c("#2F6DB5", NA),
+    border = c(NA, "#1F1F1F"),
+    bty = "n",
+    cex = 0.8
+  )
+  grDevices::dev.off()
+}
+knitr::include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
+```
+
+```{r}
+#| label: fig-cef-coverage
+#| fig-cap: "Left: where the CEF layer records fire severity, by product, over the extent of the layer used for each district (grey). Its 1985-2014 product (blue) reaches the districts' eastern and southern edges but stops at their boundaries. Right: where a stand-replacing fire or insect mortality is added from CanLaBS and CanLaD because the CEF layer does not record it, over the buffered districts (grey). Share of each 300 m cell; cells under 5% are left blank."
+#| eval: !expr isTRUE(cov_ok)
+#| out-width: "100%"
+f <- file.path(FIGDIR, "cef-coverage.png")
+if (!file.exists(f)) {
+  cov <- lapply(names(DISTRICTS), function(k) terra::rast(file.path(cov_dir, paste0(k, ".tif"))))
+  ## the three grids share one 300 m lattice; buffers overlap, so keep the larger share
+  r <- do.call(terra::mosaic, c(unname(cov), fun = "max"))
+  bnd <- lapply(names(DISTRICTS), function(k) terra::vect(file.path(cov_dir, paste0(k, "_boundary.gpkg"))))
+  bnd <- do.call(rbind, bnd)
+  on <- function(x) terra::classify(x >= 0.05, cbind(0, NA))
+  ## a cell is in the panel's extent wherever the layer has a value at all
+  r$fire_ls_extent <- !is.na(r$fire_ls)
+
+  labels <- terra::centroids(bnd, inside = TRUE)
+
+  grDevices::png(f, width = 2000, height = 1150, res = 170)
+  op <- graphics::par(mfrow = c(1, 2))
+  panel <- function(title, extent, layers, cols, legend) {
+    bg <- terra::classify(r[[extent]] > 0, cbind(0, NA))
+    terra::plot(bg, col = "#EBEBE8", legend = FALSE, axes = FALSE, main = title, mar = c(0.5, 0.5, 2, 0.5))
+    for (i in seq_along(layers)) {
+      terra::plot(on(r[[layers[i]]]), col = cols[i], legend = FALSE, axes = FALSE, add = TRUE)
+    }
+    terra::lines(bnd, col = "#1F1F1F", lwd = 1.2)
+    terra::text(labels, DISTRICTS, cex = 0.75, font = 2, col = "#1F1F1F", halo = TRUE)
+    terra::add_legend("bottomleft", legend = legend, fill = cols, border = NA, bty = "n", cex = 0.8)
+  }
+  panel(
+    "Fire severity in the CEF record",
+    "cef_extent",
+    c("fsh_fsy", "fsg"),
+    c("#2E9C8A", "#2F6DB5"),
+    c("2015-2024 products", "1985-2014 product")
+  )
+  panel(
+    "Added from CanLaBS and CanLaD",
+    "fire_ls_extent",
+    c("fire_ls", "insect_ls"),
+    c("#D2601A", "#A23B72"),
+    c("Stand-replacing fire", "Insect mortality")
+  )
+  graphics::par(op)
+  grDevices::dev.off()
+}
+knitr::include_graphics(fig_rel(f), rel_path = FALSE, error = FALSE)
+```
+
+```{r}
+#| label: tbl-landsat-area
+#| tbl-cap: "Area (ha) inside each district where a Landsat reset is added, and where it lowers the present (2024) stand age by more than ten years -- an age the inventory had already updated is only trimmed by a year or two. Before clumps under 1 ha are removed; a stand can carry both a fire and an insect event."
+#| eval: !expr isTRUE(cov_ok)
+a <- do.call(rbind, lapply(names(DISTRICTS), function(k) {
+  utils::read.csv(file.path(cov_dir, paste0(k, "_area.csv")))
+}))
+a <- tidyr::pivot_wider(a, names_from = layer, values_from = ha)
+t <- data.frame(
+  District = DISTRICTS[a$district],
+  `Fire added` = num(a$fire_ls),
+  `Insect mortality added` = num(a$insect_ls),
+  `Present age lowered by over 10 years` = num(a$age_lowered_10),
+  check.names = FALSE
+)
+knitr::kable(t, align = "lrrr", row.names = FALSE)
+```
+
+Quesnel's present-condition results predate this step and are being rebuilt with it; the change they show will be reported with them.
 
 ## Seral stages
 
@@ -270,12 +437,11 @@ Those have opposite effects on forest structure -- beetle-killed stands keep the
 Steps finer than five years would be defeated by the beetle survey's one-year lag and by unflown areas.
 
 The series begins in 1995 so that its first date predates the mountain pine beetle epidemic, far larger than any earlier recorded outbreak in the province [@Kurz:2008].
-**The 2000 date is the weak one.**
+**The 2000 date was the weak one.**
 Measured over the whole provincial layer, the CEF beetle record holds about 2,500 events for all of 1990 to 2002 against over 900,000 for 2003 to 2010, a step of more than two orders of magnitude at 2003.
-Beetle kill in 1999 to 2002 is therefore largely absent, and stands killed in those years appear as live forest at 2000.
-The record also holds no fire events in 1998.
-A 1995 baseline is unaffected, because reconstructing 1995 removes everything recorded after it.
-Adding the Canada Landsat Disturbance database (CanLaD) [@Perbet:CanLaD; @Perbet:2025], an annual 30 m record from 1985 that includes insect disturbance, is the planned remedy (@sec-open).
+On the CEF record alone, beetle kill in 1999 to 2002 would be largely absent, and stands killed in those years would appear as live forest at 2000.
+The Landsat insect mortality and fire added in @sec-landsat cover those years, and every year from 1985, so the gap is now filled from that record rather than left open; how well CanLaD's insect record stands in for beetle mortality is the remaining question (@sec-open).
+A 1995 baseline was never affected, because reconstructing 1995 removes everything recorded after it.
 
 ## Reconstructing stand age
 
@@ -297,6 +463,7 @@ knitr::kable(b, align = "ll")
 ```
 
 Which disturbances replace a stand follows the CEF layer's own judgement, so every date uses the same rule as the present condition: every harvest; fire of moderate or high severity; and, almost always, very severe beetle attack.
+The fire and insect mortality added from Landsat (@sec-landsat) are stand-replacing by construction, since only stand-replacing events are added.
 Light fire is almost never treated as stand-replacing in the layer.
 The rule is held as a single setting so that it can be changed if the data steward advises otherwise.
 
@@ -347,7 +514,8 @@ Dating the roads that carry tenure award dates, and treating the rest as present
 ## Disturbance between dates
 
 A comparison between two dates is read alongside what happened between them.
-Every recorded disturbance event is placed in the interval between the dates it falls between, and the area affected is tallied by agent and severity for each landscape unit and biogeoclimatic zone, within the unbuffered district.
+Every recorded disturbance event, from the CEF record or added from Landsat, is placed in the interval between the dates it falls between, and the area affected is tallied by agent and severity for each landscape unit and biogeoclimatic zone, within the unbuffered district.
+Landsat events are tallied under their own labels -- stand-replacing fire and insect mortality -- so they can be told apart from the CEF record's own.
 An agent is flagged as a major disturbance in a zone and interval where it touched at least 5% of the zone's area; each polygon is counted once per agent, however many events or severities it records.
 Every interval is reported, flagged or not.
 
@@ -356,11 +524,14 @@ Every interval is reported, flagged or not.
 **For the data steward.**
 Whether beetle events are stamped with the year of the survey or the year of attack.
 The aerial overview survey maps only damage visible in the survey year, and beetle-killed trees turn red the summer after attack [@Westfall:2019], so a survey-year stamp would place every beetle event one year late, a fifth of a five-year interval.
-What the source code `FSG` denotes; it appears only on fire events, alongside two other fire-severity sources.
+Whether the layer's 1985 to 2014 fire-severity product, which stops at the boundaries of the three districts in the work-in-progress copy shared with the project, will cover them in the released layer (@sec-landsat).
+If it does, the Landsat fire rule would give way to it under the precedence rule, and the fire it adds inside the districts would shrink accordingly.
 The steward's preferred citation and release date for the forest disturbance layer.
 
 **Reconstruction.**
-The 2000 landscape understates beetle kill until CanLaD is added.
+CanLaD's high-severity defoliation class stands in for beetle mortality without naming the agent, and it agrees poorly with the CEF beetle record where both exist; the `r min_insect_age`-year minimum stand age for insect mortality is a judgement, not a calibration.
+The dNBR threshold is set on 2015 to 2024 fires and checked against 1985 to 2014 fires only on land around the districts.
+Neither Landsat product reaches before 1985, so a fire before then that the CEF record misses still leaves a stand at its pre-fire age.
 In the central part of Quesnel the inventory baseline is a 2013 Landsat-based inventory whose ages are partly extrapolated; reversing disturbance on top of it may double-count disturbance already reflected in those ages, and has not yet been checked.
 Road change is absent (above).
 
@@ -394,6 +565,8 @@ Access dates are those on which the Cariboo-Chilcotin analysis retrieved them.
 | Layer | Use | Source |
 |---|---|---|
 | CEF Forest Disturbance 2024 | stand age, disturbance history | @CEF:ForestDisturbance2024 |
+| CanLaBS v2 (dNBR, fire year, salvage) | fire the CEF record misses | @Guindon:CanLaBS |
+| CanLaD v1.1, annual | fire and insect mortality the CEF record misses | @Perbet:CanLaD |
 | Vegetation Resource Inventory, rank 1 | leading species | @BCDC:vri |
 | BEC map | natural disturbance type and zone | @BCDC:bec |
 | Leading Group, Cariboo | fir/pine split of IDF in NDT 4 | @BCDC:leading_group |
@@ -446,6 +619,8 @@ For readers who will run or extend the pipeline.
 | Categories | `connectivity_category_rasters()` |
 | Zonal summaries | `zonal_summaries()` |
 | Historical dates | `historical_epochs()`; `BC_CONN_EPOCHS` |
-| Age reconstruction | `backcast_age()`, `cef_reset_rule()` |
+| Landsat resets | `landsat_reset_cells()`, `landsat_reset_polygons()`, `write_landsat_resets()`, `apply_landsat_resets()` in `R/landsat_resets.R`; fetched by `prefetch_shared_inputs()` |
+| Coverage map and areas | `scripts/cef_coverage_map.R` |
+| Age reconstruction | `backcast_age()`, `stand_reset_rule()` |
 | Filled ages | `donor_ages()`, `impute_lost_age()`, `lost_age_units()` |
 | Disturbance between dates | `interval_events()`, `summarise_interval_disturbance()` |

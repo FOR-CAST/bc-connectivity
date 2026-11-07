@@ -1,7 +1,8 @@
 ## Stand-replacing disturbance CEF does not record, from Landsat (plan section D.4).
 ##
 ## CEF's Forest Disturbance layer has no fire severity before 2015 anywhere inside Quesnel, 100 Mile
-## House or Cariboo-Chilcotin: its 1985-2014 product (FSG) stops at the district edges. A stand that
+## House or Cariboo-Chilcotin: its 1985-2014 product (FSG) stops at the district edges, most likely
+## because the layer was shared as a work in progress and FSG is incomplete. A stand that
 ## burned in that period therefore keeps its pre-fire `SIFA`. Measured against CanLaD, that is 19 kha
 ## in Quesnel, 5 kha in 100 Mile House and 117 kha in Cariboo-Chilcotin; severe insect mortality CEF
 ## does not record adds 14, 4 and 23 kha.
