@@ -558,6 +558,44 @@ Cropping splits polygons at the tile seams, so `forest_patches_final.gpkg` carri
 No area moves: the tiled and serial layers agree to **0.000000 ha**, and to sub-mm^2 on every combination of `Seral`, `matold_interior` and `old_interior`.
 The split does not reach the distance calculations, because `calc_matold()` dissolves first -- serial and tiled nearest-neighbour quantiles agree to under a metre at every level, and the q100 that sets the radius is identical.
 
+## Corrections (2026-11)
+
+The stand ages behind the seral stages now include stand-replacing fire and insect mortality that the CEF disturbance record does not hold.
+CEF has no fire severity before 2015 inside Quesnel, so a stand that burned between 1985 and 2014 kept its pre-fire age.
+Fires are now taken from CanLaBS burn severity (dNBR of 270 or more, calibrated against CEF's 2015-2024 moderate and high severity classes), and severe insect damage from CanLaD's high-defoliation class, which here is most likely mountain pine beetle.
+Where CEF records an event, CEF's record is kept.
+The methods report describes the rules and the calibration.
+
+Measured on the Quesnel NRD, inside the district boundary, against the results reported in September:
+
+| Quantity | September | Now | Change |
+| --- | --- | --- | --- |
+| Early seral | 789,967 ha | 838,358 ha | +48,391 ha (+6.1%) |
+| Early seral under 20 years | 548,751 ha | 595,225 ha | +46,475 ha (+8.5%) |
+| Mid seral | 341,223 ha | 327,044 ha | -14,179 ha (-4.2%) |
+| Mature seral | 485,675 ha | 464,137 ha | -21,537 ha (-4.4%) |
+| Old seral | 244,957 ha | 232,296 ha | -12,661 ha (-5.2%) |
+| Old interior forest | 118,556 ha | 107,878 ha | -10,678 ha (-9.0%) |
+| Mature + old interior forest | 372,908 ha | 342,549 ha | -30,360 ha (-8.1%) |
+
+The early-seral gain matches the mid, mature and old losses to within 15 ha: stands move to younger stages, and no land is gained or lost.
+Interior forest falls about twice as fast as the stage areas, because a reset stand also adds edge to the patches around it.
+
+Connectivity, for both Omniscape runs (local radius 29 px, regional 477 px, at 90 m):
+
+| Quantity | Local | Regional |
+| --- | --- | --- |
+| Mean cumulative current | -2.6% | -3.1% |
+| Pixels in the same connectivity category | 95.4% | 92.9% |
+| Impeded | -14,423 ha (-3.1%) | -19,861 ha (-2.3%) |
+| Diffuse | +20,804 ha (+1.6%) | +26,130 ha (+3.1%) |
+| Intensified | +2,019 ha (+1.9%) | +4,146 ha (+5.1%) |
+| Channelized | -8,401 ha (-4.4%) | -10,415 ha (-3.9%) |
+
+These changes are due to the resets alone.
+A build of the same code with the resets switched off differs from the September results by at most 107 ha in any stage or interior-forest class and by under 700 ha in any connectivity category, with mean current within 0.05%.
+The Omniscape radii were not changed.
+
 # Using this repository
 
 ## Getting the code
