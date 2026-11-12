@@ -816,6 +816,16 @@ get_human_disturbance <- function(studyArea, rasterToMatch) {
 ## Forest disturbance data must be downloaded manually as it is not available
 ## through the bcdata package (CEF Custom Product) and is not publicly distributed.
 ## See the 'Data access' section of the README for how to request it.
+##
+## The layer overlaps itself as delivered: 76.6 ha in Quesnel, 12,349 ha in 100 Mile House and
+## 25,229 ha in Cariboo-Chilcotin, mostly a small stand nested in a larger one with the same history.
+## Every overlay downstream keeps both copies, double counting the area, and the near-coincident
+## edges made the patch dissolve fail outright (`TopologyException`). `flatten_overlaps()` gives
+## each overlap to the youngest stand (decided 2026-11-10; see the stand-age section of
+## `reports/methods.qmd`). In 100 Mile House and Cariboo-Chilcotin 99% of the overlap area lies
+## between polygons with the same SIFA and history, so the rule matters only for the rest, where
+## the two typically differ by 50-155 years: one records a stand-replacing event and the other does
+## not. Keeping the younger honours the recorded event rather than overwriting it with old forest.
 
 get_forest_disturbance <- function(studyArea, rasterToMatch) {
   for_dist_gdb <- file.path(get_path("download"), "BC_CEF_Forest_Disturbance_2024.gdb")
@@ -840,7 +850,104 @@ get_forest_disturbance <- function(studyArea, rasterToMatch) {
     sf::st_set_agr("constant") |>
     sf::st_crop(studyArea) |>
     dplyr::mutate(fid = NULL) |> ## fid will be recreated to be unique etc. during save
-    sf::st_transform(terra::crs(rasterToMatch))
+    sf::st_transform(terra::crs(rasterToMatch)) |>
+    ## reprojection can reintroduce self-intersections, and the crop leaves lines and collections
+    ## (222 lines and 106 collections in 100 Mile House); the overlay in flatten_overlaps() fails on
+    ## either, so repair and keep only polygons first
+    sf::st_make_valid() |>
+    spatialutils::keep_polygons() |>
+    flatten_overlaps(priority = "SIFA", min_area = units::set_units(1, "ha"))
+}
+
+## Remove overlaps between features of `x`, so it partitions its footprint.
+##
+## Where features overlap, the area goes to the one with the lowest `priority` value (for CEF,
+## the youngest stand, so a recorded disturbance is never overwritten by an older stand); ties go to
+## the earlier row, and `NA` ranks last. Each feature loses the original footprint of every
+## higher-ranked feature it overlaps, which assigns every point to the highest-ranked feature
+## covering it without iterating. Features left empty are dropped. With `min_area`, the pieces of
+## cut features smaller than it are merged into a neighbour (`eliminate_cut_slivers()`).
+flatten_overlaps <- function(x, priority, min_area = NULL) {
+  rank <- order(order(x[[priority]], seq_len(nrow(x)), na.last = TRUE))
+  ## "2********": the interiors meet in an area; features that only share an edge are left alone.
+  ## GEOS 3.15 also matches a stand that exactly fills another's holes (as does st_intersection(),
+  ## by the holes' whole area); the difference is then a no-op, so it costs time, not correctness
+  hits <- sf::st_relate(x, pattern = "2********")
+  winners <- lapply(seq_along(hits), function(i) {
+    j <- hits[[i]]
+    j[rank[j] < rank[i]]
+  })
+  losers <- which(lengths(winners) > 0L)
+  if (length(losers) == 0L) {
+    return(x)
+  }
+
+  g <- sf::st_geometry(x)
+  area_before <- as.numeric(sf::st_area(g[losers]))
+  empty <- sf::st_sfc(sf::st_polygon(), crs = sf::st_crs(g))
+  g[losers] <- do.call(
+    c,
+    lapply(losers, function(i) {
+      d <- suppressWarnings(sf::st_difference(g[i], sf::st_union(g[winners[[i]]])))
+      ## st_difference() drops a result that comes out empty, which would shift every later row
+      if (length(d) == 0L) empty else d
+    })
+  )
+  sf::st_geometry(x) <- g
+  ## "cut" by area actually lost, not by `losers`, so a hole-filling false match (above) is not cut
+  x$.cut <- FALSE
+  x$.cut[losers] <- as.numeric(sf::st_area(g[losers])) < area_before - 0.01
+  x <- spatialutils::keep_polygons(x)
+
+  if (!is.null(min_area) && any(x$.cut)) {
+    x <- eliminate_cut_slivers(x, min_area)
+  }
+  x$.cut <- NULL
+  x
+}
+
+## Merge the pieces of cut features (`.cut`) smaller than `min_area` into the neighbour they share
+## the longest border with -- the arcpy `Eliminate` LENGTH rule used for the patches (step 2). Only
+## what flattening leaves behind is touched: features that were not cut are kept whatever their
+## size, so small stands delivered as such survive (decided 2026-11-12). Pieces of a cut feature
+## that are large enough stay separate rows carrying its attributes.
+eliminate_cut_slivers <- function(x, min_area) {
+  x$.row <- seq_len(nrow(x))
+  pieces <- suppressWarnings(sf::st_cast(sf::st_cast(x[x$.cut, ], "MULTIPOLYGON"), "POLYGON"))
+  y <- rbind(x[!x$.cut, ], pieces)
+  y <- y[order(y$.row), ]
+  min_m2 <- if (inherits(min_area, "units")) {
+    as.numeric(units::set_units(min_area, "m^2"))
+  } else {
+    as.numeric(min_area)
+  }
+  ## terra::combineGeoms() leaves some slivers unmerged even though they share an edge with a
+  ## neighbour, and which ones depends on the other features passed in with them. A second pass over
+  ## the leftovers takes them too: in 100 Mile House, 2,125 slivers (155.5 ha) left 39 (984 m2)
+  ## after one pass, 23 (1.5 m2) after two, and a third changed nothing
+  n_left <- Inf
+  for (pass in 1:3) {
+    sliver <- y$.cut & as.numeric(sf::st_area(y)) <= min_m2
+    if (sum(sliver) == 0L || sum(sliver) >= n_left) {
+      break
+    }
+    n_left <- sum(sliver)
+
+    ## a sliver can only merge into a feature it touches, so run the elimination on those alone:
+    ## over the whole layer it took 11 h in 100 Mile House, against 32 min for the flattening
+    near <- sliver
+    near[unique(unlist(sf::st_intersects(y[sliver, ], y)))] <- TRUE
+    merged <- spatialutils::eliminate_slivers(
+      y[near, ],
+      threshold = min_area,
+      keep = !.cut,
+      explode = FALSE
+    )
+    y <- rbind(y[!near, ], merged)
+    y <- y[order(y$.row), ]
+  }
+  y$.row <- NULL
+  y
 }
 
 ## Forest disturbance overlaid with VRI-NDT-BEC, then classified into seral stages.

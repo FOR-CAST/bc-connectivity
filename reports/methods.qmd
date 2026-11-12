@@ -131,6 +131,15 @@ Stand age comes from the CEF Forest Disturbance layer [@CEF:ForestDisturbance202
 For each polygon it records a dated history of disturbance events and identifies the most recent stand-replacing one, and from that derives the stand's age as of the compilation (the layer's *Simple Inferred Forest Age*).
 That age, rather than the inventory's projected age, is what this analysis uses, because it already accounts for disturbances the inventory has not yet been updated for.
 
+The layer overlaps itself as delivered: 77 ha in Quesnel, 12,349 ha in 100 Mile House and 25,229 ha in Cariboo-Chilcotin (0.002%, 0.43% and 0.27% of each district's layer; measured 2026-11-10).
+Left in, every overlapping area would be counted twice, and possibly in two seral stages at once.
+Each overlap is therefore given to one polygon, the youngest stand.
+For most of the overlapping area the choice makes no difference: in 100 Mile House and Cariboo-Chilcotin, 99% of it lies between polygons with the same age and disturbance history, typically a small polygon nested inside a larger copy of the same stand.
+Where the two do differ, their ages are typically 50 to 155 years apart -- one polygon records a stand-replacing disturbance and the other does not -- and giving the area to the younger keeps the recorded disturbance rather than overwriting it with older forest.
+Where both have the same age, the area goes to the polygon listed first in the layer.
+Removing an overlap can leave a polygon with small pieces; any piece under 1 ha is merged into the neighbouring polygon it shares the longest border with, the same rule used for slivers when forming patches below.
+Only polygons that lost area to an overlap are treated this way, so stands the layer records as smaller than 1 ha are kept.
+
 The layer is overlaid -- not spatially joined -- with the 2025 Vegetation Resource Inventory [@BCDC:vri], the biogeoclimatic ecosystem classification [@BCDC:bec] and, for the Interior Douglas-fir zone, the Cariboo Leading Group layer [@BCDC:leading_group].
 The inventory supplies leading species only; it is the 2025 release, with ages projected to 31 December 2025.
 An overlay splits each stand at zone boundaries so that every piece is classified on its own zone's thresholds; a join would have kept whole stands and counted a stand spanning two zones twice.
@@ -527,6 +536,7 @@ The aerial overview survey maps only damage visible in the survey year, and beet
 Whether the layer's 1985 to 2014 fire-severity product, which stops at the boundaries of the three districts in the work-in-progress copy shared with the project, will cover them in the released layer (@sec-landsat).
 If it does, the Landsat fire rule would give way to it under the precedence rule, and the fire it adds inside the districts would shrink accordingly.
 The steward's preferred citation and release date for the forest disturbance layer.
+Whether the layer's overlapping polygons (@sec-seral) are intended -- for example, a stand recorded twice by two source products -- and, where the overlapping polygons give different ages, which one the steward would have kept; this analysis keeps the younger.
 
 **Reconstruction.**
 CanLaD's high-severity defoliation class stands in for beetle mortality without naming the agent, and it agrees poorly with the CEF beetle record where both exist; the `r min_insect_age`-year minimum stand age for insect mortality is a judgement, not a calibration.
