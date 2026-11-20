@@ -1,6 +1,6 @@
 # Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes
 
-Last updated: 2026-11-07
+Last updated: 2026-11-20
 
 This repository contains code to produce a connectivity map for the
 intactness of old forests to inform biodiversity management for the
@@ -942,6 +942,12 @@ the resets switched off differs from the September results by at most
 107 ha in any stage or interior-forest class and by under 700 ha in any
 connectivity category, with mean current within 0.05%. The Omniscape
 radii were not changed.
+
+The CEF disturbance layer also overlaps itself (77 ha around Quesnel),
+so some land was counted twice; each overlap now goes to the youngest
+stand, as the methods report describes. This moves the figures above by
+at most 33 ha (early seral) and every connectivity category by at most 1
+ha.
 
 # Using this repository
 

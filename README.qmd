@@ -596,6 +596,9 @@ These changes are due to the resets alone.
 A build of the same code with the resets switched off differs from the September results by at most 107 ha in any stage or interior-forest class and by under 700 ha in any connectivity category, with mean current within 0.05%.
 The Omniscape radii were not changed.
 
+The CEF disturbance layer also overlaps itself (77 ha around Quesnel), so some land was counted twice; each overlap now goes to the youngest stand, as the methods report describes.
+This moves the figures above by at most 33 ha (early seral) and every connectivity category by at most 1 ha.
+
 # Using this repository
 
 ## Getting the code
