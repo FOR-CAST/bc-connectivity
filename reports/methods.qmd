@@ -545,7 +545,12 @@ Whether the layer's overlapping polygons (@sec-seral) are intended -- for exampl
 CanLaD's high-severity defoliation class stands in for beetle mortality without naming the agent, and it agrees poorly with the CEF beetle record where both exist; the `r min_insect_age`-year minimum stand age for insect mortality is a judgement, not a calibration.
 The dNBR threshold is set on 2015 to 2024 fires and checked against 1985 to 2014 fires only on land around the districts.
 Neither Landsat product reaches before 1985, so a fire before then that the CEF record misses still leaves a stand at its pre-fire age.
-In the central part of Quesnel the inventory baseline is a 2013 Landsat-based inventory whose ages are partly extrapolated; reversing disturbance on top of it may double-count disturbance already reflected in those ages, and has not yet been checked.
+Where an inventory age already reflects a disturbance, reversing that disturbance again could count it twice.
+A 1 ha sample of each district shows this is negligible.
+Central Quesnel's 2013 inventory is coded as a standard inventory, and where its ages already reflect an earlier stand-replacing event, the CEF age departs from them by more than ten years on only 42 ha.
+Cariboo-Chilcotin's Landsat-based inventory (about 532,000 ha) almost never reflects earlier disturbance, so the CEF record is the only place those events appear.
+The back-cast also shifts each age once, so it cannot reset a stand twice.
+On 21,000 to 32,000 ha per inventory type in each district, CEF records harvests that the current inventory still ages as old; these have not yet been examined.
 Road change is absent (above).
 
 **Inputs.**
