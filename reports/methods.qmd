@@ -380,6 +380,7 @@ This is listed in @sec-open.
 Parks and protected areas [@BCDC:parks], legal old growth management areas [@BCDC:ogma], wildlife habitat areas [@BCDC:wha], mule deer winter range [@BCDC:mdwr] and high-value moose wetlands [@BCDC:moose_wetlands] do not change resistance or source strength.
 They are used to summarise results (@sec-outputs), so that connectivity can be compared inside and outside them without the comparison being built into the inputs.
 The mule deer winter range record stopped being publicly accessible on or before 29 October 2026, so the analysis uses the copy each district downloaded in September 2026.
+The layer itself is unchanged: on 20 November 2026 the provincial map service still served every zone in those copies, with the same harvest codes and, where the copies were not cut by the study-area boundary, the same areas.
 
 # Connectivity model {#sec-omniscape}
 
@@ -490,17 +491,17 @@ Harvest usually updates the inventory, so for most stands harvested after a date
 
 ```{r}
 #| label: tbl-lost
-#| tbl-cap: "Area (ha, buffered district extent) whose age at each date has to be filled in, from a reconstruction over the full layer (measured 2026-10-28/29)."
+#| tbl-cap: "Area (ha, buffered district extent) whose age at each date has to be filled in, from the reconstruction used for each date (measured 2026-11-20)."
 l <- tibble::tribble(
   ~District, ~`1995`, ~`2000`, ~`2005`, ~`2010`, ~`2015`, ~`2020`,
-  "Cariboo-Chilcotin", 1173404, 973954, 742337, 465944, 225211, 80000,
-  "100 Mile House", 434509, 375293, 282158, 174009, 88248, 16381
+  "Cariboo-Chilcotin", 610466, 483607, 359616, 231746, 124951, 61741,
+  "100 Mile House", 345561, 301814, 234161, 150182, 75072, 15457
 )
 l[-1] <- lapply(l[-1], num)
 knitr::kable(l, align = "lrrrrrr")
 ```
 
-These ages are filled from stands whose pre-disturbance age *is* recorded: those where the inventory kept it, a donor pool of about 157,000 ha in Cariboo-Chilcotin and 66,000 ha in 100 Mile House for harvest since 2005.
+These ages are filled from stands whose pre-disturbance age *is* recorded: those where the inventory kept it, a donor pool of about 87,000 ha in Cariboo-Chilcotin and 38,000 ha in 100 Mile House for harvest since 2005.
 A stand is given the age at disturbance of a donor of the same biogeoclimatic unit and disturbance agent, drawn in proportion to area, less the years between the date and its disturbance.
 Donors are restricted to stands disturbed after the date, matching the stands being filled.
 
