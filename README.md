@@ -13,6 +13,7 @@ Connectivity, Corridors, and Functional Ecological Networks (C-C-FEN).
 
 - Alex Chubaty (<achubaty@for-cast.ca>);
 - Travis Heckford (<Travis.Heckford@gov.bc.ca>);
+- Ryan Jackalin (<Ryan.Jackalin@gov.bc.ca>);
 - Cole Wiltse;
 
 # Overview

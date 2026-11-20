@@ -1,7 +1,10 @@
 ---
 title: "Summarizing change in connectivity over time"
 subtitle: "Options for the historical series -- draft for team review"
-author: "Alex Chubaty"
+author:
+  - "Alex Chubaty"
+  - "Travis Heckford"
+  - "Ryan Jackalin"
 date: last-modified
 date-format: "[Last updated:] YYYY-MM-DD"
 bibliography: ../citations/references.bib

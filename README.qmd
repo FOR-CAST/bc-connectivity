@@ -34,6 +34,7 @@ This connectivity case study is part of Phase 3 of an Ecological Corridors proje
 
 - Alex Chubaty (<achubaty@for-cast.ca>);
 - Travis Heckford (<Travis.Heckford@gov.bc.ca>);
+- Ryan Jackalin (<Ryan.Jackalin@gov.bc.ca>);
 - Cole Wiltse;
 
 # Overview
