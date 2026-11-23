@@ -579,7 +579,9 @@ A 1 ha sample of each district shows this is negligible.
 Central Quesnel's 2013 inventory is coded as a standard inventory, and where its ages already reflect an earlier stand-replacing event, the CEF age departs from them by more than ten years on only 42 ha.
 Cariboo-Chilcotin's Landsat-based inventory (about 532,000 ha) almost never reflects earlier disturbance, so the CEF record is the only place those events appear.
 The back-cast also shifts each age once, so it cannot reset a stand twice.
-On 21,000 to 32,000 ha per inventory type in each district, CEF records harvests that the current inventory still ages as old; these have not yet been examined.
+On about 4,000 to 52,000 ha per district, the inventory age carried in the CEF layer is decades older than the time since a recorded harvest or fire.
+These are real disturbances -- mostly harvest and the 2017 and 2018 fires -- that the CEF layer's copy of the inventory predates: the current inventory gives the same harvest year on almost all of the harvested area, the provincial cutblock layer records the harvest, and the current inventory ages match the time since disturbance.
+The older age is the stand's age before the disturbance, which is how the back-cast uses it.
 Road change is absent (above).
 
 **Inputs.**
