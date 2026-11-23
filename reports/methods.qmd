@@ -512,7 +512,36 @@ The draw is made once per stand, not once per mapped polygon.
 The CEF layer splits a single cutblock into many polygons, and drawing for each would turn one harvest into a patchwork of seral stages: on test tiles it multiplied the number of patches two- to four-fold, an artificial fragmentation of exactly the historical landscapes being compared.
 A stand here is a contiguous group of polygons replaced in the same year by the same agent within one biogeoclimatic unit.
 
-To bound the effect of the fill, one date will also be built with every filled stand at the 10th and at the 90th percentile of its donor ages.
+To bound the effect of the fill, 100 Mile House at 1995 -- the date with the most filled area -- was rebuilt twice, with every filled stand at the 10th and then at the 90th percentile of its donor ages (@tbl-bound).
+The fill matters: old forest ranges from 20% less to 42% more than the drawn version, and between 8% and 27% of cells change connectivity category.
+The drawn version sits nearer the low bound.
+Later dates have less filled area (@tbl-lost), so their range should be narrower; they have not been rebuilt.
+
+```{r}
+#| label: tbl-bound
+#| tbl-cap: "100 Mile House at 1995, with filled ages drawn from the donors (as used) and set to the 10th and 90th percentiles of donor ages. Seral areas are over the buffered district extent. Current is the mean cumulative current; category agreement is the share of cells in the same connectivity category as the drawn version (measured 2026-11-21)."
+b <- tibble::tribble(
+  ~Measure, ~`10th percentile`, ~Drawn, ~`90th percentile`,
+  "Early seral (ha)", 706836, 460770, 386976,
+  "Mid seral (ha)", 604658, 720768, 580161,
+  "Mature seral (ha)", 500255, 603645, 760723,
+  "Old seral (ha)", 108681, 135247, 192570,
+  "Old interior forest (ha)", 49708, 63415, 94662,
+  "Mature and old interior forest (ha)", 302792, 391250, 555290
+)
+b[-1] <- lapply(b[-1], num)
+o <- tibble::tribble(
+  ~Measure, ~`10th percentile`, ~Drawn, ~`90th percentile`,
+  "Current, local radius", "7.3", "8.1", "9.0",
+  "Current, regional radius", "117", "130", "146",
+  "Same category, local radius", "92%", "--", "84%",
+  "Same category, regional radius", "83%", "--", "73%"
+)
+knitr::kable(rbind(b, o), align = "lrrr")
+```
+
+A wider rule for which disturbance resets stand age -- every fire and insect severity and every Landsat detection, not only harvest, moderate and high-severity fire and very severe beetle attack -- was also tried on the same date.
+It changed old forest by 4 ha and left the connectivity maps unchanged.
 
 ## What is held constant
 
