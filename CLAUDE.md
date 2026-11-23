@@ -31,12 +31,16 @@ Nothing in the code assumes symlinks or any particular location -- paths all go 
 - **Julia** is managed by [juliaup](https://github.com/JuliaLang/juliaup).
   Use **1.11.x**, which `run_omniscape()` selects explicitly via a `+version` channel argument.
   The Julia version, the Omniscape version, and the Circuitscape version are **one coupled decision**, and the current one is to stay put: Julia 1.11.7, Omniscape 0.6.2, Circuitscape 5.15.0.
-  Do not upgrade any of the three until the pipeline has been re-run and checked against the current results; see "When results change" below, because the upgrade moves numbers that end up in reports.
+  Do not upgrade any of the three, and do not propose it when a new release appears.
 
-  The reason for the pin is **not** the one this file used to give.
-  [Omniscape.jl#160](https://github.com/Circuitscape/Omniscape.jl/issues/160) (method dispatch on 1.12) and [#165](https://github.com/Circuitscape/Omniscape.jl/issues/165) (accumulators indexed by `threadid()`) were both fixed upstream in [#171](https://github.com/Circuitscape/Omniscape.jl/pull/171), merged 2026-09-13.
-  But that fix ships in 0.7.0, whose `Project.toml` declares `julia = "1.12"` and `Circuitscape = "6.1"` -- so 0.7.0 cannot be installed on 1.11 at all, and taking it means taking all three moves at once.
-  0.7.0 is **not yet registered**; the General registry still tops out at 0.6.2.
+  The reason is comparability, decided 2026-10-28: every district is compared with the Quesnel results, and the newer releases move cumulative current, flow potential and normalized current by up to about 1% on layer means.
+  The upgrade would buy about 36 minutes of serial correction time per run and no saving in peak memory.
+  Revisit only if the Quesnel comparison stops mattering or an Omniscape bug blocks a run.
+
+  The newer releases also cannot be taken one piece at a time.
+  [Omniscape.jl#160](https://github.com/Circuitscape/Omniscape.jl/issues/160) (method dispatch on 1.12) and [#165](https://github.com/Circuitscape/Omniscape.jl/issues/165) (accumulators indexed by `threadid()`) were fixed upstream in [#171](https://github.com/Circuitscape/Omniscape.jl/pull/171), which shipped in 0.6.3.
+  Every release from 0.6.3 on requires Julia 1.12 and Circuitscape 6.1 or later (6.2 from 0.6.5), so none installs on 1.11.
+  The 0.6.x version number says nothing about the size of the change: 0.6.3 is the release once numbered 0.7.0.
 
 - **The Julia environment is pinned project-locally, in `Omniscape/`.**
   Install it with `julia +1.11.7 Omniscape/install.jl`, which instantiates `Omniscape/Project.toml` and `Omniscape/Manifest.toml` and then errors out if what resolved is not Omniscape 0.6.2 and Circuitscape 5.15.0.

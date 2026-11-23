@@ -1,6 +1,6 @@
 # Functional Ecological Networks for Landscape and Wildlife Objectives and Outcomes
 
-Last updated: 2026-11-20
+Last updated: 2026-11-23
 
 This repository contains code to produce a connectivity map for the
 intactness of old forests to inform biodiversity management for the
@@ -681,27 +681,27 @@ stacking rules:
 
 Used Omniscape to produce connectivity maps.
 
-**NOTE:** Omniscape is pinned to 0.6.2 and Julia to 1.11.7, and both
-pins are deliberate. Omniscape 0.6.2 does not run on Julia 1.12
+**NOTE:** Omniscape is pinned to 0.6.2, Circuitscape to 5.15.0 and Julia
+to 1.11.7, and the pins are deliberate. Omniscape 0.6.3 and later fix
+the Julia 1.12 problems
 ([\#160](https://github.com/Circuitscape/Omniscape.jl/issues/160),
-[\#165](https://github.com/Circuitscape/Omniscape.jl/issues/165)); both
-are fixed in the unreleased 0.7.0.
+[\#165](https://github.com/Circuitscape/Omniscape.jl/issues/165)) and
+run faster, but they require Julia 1.12 and Circuitscape 6, so the three
+versions move together.
 
-**The forthcoming Omniscape 0.7.0 will not reproduce the results this
-pipeline currently produces.**
+**Those releases do not reproduce the results this pipeline produces.**
 [Omniscape.jl#171](https://github.com/Circuitscape/Omniscape.jl/pull/171)
 changes the artifact correction so that cells whose block-source current
 sits at solver-noise level get a correction factor of 1, instead of a
-factor derived from the ratio of two near-zero currents. That moves
-`flow_potential.tif` and `normalized_cum_currmap.tif` for any run with
-`correct_artifacts = true` and `block_size > 1` – which is every
-configuration this pipeline writes. `cum_currmap.tif` is unaffected.
-Upstream’s own test case moved by roughly two orders of magnitude; the
-magnitude on this study area is unmeasured. 0.7.0 also requires
-Circuitscape 6, which replaces the iterative solver again.
+factor derived from the ratio of two near-zero currents. That affects
+every configuration this pipeline writes. Measured on this study area at
+the regional radius, the layer means of cumulative current, flow
+potential and normalized current fall by 0.2% to 1.0%, and about 5% of
+pixels move by more than 1%.
 
-Upgrading is therefore a results change, not a version bump. It needs a
-measured before-and-after on this study area, recorded in the
+The pins keep every district comparable with the Quesnel results, so the
+upgrade is not planned. If it is ever made, it is a results change, not
+a version bump: it needs a measured before-and-after recorded in the
 Corrections section below, and it should not be started while production
 runs are in flight.
 
@@ -1048,22 +1048,19 @@ juliaup add 1.11.7
 
 ### Julia packages
 
-Launch the Julia REPL:
+Install Omniscape into the project’s own Julia environment, from the
+repository root:
 
 ``` shell
-julia +1.11.7
+julia +1.11.7 Omniscape/install.jl
 ```
 
-Install Omniscape, pinned to the version this project’s results were
-produced with:
-
-``` julia
-import Pkg; Pkg.add(name = "Omniscape", version = "0.6.2")
-```
-
-The pin is deliberate – see the note in the *Omniscape runs* section
-above on 0.7.0 changing results. An unpinned `Pkg.add("Omniscape")` will
-silently pick up 0.7.0 once it is released.
+This installs the exact versions recorded in `Omniscape/Manifest.toml` –
+Omniscape 0.6.2 and Circuitscape 5.15.0 – and stops with an error if
+anything else resolves. Do not install Omniscape into the global Julia
+environment: `Pkg.add(name = "Omniscape", version = "0.6.2")` pulls in
+the newest Circuitscape 5.x, which changes the results without any
+error. See the note in the *Omniscape runs* section above.
 
 # Contributing
 
